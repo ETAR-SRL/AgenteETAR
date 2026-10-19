@@ -13,3 +13,5 @@
 - Ejecutar las pruebas relevantes antes del commit. Mantener explícitos los campos, filiales y circuitos que todavía no se verificaron.
 
 - Indicación más reciente del dueño: reajuste directo SQL de C6_PRCVEN y C9_PRCVEN pendientes, incluso con MV_BLOQUEI activo, conservando estados y documentos emitidos. Mostrar que no revalida crédito ni recalcula saldos SA1; nunca escribir aprobaciones ni desactivar parámetros. No invocar REST Protheus. Las cantidades de segunda unidad se conservan completas en este modo de sólo precio.
+
+- El dueño autorizó escalamiento automático por plazo sin confirmar cada transferencia: el servicio de fondo opera SCR SC/IP/PC existentes en las filiales autorizadas, usando CR_PRAZO y CR_ESCALSP resueltos por Protheus. Un salto al superior inmediato, sin cascadas por el mismo plazo ni inventar vencimientos o ejecutar expresiones ADVPL. CR_ESCALON no autoriza transferencias. Registro durable, transacción con relectura y control de resultados inciertos. Habilitación local ERP_APPROVAL_AUTO_ESCALATE, independiente de la confirmación de operaciones manuales. Ver docs/aprobaciones-sql.md.

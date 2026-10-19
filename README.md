@@ -137,3 +137,5 @@ npm audit
 ## Verificación del chat inteligente
 
 56 pruebas automatizadas aprobadas. `node scripts/check-intelligence-live.js` verifica cinco consultas con el modelo y las fuentes reales. `node scripts/check-learning-live.js` enseña un alias de prueba, lo usa desde otra conversación para consultar DA1/DA0 y elimina esa memoria de prueba. Ver informes en `reports/`. En esta PC se utiliza la GPU integrada Intel Arc mediante Vulkan; los tiempos observados fueron de 6 a 83 segundos según la consulta y carga del modelo.
+
+El escalamiento por vencimiento puede operar automáticamente, sin confirmar cada transferencia: `ERP_APPROVAL_AUTO_ESCALATE=true` y escritura SQL habilitada. Usa `CR_PRAZO` y `CR_ESCALSP` ya resueltos en Protheus para SC/IP/PC de las filiales configuradas; no inventa plazos ni aprueba documentos. Consultar **Actualizaciones → Escalamiento automático** y [alcance y operación](docs/aprobaciones-sql.md#escalamiento-automático-por-vencimiento).

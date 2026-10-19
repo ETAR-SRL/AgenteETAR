@@ -16,7 +16,7 @@ async function body(req){
   for await(const chunk of req){bytes+=chunk.length;assert(bytes<=16384,413,'CUERPO_GRANDE','Máximo 16 KiB');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new HttpError(400,'JSON_INVALIDO','JSON inválido');}
 }
-export function createApp({erp,kaiqen,store,mode='live',branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),model}){
+export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),model}){
   assert(readKey?.length>=32 && planKey?.length>=32 && readKey!==planKey,500,'CLAVES_INVALIDAS','Configurar dos claves distintas de al menos 32 caracteres');
   assert(!writeKey || (writeKey.length>=32 && writeKey!==readKey && writeKey!==planKey),500,'CLAVES_INVALIDAS','La clave de escritura debe ser distinta y de al menos 32 caracteres');
   const rate=new Map(),ui=createUi({operator:localWrites&&erp.writes?.enabled===true});
@@ -70,6 +70,7 @@ export function createApp({erp,kaiqen,store,mode='live',branches=['0101'],readKe
       if(ui.handle(req,res,url.pathname))return;
       if(url.pathname==='/health' && req.method==='GET')return send(res,200,{status:'up',mode});
       const principal=auth(req);
+      if(req.method==='GET'&&url.pathname==='/api/approvals/automation'){assert(principal.role==='writer',403,'ROL_REQUERIDO','Requiere operador de escritura');return send(res,200,{status:approvalScheduler?.status()||{enabled:false},...store.escalationHistory()});}
       if(req.method==='GET'&&url.pathname==='/api/agent/status')return send(res,200,await intelligence.status());
       if(req.method==='POST'&&url.pathname==='/api/agent/chat')return send(res,200,await intelligence.query(principal.actor,await body(req),{canPlan:['planner','writer'].includes(principal.role)}));
       if(url.pathname==='/api/agent/knowledge'){
@@ -80,7 +81,7 @@ export function createApp({erp,kaiqen,store,mode='live',branches=['0101'],readKe
       if(memoryMatch?.[1]==='knowledge'&&req.method==='DELETE')return send(res,200,{deleted:intelligence.memory.remove(principal.actor,memoryMatch[2])});
       if(memoryMatch?.[1]==='conversations'&&req.method==='GET')return send(res,200,intelligence.memory.conversation(memoryMatch[2],principal.actor));
       for(const key of url.searchParams.keys())assert(url.searchParams.getAll(key).length===1,400,'FILTRO_DUPLICADO','Filtro repetido');
-      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,erp:erp.metadata(),kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true,writePolicy:erp.writes?.policy||null,purchaseCreation:erp.writes?.creation||null,proposalActions:changePolicies,voice:voice.status(),externalAI:false});
+      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,erp:erp.metadata(),kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true,writePolicy:erp.writes?.policy||null,purchaseCreation:erp.writes?.creation||null,approvalAutomation:approvalScheduler?.status()||{enabled:false},proposalActions:changePolicies,voice:voice.status(),externalAI:false});
       if(req.method==='GET' && url.pathname==='/api/voice/status')return send(res,200,voice.status());
       if(req.method==='POST' && url.pathname==='/api/voice/transcribe')return send(res,200,await voice.transcribe(req));
       if(req.method==='GET' && url.pathname==='/api/openapi.json')return send(res,200,JSON.parse(readFileSync(new URL('../docs/openapi.json',import.meta.url))));

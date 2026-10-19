@@ -1407,6 +1407,20 @@
           }
         }
       }
+    },
+    "/api/approvals/automation": {
+      "get": {
+        "summary": "Estado e historial del escalamiento automático por vencimiento",
+        "description": "Sólo writer. Últimos 100 recibos e incidencias de la instalación; no dispara escrituras. El servicio de fondo usa CR_PRAZO vencido y CR_ESCALSP=T en las filiales configuradas.",
+        "responses": {
+          "200": {
+            "description": "Estado del proceso, recibos e incidencias"
+          },
+          "403": {
+            "description": "Requiere writer"
+          }
+        }
+      }
     }
   }
 }

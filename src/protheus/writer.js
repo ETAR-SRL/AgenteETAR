@@ -98,7 +98,7 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
   for(const field of Object.keys(before))if(!Object.hasOwn(updates,field)&&field!=='S_T_A_M_P_')assert(JSON.stringify(after[field])===JSON.stringify(before[field]),409,'EFECTO_NO_PREVISTO',`Cambió un campo no solicitado: ${field}`);
  }
  return {
-  enabled,policy:{...sqlExecutionPolicy,existingRecordsOnly:false},creation:purchaseCreationStatus(catalog,enabled),
+  enabled,escalation:purchasing.escalation,policy:{...sqlExecutionPolicy,existingRecordsOnly:false},creation:purchaseCreationStatus(catalog,enabled),
   async prepare(action,input){
    if(Object.hasOwn(approvalWorkflowActions,action))return purchasing.workflow.prepare(action,input);
    if(Object.hasOwn(purchaseCreationActions,action))return purchasing.prepare(action,input);

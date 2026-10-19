@@ -9,6 +9,8 @@ export class Store {
     this.db.exec(`PRAGMA journal_mode=WAL;
       CREATE TABLE IF NOT EXISTS proposals(id TEXT PRIMARY KEY, actor TEXT NOT NULL, created TEXT NOT NULL, expires TEXT NOT NULL, body TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS executions(id TEXT PRIMARY KEY, actor TEXT NOT NULL, status TEXT NOT NULL, at TEXT NOT NULL, result TEXT);
+      CREATE TABLE IF NOT EXISTS approval_escalations(key TEXT PRIMARY KEY, status TEXT NOT NULL, at TEXT NOT NULL, identity TEXT NOT NULL, result TEXT);
+      CREATE TABLE IF NOT EXISTS approval_escalation_issues(target TEXT PRIMARY KEY, code TEXT NOT NULL, at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, at TEXT NOT NULL, actor TEXT NOT NULL, event TEXT NOT NULL, reference TEXT);`);
     // Un proceso anterior pudo perder la respuesta del COMMIT. Nunca reenviar esos UPDATE.
     this.db.prepare("UPDATE executions SET status='unknown' WHERE status='executing'").run();
@@ -36,5 +38,22 @@ export class Store {
     catch(error){this.db.exec('ROLLBACK');throw error;}
     return this.execution(id,actor);
   }
+  claimEscalation(proposal){
+    this.db.exec('BEGIN IMMEDIATE');
+    try{
+      const result=this.db.prepare("INSERT INTO approval_escalations VALUES(?,'executing',?,?,?) ON CONFLICT(key) DO UPDATE SET status='executing',at=excluded.at,result=excluded.result WHERE approval_escalations.status='retry'").run(proposal.key,new Date().toISOString(),JSON.stringify(proposal.identity),JSON.stringify({planned:{from:proposal.from,to:proposal.to,fingerprint:proposal.fingerprint}}));
+      if(result.changes)this.audit('system:approval-scheduler','escalation.started',proposal.key);
+      this.db.exec('COMMIT');return result.changes===1;
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
+  finishEscalation(key,status,result){
+    if(!['executed','retry','unknown'].includes(status))throw new Error('Estado de escalamiento inválido');
+    this.db.exec('BEGIN IMMEDIATE');
+    try{const previous=this.db.prepare('SELECT result FROM approval_escalations WHERE key=?').get(key);if(!previous)throw new Error('Falta reclamo de escalamiento');const planned=previous.result?JSON.parse(previous.result).planned:null;result={planned,...result};this.db.prepare('UPDATE approval_escalations SET status=?,at=?,result=? WHERE key=?').run(status,new Date().toISOString(),JSON.stringify(result),key);this.audit('system:approval-scheduler','escalation.'+status,key);this.db.exec('COMMIT');}
+    catch(error){this.db.exec('ROLLBACK');throw error;}
+  }
+  noteEscalation(target,code){this.db.prepare('INSERT INTO approval_escalation_issues VALUES(?,?,?) ON CONFLICT(target) DO UPDATE SET code=excluded.code,at=excluded.at').run(JSON.stringify(target),code,new Date().toISOString());}
+  escalationSummary(){return {receipts:Object.fromEntries(this.db.prepare('SELECT status,COUNT(*) n FROM approval_escalations GROUP BY status').all().map(r=>[r.status,r.n]))};}
+  escalationHistory(){return {receipts:this.db.prepare('SELECT key,status,at,identity,result FROM approval_escalations ORDER BY at DESC LIMIT 100').all().map(r=>({...r,identity:JSON.parse(r.identity),result:r.result?JSON.parse(r.result):null})),issues:this.db.prepare('SELECT target,code,at FROM approval_escalation_issues ORDER BY at DESC LIMIT 100').all().map(r=>({...r,target:JSON.parse(r.target)}))};}
   close(){this.db.close();}
 }

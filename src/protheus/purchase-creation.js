@@ -1,3 +1,4 @@
+import {createApprovalEscalation} from './approval-escalation.js';
 import {createHash} from 'node:crypto';
 import {assert} from '../errors.js';
 import {identifier as q} from './config.js';
@@ -150,7 +151,8 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
  }
  async function verifyInput(connection,proposal,lock){const current=await plan(connection,proposal.action,proposal.input,lock);assert(current.snapshotHash===proposal.writePlan.snapshotHash,409,'CONFLICTO_CONCURRENCIA','Cambió un catálogo, esquema o dato de la propuesta; preparar otra');return current;}
  const workflow=createApprovalWorkflow({db,catalog,getWriteDb,enabled,allowedBranches,selection,creationPlan:plan,schema,defaults,text,fit,allocate:allocateCircuitRecords});
- return {workflow,
+ const escalation=createApprovalEscalation({db,catalog,getWriteDb,enabled,allowedBranches,selection,schema,text});
+ return {workflow,escalation,
   prepare:(action,input)=>plan(db,action,input),
   async check(proposal){const current=await verifyInput(db,proposal,false);return {executionEnabled:current.executionEnabled};},
   async execute(proposal){
