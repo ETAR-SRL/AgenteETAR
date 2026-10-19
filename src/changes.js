@@ -1,9 +1,12 @@
+import {approvalWorkflowActions} from './protheus/approval-workflow.js';
 import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { assert, HttpError } from './errors.js';
 import {writeProfiles} from './protheus/write-policy.js';
 import {purchaseCreationActions} from './protheus/purchase-creation.js';
 export const changePolicies={
+  continuarAprobacionCompra:{resource:'aprobacionesCompras',fields:[],routine:'Generar PC pendiente tras completar IP'},
+  escalarAprobacionCompra:{resource:'aprobacionesCompras',fields:[],routine:'Transferir una aprobación pendiente al superior configurado'},
   crearSolicitudCompra:{resource:'solicitudesCompra',fields:[],routine:'INSERT SC1 con RECNO y número automáticos, estado según configuración de aprobación'},
   crearPedidoCompra:{resource:'compras',fields:[],routine:'INSERT SC7 con RECNO y número automáticos, estado según configuración de aprobación'},
   precioLista:{resource:'preciosClientes',fields:['precio'],routine:'UPDATE DA1_PRCVEN y DA1_PRCMIL sobre ítem existente'},
@@ -27,6 +30,17 @@ export class Changes {
   }
   async preview(actor,input){
     assert(plain(input),400,'PROPUESTA_INVALIDA','Objeto requerido');
+    if(Object.hasOwn(approvalWorkflowActions,input.action)){
+      assert(this.erp.writes&&Object.keys(input).every(k=>['action','target'].includes(k))&&plain(input.target)&&Object.keys(input.target).every(k=>['sucursal','propuesta','registro'].includes(k)),400,'CIRCUITO_OBJETIVO','Indicar propuesta de alta ejecutada, sucursal y RECNO SCR para transferir');
+      assert(typeof input.target.propuesta==='string'&&/^[a-f0-9-]{36}$/i.test(input.target.propuesta),400,'CIRCUITO_OBJETIVO','ID de propuesta inválido');
+      const origin=this.store.get(input.target.propuesta,actor),receipt=this.store.execution(input.target.propuesta,actor);
+      assert(origin&&Object.hasOwn(purchaseCreationActions,origin.action)&&receipt?.status==='executed',404,'ALTA_ORIGEN_NO_EXISTE','Alta ejecutada no encontrada para esta sesión');
+      assert(origin.target.sucursal===input.target.sucursal,400,'CIRCUITO_OBJETIVO','Sucursal distinta de la propuesta de origen');
+      if(input.action==='escalarAprobacionCompra')assert(typeof input.target.registro==='string'&&/^[1-9]\d{0,18}$/.test(input.target.registro)&&BigInt(input.target.registro)<=9223372036854775807n,400,'CIRCUITO_OBJETIVO','Indicar RECNO SCR como texto');
+      const enriched={...input,source:{action:origin.action,input:origin.input,writePlan:origin.writePlan,result:receipt.result}};
+      const writePlan=await this.erp.writes.prepare(input.action,enriched);
+      return this.public(this.store.save(actor,{action:input.action,target:input.target,input:enriched,operation:'workflow',resource:writePlan.resource,diff:writePlan.diff,items:[],approval:writePlan.approval,identity:writePlan.identity,blockers:writePlan.blockers,warnings:writePlan.warnings,fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
+    }
     if(Object.hasOwn(purchaseCreationActions,input.action)){
       assert(this.erp.writes,503,'ESCRITURA_DESHABILITADA','No hay ejecutor de altas');
       const writePlan=await this.erp.writes.prepare(input.action,input);

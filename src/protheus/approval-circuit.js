@@ -37,6 +37,25 @@ export function entityGroup(rules,item,fallback){
  check(found.length===1,'Grupo/ítem de MV_APGRDFL inexistente o ambiguo');return found[0];
 }
 
+// SAK takes precedence over SAL. A configured superior is a transfer route,
+// not an additional approver and never an automatic approval at creation.
+export function superiorRoute(approver,member,SAK,SAL){
+ const route=[],seen=new Set([clean(approver.AK_COD)]);let current=approver,currentMember=member;
+ for(let depth=0;depth<50;depth++){
+  const code=clean(current.AK_APROSUP)||clean(currentMember?.AL_APROSUP);
+  const userOnly=!code&&clean(currentMember?.AL_USERSUP);
+  if(!code&&!userOnly)return route;
+  const next=code?one(SAK,'AK_COD',code):one(SAK,'AK_USER',userOnly);
+  const id=clean(next.AK_COD),user=clean(next.AK_USER);
+  check(id&&user&&!seen.has(id),'Superior inexistente, sin usuario o cadena cíclica');
+  if(!clean(current.AK_APROSUP)&&clean(currentMember?.AL_USERSUP))check(user===clean(currentMember.AL_USERSUP),'AL_USERSUP no coincide con el superior SAL');
+  check(amount(next.AK_MOEDA,'AK_MOEDA').eq(1),'Superior fuera de moneda local');
+  route.push({aprobador:id,usuario:user,origen:clean(current.AK_APROSUP)?'SAK':'SAL',limite:amount(next.AK_LIMITE,'AK_LIMITE').toFixed(),periodicidad:clean(next.AK_TIPO)});seen.add(id);
+  current=next;const members=SAL.filter(r=>clean(r.AL_COD)===clean(member.AL_COD)&&clean(r.AL_APROV)===id);check(members.length<=1,'Superior repetido en el grupo');currentMember=members[0];
+ }
+ check(false,'Cadena de superiores mayor a 50');
+}
+
 // Builds only pending approval entries. Limits already consumed in SCS are
 // evaluated by Protheus when the approver acts, never consumed or reset here.
 export function buildApprovalCircuit({alias,group='',values,items,catalogs}){
@@ -44,7 +63,7 @@ export function buildApprovalCircuit({alias,group='',values,items,catalogs}){
  const type=alias==='SC1'?'SC':entity?'IP':'PC',batches=new Map(),excluded=[],routes=[];
  if(entity){
   check(['1','2'].includes(values.MV_PERFALC),'MV_PERFALC debe ser 1 o 2');
-  if(alias==='SC7')check(values.MV_APRIPPC==='2','MV_APRIPPC=1 requiere generación diferida de PC tras IP; este circuito de dos etapas no está implementado');
+  if(alias==='SC7')check(['1','2'].includes(values.MV_APRIPPC),'MV_APRIPPC debe ser 1 o 2');
   for(const item of items){
    const rule=entityGroup(DBL,item,values.MV_APGRDFL),g=rule?clean(rule.DBL_GRUPO):'',it=rule?clean(rule.DBL_ITEM):'';
    routes.push({item:item.item,grupo:g,itemGrupo:it});
@@ -66,21 +85,30 @@ export function buildApprovalCircuit({alias,group='',values,items,catalogs}){
    check(/^\d{1,2}$/.test(level)&&Number(level)>0,'Nivel SAL inválido');
    check(['A','V'].includes(clean(member.AL_LIBAPR))&&['U','N','P'].includes(clean(member.AL_TPLIBER))&&['S','N'].includes(clean(member.AL_AUTOLIM)),'Tipo de aprobación, liberación o límite automático inválido');
    check(!DHM.some(r=>clean(r.DHM_GRUPO)===batch.group&&clean(r.DHM_APROV)===clean(member.AL_APROV)),'El aprobador tiene reglas por tipo de compra; este formulario no informa ese tipo');
-   check(!clean(member.AL_APROSUP)&&!clean(member.AL_USERSUP)&&!clean(approver.AK_APROSUP),'El aprobador tiene un superior configurado; debe verificarse su circuito de escalamiento');
+   const superiores=superiorRoute(approver,member,SAK,SAL);
    check(amount(profile.DHL_MOEDA,'DHL_MOEDA').eq(1)&&amount(approver.AK_MOEDA,'AK_MOEDA').eq(1),'Perfil y aprobador deben usar moneda local 1');
    const min=amount(profile.DHL_LIMMIN,'DHL_LIMMIN'),max=amount(profile.DHL_LIMMAX,'DHL_LIMMAX');check(max.gte(min),'Rango de perfil invertido');
    const automatic=clean(member.AL_AUTOLIM)==='S',eligible=n=>!automatic||(n.gte(min)&&n.lte(max));
    const selected=entity&&values.MV_PERFALC==='2'?batch.items.filter(i=>eligible(new D(i.total))):eligible(sum(batch.items))?batch.items:[];
    if(!selected.length){excluded.push({grupo:batch.group,itemGrupo:batch.groupItem,aprobador:clean(member.AL_APROV),motivo:'Importe fuera del rango del perfil'});continue;}
-   pending.push({tipo:type,grupo:batch.group,itemGrupo:batch.groupItem,aprobador:clean(member.AL_APROV),usuario:user,nivel:level,perfil:clean(member.AL_PERFIL),minimo:min.toFixed(),maximo:max.toFixed(),tipoAprobacion:clean(member.AL_LIBAPR),tipoLiberacion:clean(member.AL_TPLIBER),limiteAutomatico:automatic,total:sum(selected).toFixed(2),items:selected.map(i=>({item:i.item,total:i.total})),limiteAprobador:amount(approver.AK_LIMITE,'AK_LIMITE').toFixed(),periodicidad:clean(approver.AK_TIPO)});
+   pending.push({superiores,tipo:type,grupo:batch.group,itemGrupo:batch.groupItem,aprobador:clean(member.AL_APROV),usuario:user,nivel:level,perfil:clean(member.AL_PERFIL),minimo:min.toFixed(),maximo:max.toFixed(),tipoAprobacion:clean(member.AL_LIBAPR),tipoLiberacion:clean(member.AL_TPLIBER),limiteAutomatico:automatic,total:sum(selected).toFixed(2),items:selected.map(i=>({item:i.item,total:i.total})),limiteAprobador:amount(approver.AK_LIMITE,'AK_LIMITE').toFixed(),periodicidad:clean(approver.AK_TIPO)});
   }
   const first=Math.min(...pending.map(e=>Number(e.nivel)));
   for(const e of pending)entries.push({...e,estado:Number(e.nivel)===first?'02':'01'});
  }
- check(entries.length<=500,'El circuito supera 500 aprobaciones');
+ const twoStage=alias==='SC7'&&entity&&values.MV_APRIPPC==='1';
+ let deferred=[];
+ if(twoStage){
+  const pc=buildApprovalCircuit({alias,group,values:{...values,MV_APRPCEC:false,MV_IPAPREC:false},items,catalogs});
+  excluded.push(...pc.excluded.map(e=>({...e,tipo:'PC'})));
+  if(entries.length)deferred=pc.entries;else entries.push(...pc.entries);
+ }
+ check(entries.length+deferred.length<=500,'El circuito supera 500 aprobaciones');
  const blocked=new Set(entries.flatMap(e=>e.items.map(i=>i.item)));
- const itemStates=Object.fromEntries(items.map(i=>[i.item,alias==='SC7'&&entries.length&&!values.MV_IPAPREC?'B':blocked.has(i.item)?'B':'L']));
- return {type,entity,entries,excluded,routes,itemStates,status:entries.length?'B':'L'};
+ const itemStates=Object.fromEntries(items.map(i=>[i.item,alias==='SC7'&&entries.length&&(!values.MV_IPAPREC||deferred.length)?'B':blocked.has(i.item)?'B':'L']));
+ const stages=[...new Set([...entries,...deferred].map(e=>e.tipo))].map(tipo=>({tipo,estado:deferred.some(e=>e.tipo===tipo)?'Espera aprobación completa de IP':'Pendiente',pasos:[...entries,...deferred].filter(e=>e.tipo===tipo).length}));
+ return {type,entity,twoStage,entries,deferred,stages,excluded,routes,itemStates,status:entries.length?'B':'L'};
+
 }
 
 export function buildSimpleRequestApproval({items,requester,rows,values}){

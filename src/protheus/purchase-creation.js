@@ -2,6 +2,7 @@ import {createHash} from 'node:crypto';
 import {assert} from '../errors.js';
 import {identifier as q} from './config.js';
 import {D,clean,plain,inputNumber,sourceNumber,fit} from './write-policy.js';
+import {createApprovalWorkflow} from './approval-workflow.js';
 import {purchaseApproval} from './purchase-approval.js';
 export const purchaseCreationActions=Object.freeze({crearSolicitudCompra:'SC1',crearPedidoCompra:'SC7'});
 const hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
@@ -128,7 +129,7 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    if(approval.circuit.entity)assert(catalog.branch('SCR',branch)===catalog.branch('DBM',branch),409,'CIRCUITO_ESQUEMA','SCR y DBM deben compartir filial');
    for(const e of approval.circuit.entries){
     scr.push({...common('SCR'),CR_NUM:'@asignar',CR_TIPO:e.tipo,CR_USER:e.usuario,CR_APROV:e.aprobador,CR_GRUPO:e.grupo,CR_ITGRP:e.itemGrupo,CR_NIVEL:e.nivel,CR_STATUS:e.estado,CR_EMISSAO:emission,CR_TOTAL:e.total,CR_MOEDA:'1',CR_TXMOEDA:'1'});
-    if(approval.circuit.entity)for(const item of e.items)dbm.push({...common('DBM'),DBM_TIPO:e.tipo,DBM_NUM:'@asignar',DBM_ITEM:item.item,DBM_GRUPO:e.grupo,DBM_ITGRP:e.itemGrupo,DBM_USER:e.usuario,DBM_APROV:'2',DBM_VALOR:item.total});
+    if(['SC','IP'].includes(e.tipo))for(const item of e.items)dbm.push({...common('DBM'),DBM_TIPO:e.tipo,DBM_NUM:'@asignar',DBM_ITEM:item.item,DBM_GRUPO:e.grupo,DBM_ITGRP:e.itemGrupo,DBM_USER:e.usuario,DBM_APROV:'2',DBM_VALOR:item.total});
    }
    for(const [a,list,numberField,branchField,typeField] of [['SCR',scr,'CR_NUM','CR_FILIAL','CR_TIPO'],['DBM',dbm,'DBM_NUM','DBM_FILIAL','DBM_TIPO']])if(list.length){
     const meta=await schema(connection,a),initial=[];
@@ -144,11 +145,12 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    }
   }
   const {evidence,...approvalView}=approval;
-  const snapshot={version:3,action,branch,metadata,refs,rows,initials,approval,circuits};
-  return {kind:'purchase-create',version:3,resource:alias==='SC1'?'solicitudesCompra':'compras',snapshotHash:hash(snapshot),snapshot,rows,initials,circuits,alias,p,identity:{tabla:alias,sucursal:branch,numero:'Automático al confirmar',moneda:'1',proveedor:h.proveedor||null,solicitante:h.solicitante||null,aprobacion:approval.status},diff:summary.map(r=>({field:`Ítem ${r.item}`,before:null,after:JSON.stringify(r)})),items:summary,calculation:{total:rows.reduce((acc,r)=>acc.plus(r[p+'_TOTAL']),new D(0)).toFixed(2),moneda:'1',aprobacion:approval.status},approval:approvalView,warnings,blockers:approval.blockers,executionEnabled:enabled&&!approval.blockers.length};
+  const snapshot={version:4,action,branch,metadata,refs,rows,initials,approval,circuits};
+  return {kind:'purchase-create',version:4,resource:alias==='SC1'?'solicitudesCompra':'compras',snapshotHash:hash(snapshot),snapshot,rows,initials,circuits,alias,p,identity:{tabla:alias,sucursal:branch,numero:'Automático al confirmar',moneda:'1',proveedor:h.proveedor||null,solicitante:h.solicitante||null,aprobacion:approval.status},diff:summary.map(r=>({field:`Ítem ${r.item}`,before:null,after:JSON.stringify(r)})),items:summary,calculation:{total:rows.reduce((acc,r)=>acc.plus(r[p+'_TOTAL']),new D(0)).toFixed(2),moneda:'1',aprobacion:approval.status},approval:approvalView,warnings,blockers:approval.blockers,executionEnabled:enabled&&!approval.blockers.length};
  }
  async function verifyInput(connection,proposal,lock){const current=await plan(connection,proposal.action,proposal.input,lock);assert(current.snapshotHash===proposal.writePlan.snapshotHash,409,'CONFLICTO_CONCURRENCIA','Cambió un catálogo, esquema o dato de la propuesta; preparar otra');return current;}
- return {
+ const workflow=createApprovalWorkflow({db,catalog,getWriteDb,enabled,allowedBranches,selection,creationPlan:plan,schema,defaults,text,fit,allocate:allocateCircuitRecords});
+ return {workflow,
   prepare:(action,input)=>plan(db,action,input),
   async check(proposal){const current=await verifyInput(db,proposal,false);return {executionEnabled:current.executionEnabled};},
   async execute(proposal){
@@ -167,7 +169,7 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
      const t=catalog.table(batch.alias),paramsScope={number:allocated.number};
      let scope=`${q(batch.numberField)}=@number`;
      if(batch.alias!==alias){
-      paramsScope.branch=catalog.branch(batch.alias,current.identity.sucursal);paramsScope.type=current.approval.circuit.type;
+      paramsScope.branch=catalog.branch(batch.alias,current.identity.sucursal);paramsScope.type=batch.rows[0][batch.typeField];
       scope+=` AND ${q(batch.branchField)}=@branch AND ${q(batch.typeField)}=@type`;
       const orphan=await tx.query(`SELECT TOP (1) [R_E_C_N_O_] FROM ${name(t)} WHERE ${scope}`,paramsScope);
       assert(!orphan.length,409,'CIRCUITO_EXISTENTE','El número tiene un circuito previo; no se reutiliza ni sobrescribe');

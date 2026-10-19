@@ -163,6 +163,6 @@ Para `crearPedidoCompra`, la cabecera requiere `proveedor`, `tienda` y `condicio
 
 ### Estado inicial y circuito de aprobación de Protheus
 
-La implementación actual sustituye el bloqueo general de altas con alçadas por generación transaccional de SCR y DBM. La propuesta versión 3 y el recibo incluyen los pasos por grupo, aprobador, nivel e importe. Un documento pendiente B puede crearse desde la app; la aprobación posterior corresponde a Protheus. No se permite forzar estados por parámetros de entrada.
+La implementación actual sustituye el bloqueo general de altas con alçadas por generación transaccional de SCR y DBM. La propuesta versión 4 y el recibo incluyen los pasos por grupo, aprobador, nivel e importe. Un documento pendiente B puede crearse desde la app; la aprobación posterior corresponde a Protheus. No se permite forzar estados por parámetros de entrada.
 
 Ver [contrato de aprobaciones SQL](aprobaciones-sql.md) para reglas, campos, límites, fuentes y evidencia de pruebas. La aprobación simple SC1 se distingue del circuito por alçadas y utiliza los derechos SAI. Configuración incompleta o variantes no implementadas se informan como errores específicos, nunca como ausencia de aprobación.

@@ -846,8 +846,15 @@
                           "condicionPago": {
                             "type": "string"
                           },
-                          "solicitanteCodigo": {"type": "string", "maxLength": 6, "description": "Código de usuario ERP del solicitante para restricciones SAI; no es su nombre."},
-                          "comprador": {"type": "string", "description": "Código SY1; se verifica su grupo de aprobación y restricción de pedido sin solicitud."},
+                          "solicitanteCodigo": {
+                            "type": "string",
+                            "maxLength": 6,
+                            "description": "Código de usuario ERP del solicitante para restricciones SAI; no es su nombre."
+                          },
+                          "comprador": {
+                            "type": "string",
+                            "description": "Código SY1; se verifica su grupo de aprobación y restricción de pedido sin solicitud."
+                          },
                           "contacto": {
                             "type": "string"
                           }
@@ -903,6 +910,46 @@
                                 "millar"
                               ]
                             }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "action",
+                      "target"
+                    ],
+                    "description": "Continuar IP a PC o transferir al superior configurado. Sólo altas ejecutadas por esta app y del mismo actor; requiere posterior confirmación writer. No aprueba documentos.",
+                    "properties": {
+                      "action": {
+                        "enum": [
+                          "continuarAprobacionCompra",
+                          "escalarAprobacionCompra"
+                        ]
+                      },
+                      "target": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "sucursal",
+                          "propuesta"
+                        ],
+                        "properties": {
+                          "sucursal": {
+                            "type": "string"
+                          },
+                          "propuesta": {
+                            "type": "string",
+                            "format": "uuid",
+                            "description": "ID de la propuesta original de alta ejecutada."
+                          },
+                          "registro": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]{0,18}$",
+                            "description": "RECNO SCR obligatorio sólo para escalar."
                           }
                         }
                       }

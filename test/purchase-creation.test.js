@@ -26,8 +26,8 @@ function fixture(alias='SC1',options={}){
  const state={parameters,catalogs:{SAL:[],SAK:[],DHL:[],DHM:[],DBL:[],SAI:[]},circuits:{SCR:[],DBM:[]},buyers:[],rows:[{R_E_C_N_O_:'9007199254740993',D_E_L_E_T_:'*',[p+'_NUM']:'000099',[p+'_FILIAL']:'9999'}],calls:[],inserts:0,commits:0,rollbacks:0};let queue=Promise.resolve();
  const circuitColumns={};
  for(const [a,chars,nums] of [
-  ['SCR',{CR_FILIAL:4,CR_NUM:50,CR_TIPO:2,CR_USER:6,CR_APROV:6,CR_GRUPO:6,CR_ITGRP:2,CR_NIVEL:2,CR_STATUS:2,CR_EMISSAO:8,CR_USERLIB:6,CR_LIBAPRO:6,CR_DATALIB:8},{CR_TOTAL:[14,2],CR_MOEDA:[2,0],CR_TXMOEDA:[11,2],CR_VALLIB:[14,2]}],
-  ['DBM',{DBM_FILIAL:4,DBM_NUM:50,DBM_TIPO:2,DBM_ITEM:4,DBM_ITEMRA:2,DBM_GRUPO:6,DBM_ITGRP:2,DBM_USER:6,DBM_APROV:1,DBM_USAPRO:6},{DBM_VALOR:[14,2]}]
+  ['SCR',{CR_FILIAL:4,CR_NUM:50,CR_TIPO:2,CR_USER:6,CR_APROV:6,CR_GRUPO:6,CR_ITGRP:2,CR_NIVEL:2,CR_STATUS:2,CR_EMISSAO:8,CR_USERLIB:6,CR_LIBAPRO:6,CR_DATALIB:8,CR_USERORI:6,CR_APRORI:6,CR_TPTRAN:1},{CR_TOTAL:[14,2],CR_MOEDA:[2,0],CR_TXMOEDA:[11,2],CR_VALLIB:[14,2]}],
+  ['DBM',{DBM_FILIAL:4,DBM_NUM:50,DBM_TIPO:2,DBM_ITEM:4,DBM_ITEMRA:2,DBM_GRUPO:6,DBM_ITGRP:2,DBM_USER:6,DBM_APROV:1,DBM_USAPRO:6,DBM_USEROR:6},{DBM_VALOR:[14,2]}]
  ]){
   const cols=structuredClone(columns.slice(0,3));
   for(const [field,width] of Object.entries(chars)){dictionary.set(field,{X3_ARQUIVO:a,X3_CAMPO:field,X3_TIPO:'C',X3_TAMANHO:String(width),X3_DECIMAL:'0',X3_OBRIGAT:''});cols.push({field,type:'varchar',definition:"(' ')"});}
@@ -38,7 +38,7 @@ function fixture(alias='SC1',options={}){
  for(const [a,fields] of Object.entries(referenceFields))tables.set(a,{schema:'dbo',name:a+'010',columns:new Map((fields+' '+({SAL:'AL',SAK:'AK',SAI:'AI'}[a]||a)+'_FILIAL D_E_L_E_T_ R_E_C_N_O_').split(' ').map(f=>[f,{type:'varchar'}]))});
  async function query(sql,params={}){
   state.calls.push({sql,params});
-  const source=/(?:FROM|INSERT INTO) \[dbo\]\.\[(\w+)010\]/.exec(sql)?.[1];
+  const source=/(?:FROM|INSERT INTO|UPDATE) \[dbo\]\.\[(\w+)010\]/.exec(sql)?.[1];
   if(state.catalogs[source]){assert.equal(params.branch,'0101');return structuredClone(state.catalogs[source]);}
   const cols=circuitColumns[source]||circuitColumns[params.tableName?.slice(4,-3)]||columns,tableRows=state.circuits[source]||state.rows,numberField=source==='SCR'?'CR_NUM':source==='DBM'?'DBM_NUM':p+'_NUM';
   if(sql.includes('[SX6010]'))return structuredClone(state.parameters.filter(r=>Object.values(params).includes(r.X6_VAR)&&['',params.branch].includes(r.X6_FIL.trim())));
@@ -48,6 +48,12 @@ function fixture(alias='SC1',options={}){
   if(sql.includes('FROM sys.triggers'))return options.trigger?[{name:'other',definition:'unexpected'}]:[];
   if(sql.includes('X3_ARQUIVO=@alias'))return structuredClone([...dictionary.values()].filter(r=>r.X3_ARQUIVO===params.alias));
   if(sql.includes('AS maxRecno')){assert.match(sql,/WITH \(TABLOCKX,HOLDLOCK\)/);assert.doesNotMatch(sql,/WHERE/);return [{maxRecno:tableRows.reduce((v,r)=>BigInt(r.R_E_C_N_O_)>v?BigInt(r.R_E_C_N_O_):v,0n).toString(),maxNumber:tableRows.reduce((v,r)=>/^\d+$/.test(r[p+'_NUM'])&&BigInt(r[p+'_NUM'])>v?BigInt(r[p+'_NUM']):v,0n).toString()}];}
+  if(sql.startsWith('DECLARE @affected')){
+   state.updates=(state.updates||0)+1;if(options.failUpdate===state.updates)throw Error('update failed');
+   const row=tableRows.find(r=>r.R_E_C_N_O_===params.record);assert.ok(row);
+   const fields=/ SET (.*?) OUTPUT/.exec(sql)[1].split(',').map(v=>/\[([^\]]+)\]/.exec(v)[1]);fields.forEach((f,i)=>row[f]=params['v'+i]);
+   if(options.collateral)row.CR_TOTAL='1';return [{affected:1}];
+  }
   if(sql.startsWith('DECLARE @inserted')){
    state.inserts++;if(options.failAt===state.inserts)throw new Error('insert failed');
    const fields=/INSERT INTO \[dbo\]\.\[\w+\] \(([^)]+)\)/.exec(sql)[1].split(',').map(v=>v.slice(1,-1));const row={};
@@ -56,7 +62,7 @@ function fixture(alias='SC1',options={}){
    assert.ok(!tableRows.some(r=>r.R_E_C_N_O_===row.R_E_C_N_O_));tableRows.push(row);
    if(options.unexpected)row[p+'_RESIDUO']='S';return [{record:options.wrongOutput?'1':row.R_E_C_N_O_}];
   }
-  if(params.number)return structuredClone(tableRows.filter(r=>r[numberField]===params.number&&(!params.type||r[source==='SCR'?'CR_TIPO':'DBM_TIPO']===params.type)&&(!params.branch||r[source==='SCR'?'CR_FILIAL':'DBM_FILIAL']===params.branch)));
+  if(params.number)return structuredClone(tableRows.filter(r=>(!sql.includes("[D_E_L_E_T_]=' '")||r.D_E_L_E_T_===' ')&&r[numberField]===params.number&&(!params.type||r[source==='SCR'?'CR_TIPO':'DBM_TIPO']===params.type)&&(!params.branch||r[source==='SCR'?'CR_FILIAL':source==='DBM'?'DBM_FILIAL':p+'_FILIAL']===params.branch)));
   const a=/FROM \[dbo\]\.\[(\w+)010\]/.exec(sql)?.[1];assert.ok(refs[a],sql);assert.match(sql,/D_E_L_E_T_.*=' '/);assert.equal(params.branch,catalog.branch(a,'0101'));return options.missing===a?[]:[structuredClone(refs[a])];
  }
  const db={query,async transaction(callback){let release;const previous=queue;queue=new Promise(r=>release=r);await previous;const before=structuredClone(state.rows),beforeCircuits=structuredClone(state.circuits);try{const result=await callback({query});if(options.unknown)throw Object.assign(new Error('lost commit'),{outcomeUnknown:true});state.commits++;return result;}catch(e){if(!e.outcomeUnknown){state.rows=before;state.circuits=beforeCircuits;state.rollbacks++;}throw e;}finally{release();}}};
@@ -288,5 +294,108 @@ test('ambiguous or unsupported workflow rules remain explicit errors rather than
  ]){
   const f=fixture('SC7'),c=configuredCircuit(f,{entity:true});mutate(c);const p=await f.proposal();assert.equal(p.writePlan.executionEnabled,false);assert.ok(p.writePlan.blockers.some(b=>b.code==='CIRCUITO_INVALIDO'));await assert.rejects(f.writes.execute(p),{code:'ALTA_NO_HABILITADA'});assert.equal(f.state.inserts,0);
  }
- const f=fixture('SC7');configuredCircuit(f,{entity:true});parameter(f,'MV_APRIPPC','1');const p=await f.proposal();assert.equal(p.writePlan.executionEnabled,false);assert.match(p.writePlan.blockers[0].message,/dos etapas/);
+ const f=fixture('SC7');configuredCircuit(f,{entity:true});parameter(f,'MV_APRIPPC','unknown');const p=await f.proposal();assert.equal(p.writePlan.executionEnabled,false);
+});
+function superior(c,from='A00001',code='SUP001',user='SUPER1'){
+ c.SAK.find(a=>a.AK_COD===from).AK_APROSUP=code;
+ c.SAK.push({AK_COD:code,AK_USER:user,AK_MOEDA:'1',AK_LIMITE:'1000000',AK_TIPO:'M',AK_APROSUP:''});
+}
+async function createdWorkflow(f,t){
+ const store=new Store(':memory:');t.after(()=>store.close());const changes=new Changes({erp:f.erp,store,read:()=>{throw Error('not a price update');}});
+ const origin=await changes.preview('actor',f.input);await changes.execute('actor',origin.id,{confirm:true,fingerprint:origin.fingerprint});
+ const input=(action,registro)=>({action,target:{sucursal:'0101',propuesta:origin.id,...registro?{registro}:{}}});
+ const execute=async actionInput=>{const p=await changes.preview('actor',actionInput);return changes.execute('actor',p.id,{confirm:true,fingerprint:p.fingerprint});};
+ return {changes,origin,input,execute};
+}
+function approveIp(f){
+ for(const r of f.state.circuits.SCR)if(r.CR_TIPO==='IP'){r.CR_STATUS='03';r.CR_USERLIB=r.CR_USER;r.CR_DATALIB='20261019';r.CR_VALLIB=r.CR_TOTAL;}
+ for(const r of f.state.circuits.DBM)if(r.DBM_TIPO==='IP'){r.DBM_APROV='1';r.DBM_USAPRO=r.DBM_USER;}
+}
+
+test('IP+PC creates only IP first, preserves whole-order B, and derives PC from its own group and total',async()=>{
+ const f=fixture('SC7'),c=configuredCircuit(f,{entity:true});parameter(f,'MV_APRIPPC','1');parameter(f,'MV_IPAPREC',true);parameter(f,'MV_PCAPROV','000002');
+ c.SAL.push({...c.SAL[0],AL_COD:'000002',AL_DOCIP:'F'});
+ f.input.items.push({...f.input.items[0],cantidad:'0.5'});parameter(f,'MV_PERFALC','2');const p=await f.proposal();
+ assert.equal(p.writePlan.executionEnabled,true);assert.equal(p.writePlan.approval.circuit.twoStage,true);assert.deepEqual(p.writePlan.items.map(i=>i.aprobacion),['B','B']);
+ const next=p.writePlan.approval.circuit.deferred;assert.equal(next.length,1);assert.equal(next[0].grupo,'000002');assert.equal(next[0].total,'240.00');
+ await f.writes.execute(p);assert.ok(f.state.circuits.SCR.every(r=>r.CR_TIPO==='IP'));assert.ok(f.state.circuits.DBM.every(r=>r.DBM_TIPO==='IP'));assert.equal(f.state.rows[1].C7_APROV,'000002');
+});
+
+test('IP+PC without applicable IP generates PC immediately, with no PC links in DBM',async()=>{
+ const f=fixture('SC7'),c=configuredCircuit(f,{entity:true});parameter(f,'MV_APRIPPC','1');parameter(f,'MV_PCAPROV','000001');c.SAL.forEach(r=>r.AL_DOCIP='F');
+ const p=await f.proposal();assert.equal(p.writePlan.approval.circuit.deferred.length,0);await f.writes.execute(p);
+ assert.equal(f.state.circuits.SCR.length,3);assert.ok(f.state.circuits.SCR.every(r=>r.CR_TIPO==='PC'));assert.equal(f.state.circuits.DBM.length,0);
+});
+
+test('SQL continuation waits for all IP and DBM approvals, inserts PC once and never releases SC7',async t=>{
+ const f=fixture('SC7');configuredCircuit(f,{entity:true});parameter(f,'MV_APRIPPC','1');parameter(f,'MV_PCAPROV','000001');const w=await createdWorkflow(f,t),input=w.input('continuarAprobacionCompra');
+ await assert.rejects(w.changes.preview('actor',input),{code:'IP_PENDIENTE'});approveIp(f);f.state.circuits.DBM[0].DBM_APROV='2';await assert.rejects(w.changes.preview('actor',input),{code:'IP_PENDIENTE'});f.state.circuits.DBM[0].DBM_APROV='1';
+ const result=await w.execute(input);assert.equal(result.result.affected,3);assert.deepEqual(f.state.circuits.SCR.filter(r=>r.CR_TIPO==='PC').map(r=>r.CR_STATUS),['02','01','01']);assert.equal(f.state.rows[1].C7_CONAPRO,'B');
+ const again=await w.execute(input);assert.equal(again.result.affected,0);assert.equal(again.result.alreadyApplied,true);assert.equal(f.state.circuits.SCR.length,6);
+});
+
+test('pending transfer uses SAK precedence, preserves origin across two hops and changes SCR/DBM atomically',async t=>{
+ const f=fixture('SC1'),c=configuredCircuit(f,{entity:true});superior(c);superior(c,'SUP001','SUP002','SUPER2');c.SAL[0].AL_APROSUP='A00002';c.SAL[0].AL_USERSUP='USER02';
+ const w=await createdWorkflow(f,t),id=f.state.circuits.SCR[0].R_E_C_N_O_,input=w.input('escalarAprobacionCompra',id);
+ await w.execute(input);let row=f.state.circuits.SCR[0];assert.equal(row.CR_APROV,'SUP001');assert.equal(row.CR_USER,'SUPER1');assert.equal(row.CR_APRORI,'A00001');assert.equal(row.CR_USERORI,'USER01');assert.equal(row.CR_TPTRAN,'3');assert.equal(row.CR_STATUS,'02');assert.equal(row.CR_VALLIB,'0');
+ let link=f.state.circuits.DBM.find(r=>r.DBM_USER==='SUPER1');assert.equal(link.DBM_USEROR,'USER01');assert.equal(link.DBM_APROV,'2');
+ await w.execute(input);row=f.state.circuits.SCR[0];assert.equal(row.CR_APROV,'SUP002');assert.equal(row.CR_APRORI,'A00001');assert.equal(row.CR_USERORI,'USER01');assert.ok(f.state.circuits.DBM.some(r=>r.DBM_USER==='SUPER2'&&r.DBM_USEROR==='USER01'));
+ await assert.rejects(w.changes.preview('actor',input),{code:'SIN_SUPERIOR'});
+});
+
+test('SAL fallback and invalid or cyclic superior chains are distinguished from mere configured superiors',async()=>{
+ const f=fixture('SC7'),c=configuredCircuit(f);superior(c);c.SAK[0].AK_APROSUP='';c.SAL[0].AL_APROSUP='SUP001';c.SAL[0].AL_USERSUP='SUPER1';
+ let p=await f.proposal();assert.equal(p.writePlan.executionEnabled,true);assert.equal(p.writePlan.approval.circuit.entries[0].superiores[0].origen,'SAL');
+ c.SAK.at(-1).AK_APROSUP='A00001';p=await f.proposal();assert.equal(p.writePlan.executionEnabled,false);assert.match(p.writePlan.blockers[0].message,/cíclica/);
+ c.SAK.at(-1).AK_APROSUP='';c.SAL[0].AL_USERSUP='BAD';p=await f.proposal();assert.equal(p.writePlan.executionEnabled,false);
+});
+
+test('transfer rollback includes SCR and DBM, and reread rejects collateral modifications',async t=>{
+ for(const options of [{failUpdate:2},{collateral:true}]){
+  const f=fixture('SC1',options),c=configuredCircuit(f,{entity:true});superior(c);const w=await createdWorkflow(f,t),before=structuredClone(f.state.circuits);
+  await assert.rejects(w.execute(w.input('escalarAprobacionCompra',f.state.circuits.SCR[0].R_E_C_N_O_)));assert.deepEqual(f.state.circuits,before);
+ }
+});
+
+test('workflow origin ownership, input injection, stale approvals and rejected IP cannot bypass confirmation',async t=>{
+ const f=fixture('SC7'),c=configuredCircuit(f,{entity:true});parameter(f,'MV_APRIPPC','1');parameter(f,'MV_PCAPROV','000001');superior(c);const w=await createdWorkflow(f,t),input=w.input('escalarAprobacionCompra',f.state.circuits.SCR[0].R_E_C_N_O_);
+ await assert.rejects(w.changes.preview('other',input),{code:'ALTA_ORIGEN_NO_EXISTE'});await assert.rejects(w.changes.preview('actor',{...input,source:{}}),{code:'CIRCUITO_OBJETIVO'});
+ const p=await w.changes.preview('actor',input);f.state.circuits.SCR[0].CR_STATUS='03';await assert.rejects(w.changes.execute('actor',p.id,{confirm:true,fingerprint:p.fingerprint}));assert.equal(f.state.updates,undefined);
+ approveIp(f);f.state.circuits.SCR[1].CR_STATUS='06';await assert.rejects(w.changes.preview('actor',w.input('continuarAprobacionCompra')),{code:'IP_PENDIENTE'});
+});
+test('concurrent PC transitions never duplicate rows and a failed second INSERT rolls back the whole new stage',async t=>{
+ const options={},f=fixture('SC7',options);configuredCircuit(f,{entity:true});parameter(f,'MV_APRIPPC','1');parameter(f,'MV_PCAPROV','000001');const w=await createdWorkflow(f,t);approveIp(f);
+ const input=w.input('continuarAprobacionCompra');options.failAt=f.state.inserts+2;const before=structuredClone(f.state.circuits);await assert.rejects(w.execute(input),/insert failed/);assert.deepEqual(f.state.circuits,before);options.failAt=undefined;
+ const a=await w.changes.preview('actor',input),b=await w.changes.preview('actor',input);
+ const results=await Promise.allSettled([a,b].map(p=>w.changes.execute('actor',p.id,{confirm:true,fingerprint:p.fingerprint})));assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.find(r=>r.status==='rejected').reason.code,'CONFLICTO_CONCURRENCIA');assert.equal(f.state.circuits.SCR.filter(r=>r.CR_TIPO==='PC').length,3);
+});
+
+test('configuration changes and previously released items reject a stale superior transfer',async t=>{
+ const f=fixture('SC7'),c=configuredCircuit(f);superior(c);const w=await createdWorkflow(f,t),input=w.input('escalarAprobacionCompra',f.state.circuits.SCR[0].R_E_C_N_O_),p=await w.changes.preview('actor',input);
+ c.SAK.at(-1).AK_LIMITE='2000000';await assert.rejects(w.changes.execute('actor',p.id,{confirm:true,fingerprint:p.fingerprint}),{code:'CONFLICTO_CONCURRENCIA'});assert.equal(f.state.updates,undefined);
+ f.state.rows[1].C7_CONAPRO='L';await assert.rejects(w.changes.preview('actor',input),{code:'DOCUMENTO_CAMBIO'});
+});
+
+test('text and voice circuit tool only prepares an explicit owned origin and never executes',async t=>{
+ const f=fixture('SC7'),c=configuredCircuit(f);superior(c);const w=await createdWorkflow(f,t),record=f.state.circuits.SCR[0].R_E_C_N_O_;
+ const model={name:'test',complete:async()=>({action:'preparar_circuito',args:{accion:'escalarAprobacionCompra',propuesta:w.origin.id,registro:record},answer:''})};
+ const intelligence=createIntelligence({erp:f.erp,kaiqen:createDemoKaiqen(),store:w.changes.store,branches:['0101'],model,prepareChange:(actor,input)=>w.changes.preview(actor,input)});
+ const result=await intelligence.query('actor',{text:`Transferir al superior el registro ${record}, propuesta ${w.origin.id}`,context:{sucursal:'0101'}},{canPlan:true});assert.match(result.answer,/Preparé el circuito/);assert.equal(f.state.updates,undefined);
+});
+test('HTTP workflow keeps writer confirmation, actor isolation and idempotent transfer receipt',async t=>{
+ const f=fixture('SC7'),c=configuredCircuit(f);superior(c);const store=new Store(':memory:');t.after(()=>store.close());const key='w'.repeat(40),read='r'.repeat(40);
+ const server=createApp({erp:f.erp,kaiqen:createDemoKaiqen(),store,readKey:read,planKey:'p'.repeat(40),writeKey:key});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();});
+ const post=(path,body,k=key)=>fetch(`http://127.0.0.1:${server.address().port}`+path,{method:'POST',headers:{authorization:'Bearer '+k,'content-type':'application/json'},body:JSON.stringify(body)});
+ const origin=await(await post('/api/changes/preview',f.input)).json();assert.equal((await post('/api/changes/'+origin.id+'/execute',{confirm:true,fingerprint:origin.fingerprint})).status,200);
+ const input={action:'escalarAprobacionCompra',target:{sucursal:'0101',propuesta:origin.id,registro:f.state.circuits.SCR[0].R_E_C_N_O_}};
+ assert.equal((await post('/api/changes/preview',input,read)).status,403);const p=await(await post('/api/changes/preview',input)).json();assert.equal(p.operation,'workflow');assert.equal(p.input,undefined);assert.equal(p.writePlan,undefined);
+ assert.equal((await post('/api/changes/'+p.id+'/execute',{confirm:false,fingerprint:p.fingerprint})).status,400);
+ for(let i=0;i<2;i++)assert.equal((await post('/api/changes/'+p.id+'/execute',{confirm:true,fingerprint:p.fingerprint})).status,200);
+ assert.equal(f.state.updates,1);assert.equal(f.state.circuits.SCR[0].CR_USER,'SUPER1');
+});
+
+test('deleted PC history cannot be recreated and missing IP completion evidence cannot start PC',async t=>{
+ const f=fixture('SC7');configuredCircuit(f,{entity:true});parameter(f,'MV_APRIPPC','1');parameter(f,'MV_PCAPROV','000001');const w=await createdWorkflow(f,t),input=w.input('continuarAprobacionCompra');approveIp(f);
+ f.state.circuits.SCR[1].CR_USERLIB='';await assert.rejects(w.changes.preview('actor',input),{code:'IP_PENDIENTE'});f.state.circuits.SCR[1].CR_USERLIB='USER02';
+ f.state.circuits.SCR.push({...f.state.circuits.SCR[0],R_E_C_N_O_:'99',CR_TIPO:'PC',D_E_L_E_T_:'*'});await assert.rejects(w.changes.preview('actor',input),{code:'CIRCUITO_EXISTENTE'});
 });

@@ -1,3 +1,4 @@
+import {approvalWorkflowActions} from './approval-workflow.js';
 import {createHash} from 'node:crypto';
 import {assert} from '../errors.js';
 import {identifier as q} from './config.js';
@@ -99,15 +100,18 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
  return {
   enabled,policy:{...sqlExecutionPolicy,existingRecordsOnly:false},creation:purchaseCreationStatus(catalog,enabled),
   async prepare(action,input){
+   if(Object.hasOwn(approvalWorkflowActions,action))return purchasing.workflow.prepare(action,input);
    if(Object.hasOwn(purchaseCreationActions,action))return purchasing.prepare(action,input);
    const c=await context(db,action,input.target),plan=calculate(action,input,c);
    return {version:3,resource:c.p.resource,identity:c.identity,snapshot:snapshot(c),snapshotHash:fingerprint(snapshot(c)),...plan,executionEnabled:enabled&&!plan.blockers.length};
   },
   async check(proposal){
+   if(Object.hasOwn(approvalWorkflowActions,proposal.action))return purchasing.workflow.check(proposal);
    if(Object.hasOwn(purchaseCreationActions,proposal.action))return purchasing.check(proposal);
    const c=await context(db,proposal.action,proposal.target);assert(fingerprint(snapshot(c))===proposal.writePlan.snapshotHash,409,'CONFLICTO_CONCURRENCIA','El registro o sus dependencias cambiaron desde la propuesta');return {executionEnabled:enabled&&!calculate(proposal.action,proposal.input,c).blockers.length};
   },
   async execute(proposal){
+   if(Object.hasOwn(approvalWorkflowActions,proposal.action))return purchasing.workflow.execute(proposal);
    if(Object.hasOwn(purchaseCreationActions,proposal.action))return purchasing.execute(proposal);
    assert(enabled,503,'ESCRITURA_DESHABILITADA','La ejecución SQL está deshabilitada');
    const connection=await getWriteDb();
