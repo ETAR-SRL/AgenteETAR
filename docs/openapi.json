@@ -1,0 +1,1160 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Centralizador Protheus + KAIQEN",
+    "version": "0.1.0",
+    "description": "Centralizador local con PWA, chat de lenguaje natural con modelo local, memoria y dictado. Consultas verificables a Protheus y KAIQEN; sin escrituras ERP."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:4310"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API_READ_KEY para lectura; API_PLAN_KEY para propuestas. Mantener en backend; no embeber en PWA distribuida."
+      },
+      "localSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "central_session",
+        "description": "Sesión de lectura local. Requiere loopback y validación de origen para POST. HttpOnly, SameSite Strict, 12 horas."
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Vida del proceso; no certifica salud de todas las fuentes",
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/capabilities": {
+      "get": {
+        "summary": "Recursos, campos, filiales configuradas y limitaciones",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido"
+          },
+          "401": {
+            "description": "Credencial ausente o vencida"
+          },
+          "403": {
+            "description": "Fuera de alcance o sin permiso"
+          },
+          "503": {
+            "description": "Fuente no disponible o configuración pendiente"
+          }
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "summary": "Este contrato",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido"
+          },
+          "401": {
+            "description": "Credencial ausente o vencida"
+          },
+          "403": {
+            "description": "Fuera de alcance o sin permiso"
+          },
+          "503": {
+            "description": "Fuente no disponible o configuración pendiente"
+          }
+        }
+      }
+    },
+    "/api/erp/{resource}": {
+      "get": {
+        "summary": "Lectura ERP paginada y parametrizada; entregas devuelve fuente no configurada",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "resource",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sucursal",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            }
+          },
+          {
+            "name": "codigo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tienda",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "producto",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cliente",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "proveedor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lista",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "numero",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "registro",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tipoDocumento",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "desde",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "hasta",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pendiente",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido"
+          },
+          "401": {
+            "description": "Credencial ausente o vencida"
+          },
+          "403": {
+            "description": "Fuera de alcance o sin permiso"
+          },
+          "503": {
+            "description": "Fuente no disponible o configuración pendiente"
+          }
+        }
+      }
+    },
+    "/api/kaiqen/projects": {
+      "get": {
+        "summary": "Cartera visible para la cuenta KAIQEN; filtros locales",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido"
+          },
+          "401": {
+            "description": "Credencial ausente o vencida"
+          },
+          "403": {
+            "description": "Fuera de alcance o sin permiso"
+          },
+          "503": {
+            "description": "Fuente no disponible o configuración pendiente"
+          }
+        },
+        "description": "Origen actual postgres: lectura de la planta configurada, q/limit/offset; status sólo está disponible con origen api."
+      }
+    },
+    "/api/kaiqen/projects/{id}": {
+      "get": {
+        "summary": "Detalle y restricciones de confidencialidad de proyecto",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido"
+          },
+          "401": {
+            "description": "Credencial ausente o vencida"
+          },
+          "403": {
+            "description": "Fuera de alcance o sin permiso"
+          },
+          "503": {
+            "description": "Fuente no disponible o configuración pendiente"
+          }
+        }
+      }
+    },
+    "/api/kaiqen/quality": {
+      "get": {
+        "summary": "Conteos de calidad por proyecto; semáforo derivado no disponible en origen postgres",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido"
+          },
+          "401": {
+            "description": "Credencial ausente o vencida"
+          },
+          "403": {
+            "description": "Fuera de alcance o sin permiso"
+          },
+          "503": {
+            "description": "Fuente no disponible o configuración pendiente"
+          }
+        }
+      }
+    },
+    "/api/kaiqen/quality/{id}": {
+      "get": {
+        "summary": "Calidad del proyecto: datos guardados en modo postgres; torre calculada sólo con origen api",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido"
+          },
+          "401": {
+            "description": "Credencial ausente o vencida"
+          },
+          "403": {
+            "description": "Fuera de alcance o sin permiso"
+          },
+          "503": {
+            "description": "Fuente no disponible o configuración pendiente"
+          }
+        }
+      }
+    },
+    "/api/overview/projects/{id}": {
+      "get": {
+        "summary": "Proyecto, calidad, vínculo explícito y costo de artículo de referencia si disponible; parcial cuando alguna sección falla",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido"
+          },
+          "401": {
+            "description": "Credencial ausente o vencida"
+          },
+          "403": {
+            "description": "Fuera de alcance o sin permiso"
+          },
+          "503": {
+            "description": "Fuente no disponible o configuración pendiente"
+          }
+        }
+      }
+    },
+    "/api/agent/examples": {
+      "get": {
+        "summary": "Órdenes de texto soportadas",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Filtro inválido"
+          },
+          "401": {
+            "description": "Credencial ausente o vencida"
+          },
+          "403": {
+            "description": "Fuera de alcance o sin permiso"
+          },
+          "503": {
+            "description": "Fuente no disponible o configuración pendiente"
+          }
+        }
+      }
+    },
+    "/api/agent/plan": {
+      "post": {
+        "summary": "Interpretar lectura o propuesta sin ejecutarla",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "context": {
+                    "type": "object",
+                    "properties": {
+                      "sucursal": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Solicitud inválida"
+          },
+          "403": {
+            "description": "Rol insuficiente"
+          },
+          "409": {
+            "description": "Conflicto, ambigüedad o propuesta vencida"
+          }
+        }
+      }
+    },
+    "/api/agent/query": {
+      "post": {
+        "summary": "Interpretar y ejecutar sólo lectura",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "context": {
+                    "type": "object",
+                    "properties": {
+                      "sucursal": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Solicitud inválida"
+          },
+          "403": {
+            "description": "Rol insuficiente"
+          },
+          "409": {
+            "description": "Conflicto, ambigüedad o propuesta vencida"
+          }
+        }
+      }
+    },
+    "/api/changes/preview": {
+      "post": {
+        "summary": "Guardar propuesta sobre un registro existente; requiere API_PLAN_KEY",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "action",
+                  "target",
+                  "changes"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "precioLista",
+                      "precioListaProveedor",
+                      "clienteContacto",
+                      "proveedorContacto"
+                    ]
+                  },
+                  "target": {
+                    "type": "object",
+                    "required": [
+                      "sucursal",
+                      "registro"
+                    ],
+                    "properties": {
+                      "sucursal": {
+                        "type": "string"
+                      },
+                      "registro": {
+                        "type": "string",
+                        "pattern": "^[1-9][0-9]{0,18}$"
+                      }
+                    }
+                  },
+                  "changes": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "description": "precio; o email, telefono, contacto según acción"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Solicitud inválida"
+          },
+          "403": {
+            "description": "Rol insuficiente"
+          },
+          "409": {
+            "description": "Conflicto, ambigüedad o propuesta vencida"
+          }
+        }
+      }
+    },
+    "/api/changes/{id}/check": {
+      "post": {
+        "summary": "Releer el registro y detectar cambios desde la propuesta",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Venció o cambió el registro"
+          }
+        }
+      }
+    },
+    "/api/changes/{id}/execute": {
+      "post": {
+        "summary": "Ejecución deshabilitada",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "501": {
+            "description": "ESCRITURA_NO_HOMOLOGADA; no modifica TOTVS"
+          }
+        }
+      }
+    },
+    "/api/ui/session": {
+      "post": {
+        "summary": "Crear sesión local de lectura para la PWA",
+        "description": "Requiere Origin idéntico al Host local 127.0.0.1 o localhost y conexión loopback. No devuelve claves API.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Resultado JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Origen o equipo no permitido"
+          }
+        }
+      }
+    },
+    "/api/voice/status": {
+      "get": {
+        "summary": "Disponibilidad de Whisper local",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resultado JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/voice/transcribe": {
+      "post": {
+        "summary": "Transcribir español localmente",
+        "description": "Máximo 8 MiB y 45 segundos. Una transcripción simultánea; texto revisable antes de consultar. Elimina audio temporal al finalizar.",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "audio/webm": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/ogg": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/wav": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            },
+            "audio/mp4": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resultado JSON",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Audio demasiado grande"
+          },
+          "415": {
+            "description": "Tipo no admitido"
+          },
+          "422": {
+            "description": "Audio inválido o transcripción fallida"
+          },
+          "429": {
+            "description": "Transcriptor ocupado"
+          },
+          "503": {
+            "description": "Voz no instalada"
+          },
+          "504": {
+            "description": "Tiempo de transcripción agotado"
+          }
+        }
+      }
+    },
+    "/api/agent/chat": {
+      "post": {
+        "summary": "Asistente de lenguaje natural con modelo local y herramientas de lectura",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "text"
+                ],
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "conversationId": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "topic": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "context": {
+                    "type": "object",
+                    "properties": {
+                      "sucursal": {
+                        "type": "string"
+                      },
+                      "proyecto": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Resultado JSON con respuesta, fuentes, trazas e identificador de conversación cuando corresponda"
+          },
+          "429": {
+            "description": "Otra consulta del mismo usuario sigue en curso"
+          },
+          "503": {
+            "description": "Modelo local o fuente no disponible"
+          }
+        }
+      }
+    },
+    "/api/agent/status": {
+      "get": {
+        "summary": "Estado del modelo de lenguaje local",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resultado JSON con respuesta, fuentes, trazas e identificador de conversación cuando corresponda"
+          }
+        }
+      }
+    },
+    "/api/agent/knowledge": {
+      "get": {
+        "summary": "Memoria de términos del usuario",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resultado JSON con respuesta, fuentes, trazas e identificador de conversación cuando corresponda"
+          }
+        }
+      },
+      "post": {
+        "summary": "Guardar clasificación aportada por el usuario, sin escribir en ERP",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resultado JSON con respuesta, fuentes, trazas e identificador de conversación cuando corresponda"
+          }
+        }
+      }
+    },
+    "/api/agent/conversations/{id}": {
+      "get": {
+        "summary": "Recuperar conversación de la identidad autenticada",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Conversación local; respuestas históricas no son datos actuales"
+          },
+          "404": {
+            "description": "Conversación inexistente o de otra identidad"
+          }
+        }
+      }
+    },
+    "/api/agent/knowledge/{id}": {
+      "delete": {
+        "summary": "Olvidar un término de la identidad autenticada",
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resultado con deleted booleano"
+          }
+        }
+      }
+    }
+  }
+}

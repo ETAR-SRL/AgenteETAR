@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {Store} from '../src/store.js';
+import {createApp} from '../src/app.js';
+import {createDemoErp,createDemoKaiqen} from '../src/demo.js';
+test('chat, conversation and memory endpoints require authentication and isolate API callers',async t=>{
+ const store=new Store(':memory:'),readKey='reader-key-012345678901234567890123',planKey='planner-key-01234567890123456789012';
+ const server=createApp({store,erp:createDemoErp(),kaiqen:createDemoKaiqen(),readKey,planKey,model:{name:'test-model',status:async()=>({available:true,local:true}),complete:async()=>({action:'responder',args:{},answer:'¿Qué producto querés consultar?'})}});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();store.close();});
+ const root=`http://127.0.0.1:${server.address().port}`;const request=(path,{key=readKey,method='GET',body}={})=>fetch(root+path,{method,headers:{authorization:'Bearer '+key,'content-type':'application/json'},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+ assert.equal((await request('/api/agent/chat',{key:'bad',method:'POST',body:{text:'hola'}})).status,401);
+ assert.equal((await request('/api/agent/chat',{method:'POST',body:null})).status,400);
+ const result=await(await request('/api/agent/chat',{method:'POST',body:{text:'Precio de venta'}})).json();assert.match(result.answer,/Qué producto/);assert.ok(result.conversationId);
+ assert.equal((await request('/api/agent/conversations/'+result.conversationId)).status,200);
+ assert.equal((await request('/api/agent/conversations/'+result.conversationId,{key:planKey})).status,404);
+ const learned=await request('/api/agent/knowledge',{method:'POST',body:{term:'varilla azul',meaning:'producto ABC',topic:'ventas'}});assert.equal(learned.status,201);const item=await learned.json();
+ assert.equal((await(await request('/api/agent/knowledge')).json()).data.length,1);assert.equal((await(await request('/api/agent/knowledge',{key:planKey})).json()).data.length,0);
+ assert.equal((await(await request('/api/agent/knowledge/'+item.id,{method:'DELETE',key:planKey})).json()).deleted,false);
+ assert.equal((await(await request('/api/agent/knowledge/'+item.id,{method:'DELETE'})).json()).deleted,true);
+});

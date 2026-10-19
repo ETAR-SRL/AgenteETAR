@@ -1,0 +1,1311 @@
+{
+  "schema": "dbo",
+  "tables": {
+    "SX2": "dbo.SX2010",
+    "SX3": "dbo.SX3010",
+    "SX5": "dbo.SX5010",
+    "SA2": "dbo.SA2010",
+    "SB1": "dbo.SB1010",
+    "SX6": "dbo.SX6010",
+    "SA1": "dbo.SA1010",
+    "DA0": "dbo.DA0010",
+    "DA1": "dbo.DA1010",
+    "AIA": "dbo.AIA010",
+    "AIB": "dbo.AIB010",
+    "SA5": "dbo.SA5010",
+    "SA7": "dbo.SA7010",
+    "SB2": "dbo.SB2010",
+    "SC7": "dbo.SC7010",
+    "SC2": "dbo.SC2010",
+    "SC5": "dbo.SC5010",
+    "SC6": "dbo.SC6010",
+    "SF2": "dbo.SF2010",
+    "SD2": "dbo.SD2010",
+    "SD1": "dbo.SD1010",
+    "SG1": "dbo.SG1010",
+    "SCJ": "dbo.SCJ010",
+    "SCK": "dbo.SCK010"
+  },
+  "branches": {
+    "SA1": {
+      "0101": "01"
+    },
+    "SA2": {
+      "0101": "01"
+    },
+    "DA0": {
+      "0101": "01"
+    },
+    "DA1": {
+      "0101": "01"
+    },
+    "SA5": {
+      "0101": "01"
+    },
+    "SA7": {
+      "0101": "01"
+    },
+    "SB1": {
+      "0101": "0101"
+    },
+    "AIA": {
+      "0101": "0101"
+    },
+    "AIB": {
+      "0101": "0101"
+    },
+    "SX5": {
+      "0101": ""
+    },
+    "SX6": {
+      "0101": ""
+    },
+    "SB2": {
+      "0101": "0101"
+    },
+    "SC7": {},
+    "SC2": {},
+    "SC5": {
+      "0101": "0101"
+    },
+    "SC6": {
+      "0101": "0101"
+    },
+    "SF2": {
+      "0101": "0101"
+    },
+    "SD2": {
+      "0101": "0101"
+    },
+    "SD1": {
+      "0101": "0101"
+    },
+    "SG1": {
+      "0101": "0101"
+    },
+    "SCJ": {},
+    "SCK": {}
+  },
+  "entities": {
+    "clientes": {
+      "alias": "SA1",
+      "branch": "A1_FILIAL",
+      "required": [
+        "A1_COD",
+        "A1_LOJA",
+        "A1_TABELA"
+      ],
+      "fields": {
+        "A1_COD": "codigo",
+        "A1_LOJA": "tienda",
+        "A1_NOME": "nombre",
+        "A1_NREDUZ": "nombreFantasia",
+        "A1_END": "direccion",
+        "A1_BAIRRO": "barrio",
+        "A1_MUN": "localidad",
+        "A1_CEP": "codigoPostal",
+        "A1_PAIS": "paisCodigo",
+        "A1_TEL": "telefono",
+        "A1_EMAIL": "email",
+        "A1_INSCR": "inscripcionIngresosBrutos",
+        "A1_CGC": {
+          "output": "cuit",
+          "type": "cuit"
+        },
+        "A1_TIPO": {
+          "output": "tipo",
+          "enum": {}
+        },
+        "A1_PESSOA": {
+          "output": "tipoPersona",
+          "enum": {}
+        },
+        "A1_EST": {
+          "output": "provincia",
+          "enum": {},
+          "lookup": {
+            "table": "12"
+          }
+        },
+        "A1_TABELA": "listaPreciosCodigo",
+        "A1_COND": "condicionPagoCodigo",
+        "A1_CONTATO": "contacto",
+        "A1_DDI": "prefijoPaisTelefono",
+        "A1_DDD": "prefijoAreaTelefono",
+        "A1_MSBLQL": {
+          "output": "bloqueado",
+          "enum": {}
+        }
+      },
+      "filters": {
+        "codigo": "A1_COD",
+        "tienda": "A1_LOJA",
+        "cuit": "A1_CGC",
+        "provincia": "A1_EST"
+      }
+    },
+    "proveedores": {
+      "alias": "SA2",
+      "branch": "A2_FILIAL",
+      "required": [
+        "A2_COD",
+        "A2_LOJA"
+      ],
+      "fields": {
+        "A2_COD": "codigo",
+        "A2_LOJA": "tienda",
+        "A2_NOME": "nombre",
+        "A2_NREDUZ": "nombreFantasia",
+        "A2_END": "direccion",
+        "A2_BAIRRO": "barrio",
+        "A2_MUN": "localidad",
+        "A2_CEP": "codigoPostal",
+        "A2_PAIS": "paisCodigo",
+        "A2_TEL": "telefono",
+        "A2_EMAIL": "email",
+        "A2_INSCR": "inscripcionIngresosBrutos",
+        "A2_CGC": {
+          "output": "cuit",
+          "type": "cuit"
+        },
+        "A2_TIPO": {
+          "output": "tipo",
+          "enum": {}
+        },
+        "A2_EST": {
+          "output": "provincia",
+          "enum": {},
+          "lookup": {
+            "table": "12"
+          }
+        },
+        "A2_TPESSOA": {
+          "output": "tipoPersona",
+          "enum": {}
+        },
+        "A2_COND": "condicionPagoCodigo",
+        "A2_CONTATO": "contacto",
+        "A2_DDI": "prefijoPaisTelefono",
+        "A2_DDD": "prefijoAreaTelefono",
+        "A2_MSBLQL": {
+          "output": "bloqueado",
+          "enum": {}
+        }
+      },
+      "filters": {
+        "codigo": "A2_COD",
+        "tienda": "A2_LOJA",
+        "cuit": "A2_CGC",
+        "provincia": "A2_EST"
+      }
+    },
+    "productos": {
+      "alias": "SB1",
+      "branch": "B1_FILIAL",
+      "required": [
+        "B1_COD",
+        "B1_DESC"
+      ],
+      "fields": {
+        "B1_COD": "codigo",
+        "B1_DESC": "nombre",
+        "B1_CODBAR": "codigoBarras",
+        "B1_TIPO": {
+          "output": "tipo",
+          "enum": {},
+          "lookup": {
+            "table": "02"
+          }
+        },
+        "B1_UM": "unidadMedida",
+        "B1_SEGUM": "segundaUnidadMedida",
+        "B1_GRUPO": "grupoCodigo",
+        "B1_ORIGEM": {
+          "output": "origen",
+          "enum": {}
+        },
+        "B1_POSIPI": "nomenclaturaArancelaria",
+        "B1_LOCPAD": "depositoPredeterminado",
+        "B1_MSBLQL": {
+          "output": "bloqueado",
+          "enum": {}
+        },
+        "B1_PESO": {
+          "output": "pesoNeto",
+          "type": "decimal"
+        },
+        "B1_PESBRU": {
+          "output": "pesoBruto",
+          "type": "decimal"
+        }
+      },
+      "filters": {
+        "codigo": "B1_COD",
+        "grupo": "B1_GRUPO",
+        "tipo": "B1_TIPO"
+      }
+    },
+    "listasPreciosClientes": {
+      "alias": "DA0",
+      "branch": "DA0_FILIAL",
+      "required": [
+        "DA0_CODTAB"
+      ],
+      "fields": {
+        "DA0_CODTAB": "codigo",
+        "DA0_DESCRI": "nombre",
+        "DA0_DATDE": {
+          "output": "vigenteDesde",
+          "type": "date"
+        },
+        "DA0_DATATE": {
+          "output": "vigenteHasta",
+          "type": "date"
+        },
+        "DA0_ATIVO": {
+          "output": "estado",
+          "enum": {}
+        }
+      },
+      "filters": {
+        "codigo": "DA0_CODTAB"
+      }
+    },
+    "preciosClientes": {
+      "alias": "DA1",
+      "branch": "DA1_FILIAL",
+      "required": [
+        "DA1_CODTAB",
+        "DA1_CODPRO",
+        "DA1_PRCVEN"
+      ],
+      "fields": {
+        "DA1_CODTAB": "listaCodigo",
+        "DA1_CODPRO": "productoCodigo",
+        "DA1_ITEM": "item",
+        "DA1_PRCVEN": {
+          "output": "precio",
+          "type": "decimal"
+        },
+        "DA1_MOEDA": {
+          "output": "moneda",
+          "enum": {},
+          "currencyParameters": true
+        },
+        "DA1_DATVIG": {
+          "output": "vigenteDesde",
+          "type": "date"
+        },
+        "DA1_QTDLOT": {
+          "output": "intervaloPrecio",
+          "type": "decimal"
+        },
+        "DA1_TIPPRE": {
+          "output": "tipoPrecio",
+          "enum": {}
+        },
+        "DA1_ATIVO": {
+          "output": "activo",
+          "enum": {}
+        },
+        "DA1_VLRDES": {
+          "output": "descuentoImporte",
+          "type": "decimal"
+        },
+        "DA1_PERDES": {
+          "output": "factorAumentoDescuento",
+          "type": "decimal"
+        },
+        "DA1_INDLOT": "indiceIntervalo",
+        "DA1_FRETE": {
+          "output": "flete",
+          "type": "decimal"
+        }
+      },
+      "filters": {
+        "lista": "DA1_CODTAB",
+        "producto": "DA1_CODPRO"
+      },
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "DA1_CODPRO": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        }
+      ]
+    },
+    "listasPreciosProveedores": {
+      "alias": "AIA",
+      "branch": "AIA_FILIAL",
+      "required": [
+        "AIA_CODTAB",
+        "AIA_CODFOR",
+        "AIA_LOJFOR"
+      ],
+      "fields": {
+        "AIA_CODTAB": "codigo",
+        "AIA_DESCRI": "nombre",
+        "AIA_CODFOR": "proveedorCodigo",
+        "AIA_LOJFOR": "proveedorTienda",
+        "AIA_DATDE": {
+          "output": "vigenteDesde",
+          "type": "date"
+        },
+        "AIA_DATATE": {
+          "output": "vigenteHasta",
+          "type": "date"
+        },
+        "AIA_CONDPG": "condicionPagoCodigo"
+      },
+      "filters": {
+        "codigo": "AIA_CODTAB",
+        "proveedor": "AIA_CODFOR",
+        "tienda": "AIA_LOJFOR"
+      },
+      "references": [
+        {
+          "entity": "proveedores",
+          "output": "proveedor",
+          "keys": {
+            "AIA_CODFOR": "A2_COD",
+            "AIA_LOJFOR": "A2_LOJA"
+          },
+          "fields": {
+            "A2_COD": "codigo",
+            "A2_LOJA": "tienda",
+            "A2_NOME": "nombre",
+            "A2_CGC": "cuitOriginal"
+          }
+        }
+      ]
+    },
+    "preciosProveedores": {
+      "alias": "AIB",
+      "branch": "AIB_FILIAL",
+      "required": [
+        "AIB_CODTAB",
+        "AIB_CODFOR",
+        "AIB_LOJFOR",
+        "AIB_CODPRO",
+        "AIB_PRCCOM"
+      ],
+      "fields": {
+        "AIB_CODTAB": "listaCodigo",
+        "AIB_CODFOR": "proveedorCodigo",
+        "AIB_LOJFOR": "proveedorTienda",
+        "AIB_CODPRO": "productoCodigo",
+        "AIB_PRCCOM": {
+          "output": "precio",
+          "type": "decimal"
+        },
+        "AIB_MOEDA": {
+          "output": "moneda",
+          "enum": {},
+          "currencyParameters": true
+        },
+        "AIB_QTDLOT": {
+          "output": "rangoCompra",
+          "type": "decimal"
+        },
+        "AIB_DATVIG": {
+          "output": "vigenteDesde",
+          "type": "date"
+        },
+        "AIB_ITEM": "item",
+        "AIB_PRCXTR": {
+          "output": "precioMinimo",
+          "type": "decimal"
+        },
+        "AIB_INDLOT": "indiceRango",
+        "AIB_FRETE": {
+          "output": "fleteUnitario",
+          "type": "decimal"
+        }
+      },
+      "filters": {
+        "lista": "AIB_CODTAB",
+        "proveedor": "AIB_CODFOR",
+        "tienda": "AIB_LOJFOR",
+        "producto": "AIB_CODPRO"
+      },
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "AIB_CODPRO": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        },
+        {
+          "entity": "proveedores",
+          "output": "proveedor",
+          "keys": {
+            "AIB_CODFOR": "A2_COD",
+            "AIB_LOJFOR": "A2_LOJA"
+          },
+          "fields": {
+            "A2_COD": "codigo",
+            "A2_LOJA": "tienda",
+            "A2_NOME": "nombre",
+            "A2_CGC": "cuitOriginal"
+          }
+        }
+      ]
+    },
+    "productoProveedor": {
+      "alias": "SA5",
+      "branch": "A5_FILIAL",
+      "required": [
+        "A5_PRODUTO",
+        "A5_FORNECE",
+        "A5_LOJA"
+      ],
+      "fields": {
+        "A5_PRODUTO": "productoCodigo",
+        "A5_FORNECE": "proveedorCodigo",
+        "A5_LOJA": "proveedorTienda",
+        "A5_CODPRF": "codigoProductoProveedor",
+        "A5_NOMEFOR": "nombreProveedor",
+        "A5_NOMPROD": "nombreProductoEnRelacion",
+        "A5_UNID": "unidadProveedor",
+        "A5_CODTAB": "listaPreciosCodigo",
+        "A5_LOTEMIN": {
+          "output": "loteMinimo",
+          "type": "decimal"
+        },
+        "A5_LEAD_T": {
+          "output": "diasProvision",
+          "type": "decimal"
+        }
+      },
+      "filters": {
+        "producto": "A5_PRODUTO",
+        "proveedor": "A5_FORNECE",
+        "tienda": "A5_LOJA"
+      },
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "A5_PRODUTO": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        },
+        {
+          "entity": "proveedores",
+          "output": "proveedor",
+          "keys": {
+            "A5_FORNECE": "A2_COD",
+            "A5_LOJA": "A2_LOJA"
+          },
+          "fields": {
+            "A2_COD": "codigo",
+            "A2_LOJA": "tienda",
+            "A2_NOME": "nombre",
+            "A2_CGC": "cuitOriginal"
+          }
+        }
+      ]
+    },
+    "productoCliente": {
+      "alias": "SA7",
+      "branch": "A7_FILIAL",
+      "required": [
+        "A7_PRODUTO",
+        "A7_CLIENTE",
+        "A7_LOJA"
+      ],
+      "fields": {
+        "A7_PRODUTO": "productoCodigo",
+        "A7_CLIENTE": "clienteCodigo",
+        "A7_LOJA": "clienteTienda",
+        "A7_CODCLI": "codigoProductoCliente",
+        "A7_DESCCLI": "nombreProductoCliente"
+      },
+      "filters": {
+        "producto": "A7_PRODUTO",
+        "cliente": "A7_CLIENTE",
+        "tienda": "A7_LOJA"
+      },
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "A7_PRODUTO": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        },
+        {
+          "entity": "clientes",
+          "output": "cliente",
+          "keys": {
+            "A7_CLIENTE": "A1_COD",
+            "A7_LOJA": "A1_LOJA"
+          },
+          "fields": {
+            "A1_COD": "codigo",
+            "A1_LOJA": "tienda",
+            "A1_NOME": "nombre",
+            "A1_CGC": "cuitOriginal"
+          }
+        }
+      ]
+    },
+    "costos": {
+      "alias": "SB2",
+      "branch": "B2_FILIAL",
+      "required": [
+        "B2_COD",
+        "B2_LOCAL",
+        "B2_CM1"
+      ],
+      "fields": {
+        "B2_COD": "productoCodigo",
+        "B2_LOCAL": "deposito",
+        "B2_CM1": {
+          "output": "costoMedio",
+          "type": "decimal"
+        },
+        "B2_QATU": {
+          "output": "cantidadActual",
+          "type": "decimal"
+        },
+        "B2_VATU1": {
+          "output": "valorActualMoneda1",
+          "type": "decimal"
+        },
+        "B2_CM2": {
+          "output": "costoMedioMoneda2",
+          "type": "decimal"
+        },
+        "B2_CM3": {
+          "output": "costoMedioMoneda3",
+          "type": "decimal"
+        },
+        "B2_CM4": {
+          "output": "costoMedioMoneda4",
+          "type": "decimal"
+        },
+        "B2_CM5": {
+          "output": "costoMedioMoneda5",
+          "type": "decimal"
+        }
+      },
+      "filters": {
+        "producto": "B2_COD",
+        "deposito": "B2_LOCAL"
+      },
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "B2_COD": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        }
+      ],
+      "warnings": [
+        "costos_por_deposito:CM1_moneda1_verificar_SX6_no_sumar_monedas_distintas"
+      ]
+    },
+    "compras": {
+      "alias": "SC7",
+      "branch": "C7_FILIAL",
+      "required": [
+        "C7_NUM",
+        "C7_ITEM",
+        "C7_PRODUTO",
+        "C7_QUANT",
+        "C7_QUJE"
+      ],
+      "fields": {
+        "C7_NUM": "numero",
+        "C7_ITEM": "item",
+        "C7_PRODUTO": "productoCodigo",
+        "C7_DESCRI": "descripcion",
+        "C7_FORNECE": "proveedorCodigo",
+        "C7_LOJA": "proveedorTienda",
+        "C7_QUANT": {
+          "output": "cantidadPedida",
+          "type": "decimal"
+        },
+        "C7_QUJE": {
+          "output": "cantidadAtendida",
+          "type": "decimal"
+        },
+        "C7_QTDACLA": {
+          "output": "cantidadAClasificar",
+          "type": "decimal"
+        },
+        "C7_PRECO": {
+          "output": "precioUnitario",
+          "type": "decimal"
+        },
+        "C7_TOTAL": {
+          "output": "total",
+          "type": "decimal"
+        },
+        "C7_MOEDA": {
+          "output": "moneda",
+          "currencyParameters": true
+        },
+        "C7_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "C7_DATPRF": {
+          "output": "fechaPrevista",
+          "type": "date"
+        },
+        "C7_RESIDUO": "residuoCodigo",
+        "C7_CONAPRO": "aprobacionCodigo",
+        "C7_ENCER": "cierreCodigo",
+        "C7_LOCAL": "deposito",
+        "C7_CC": "centroCosto"
+      },
+      "filters": {
+        "numero": "C7_NUM",
+        "item": "C7_ITEM",
+        "producto": "C7_PRODUTO",
+        "proveedor": "C7_FORNECE",
+        "tienda": "C7_LOJA"
+      },
+      "dateField": "C7_EMISSAO",
+      "pending": {
+        "ordered": "C7_QUANT",
+        "applied": "C7_QUJE"
+      },
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "C7_PRODUTO": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        },
+        {
+          "entity": "proveedores",
+          "output": "proveedor",
+          "keys": {
+            "C7_FORNECE": "A2_COD",
+            "C7_LOJA": "A2_LOJA"
+          },
+          "fields": {
+            "A2_COD": "codigo",
+            "A2_LOJA": "tienda",
+            "A2_NOME": "nombre"
+          }
+        }
+      ],
+      "warnings": [
+        "saldo_tecnico_compra_no_incluye_validacion_de_residuo_cierre_aprobacion_ni_tolerancias",
+        "C7_QUJE_cantidad_atendida_no_equivale_a_total_fisico_recibido_ver_SD1"
+      ]
+    },
+    "produccion": {
+      "alias": "SC2",
+      "branch": "C2_FILIAL",
+      "required": [
+        "C2_NUM",
+        "C2_ITEM",
+        "C2_SEQUEN",
+        "C2_PRODUTO",
+        "C2_QUANT",
+        "C2_QUJE"
+      ],
+      "fields": {
+        "C2_NUM": "numero",
+        "C2_ITEM": "item",
+        "C2_SEQUEN": "secuencia",
+        "C2_PRODUTO": "productoCodigo",
+        "C2_QUANT": {
+          "output": "cantidadPlaneada",
+          "type": "decimal"
+        },
+        "C2_QUJE": {
+          "output": "cantidadApuntada",
+          "type": "decimal"
+        },
+        "C2_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "C2_DATPRI": {
+          "output": "inicioPrevisto",
+          "type": "date"
+        },
+        "C2_DATPRF": {
+          "output": "finPrevisto",
+          "type": "date"
+        },
+        "C2_DATRF": {
+          "output": "fechaCierre",
+          "type": "date"
+        },
+        "C2_LOCAL": "deposito",
+        "C2_PEDIDO": "pedidoVenta",
+        "C2_ITEMPV": "itemPedidoVenta",
+        "C2_TPOP": "tipoOrdenCodigo"
+      },
+      "filters": {
+        "numero": "C2_NUM",
+        "item": "C2_ITEM",
+        "secuencia": "C2_SEQUEN",
+        "producto": "C2_PRODUTO",
+        "pedido": "C2_PEDIDO"
+      },
+      "dateField": "C2_EMISSAO",
+      "pending": {
+        "ordered": "C2_QUANT",
+        "applied": "C2_QUJE"
+      },
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "C2_PRODUTO": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        }
+      ],
+      "warnings": [
+        "saldo_tecnico_produccion_no_acredita_calidad_ni_orden_abierta_ver_fechaCierre"
+      ]
+    },
+    "ventas": {
+      "alias": "SC5",
+      "branch": "C5_FILIAL",
+      "required": [
+        "C5_NUM",
+        "C5_CLIENTE",
+        "C5_LOJACLI"
+      ],
+      "fields": {
+        "C5_NUM": "numero",
+        "C5_CLIENTE": "clienteCodigo",
+        "C5_LOJACLI": "clienteTienda",
+        "C5_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "C5_TIPO": "tipoCodigo",
+        "C5_CONDPAG": "condicionPagoCodigo",
+        "C5_TABELA": "listaPreciosCodigo",
+        "C5_MOEDA": {
+          "output": "moneda",
+          "currencyParameters": true
+        },
+        "C5_NOTA": "documentoSalida",
+        "C5_SERIE": "serie",
+        "C5_TRANSP": "transportistaCodigo",
+        "C5_LIBEROK": "liberacionCodigo",
+        "C5_BLQ": "bloqueoCodigo"
+      },
+      "filters": {
+        "numero": "C5_NUM",
+        "cliente": "C5_CLIENTE",
+        "tienda": "C5_LOJACLI"
+      },
+      "dateField": "C5_EMISSAO",
+      "references": [
+        {
+          "entity": "clientes",
+          "output": "cliente",
+          "keys": {
+            "C5_CLIENTE": "A1_COD",
+            "C5_LOJACLI": "A1_LOJA"
+          },
+          "fields": {
+            "A1_COD": "codigo",
+            "A1_LOJA": "tienda",
+            "A1_NOME": "nombre"
+          }
+        }
+      ]
+    },
+    "itemsVentas": {
+      "alias": "SC6",
+      "branch": "C6_FILIAL",
+      "required": [
+        "C6_NUM",
+        "C6_ITEM",
+        "C6_PRODUTO",
+        "C6_QTDVEN",
+        "C6_QTDENT"
+      ],
+      "fields": {
+        "C6_NUM": "numero",
+        "C6_ITEM": "item",
+        "C6_PRODUTO": "productoCodigo",
+        "C6_DESCRI": "descripcion",
+        "C6_QTDVEN": {
+          "output": "cantidadPedida",
+          "type": "decimal"
+        },
+        "C6_QTDENT": {
+          "output": "cantidadAtendida",
+          "type": "decimal"
+        },
+        "C6_PRCVEN": {
+          "output": "precioUnitario",
+          "type": "decimal"
+        },
+        "C6_VALOR": {
+          "output": "total",
+          "type": "decimal"
+        },
+        "C6_ENTREG": {
+          "output": "fechaEntregaPrevista",
+          "type": "date"
+        },
+        "C6_CLI": "clienteCodigo",
+        "C6_LOJA": "clienteTienda",
+        "C6_LOCAL": "deposito",
+        "C6_BLQ": "bloqueoCodigo",
+        "C6_NOTA": "documentoSalida",
+        "C6_SERIE": "serie",
+        "C6_PEDCLI": "pedidoCliente",
+        "C6_TES": "tesCodigo",
+        "C6_MILLAR": {
+          "output": "cantidadMillares",
+          "type": "decimal"
+        }
+      },
+      "filters": {
+        "numero": "C6_NUM",
+        "item": "C6_ITEM",
+        "producto": "C6_PRODUTO",
+        "cliente": "C6_CLI",
+        "tienda": "C6_LOJA"
+      },
+      "dateField": "C6_ENTREG",
+      "pending": {
+        "ordered": "C6_QTDVEN",
+        "applied": "C6_QTDENT"
+      },
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "C6_PRODUTO": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        }
+      ],
+      "warnings": [
+        "saldo_tecnico_venta_no_acredita_entrega_fisica_ni_pedido_abierto"
+      ]
+    },
+    "documentosSalida": {
+      "alias": "SF2",
+      "branch": "F2_FILIAL",
+      "required": [
+        "F2_DOC",
+        "F2_SERIE",
+        "F2_CLIENTE",
+        "F2_LOJA"
+      ],
+      "fields": {
+        "F2_DOC": "numero",
+        "F2_SERIE": "serie",
+        "F2_ESPECIE": "especieCodigo",
+        "F2_TIPODOC": "tipoDocumento",
+        "F2_TIPO": "tipoCodigo",
+        "F2_CLIENTE": "terceroCodigo",
+        "F2_LOJA": "terceroTienda",
+        "F2_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "F2_VALBRUT": {
+          "output": "totalBruto",
+          "type": "decimal"
+        },
+        "F2_VALMERC": {
+          "output": "totalMercaderia",
+          "type": "decimal"
+        },
+        "F2_MOEDA": {
+          "output": "moneda",
+          "currencyParameters": true
+        },
+        "F2_TRANSP": "transportistaCodigo",
+        "F2_COND": "condicionPagoCodigo",
+        "F2_CHVNFE": "claveElectronica"
+      },
+      "filters": {
+        "numero": "F2_DOC",
+        "serie": "F2_SERIE",
+        "cliente": "F2_CLIENTE",
+        "tienda": "F2_LOJA",
+        "especie": "F2_ESPECIE",
+        "tipoDocumento": "F2_TIPODOC",
+        "tipo": "F2_TIPO"
+      },
+      "dateField": "F2_EMISSAO",
+      "warnings": [
+        "especie_documental_sin_clasificacion_automatica:validar_TIPODOC_y_diccionario_Argentina",
+        "documento_ERP_no_acredita_entrega_fisica_confirmada"
+      ]
+    },
+    "itemsDocumentosSalida": {
+      "alias": "SD2",
+      "branch": "D2_FILIAL",
+      "required": [
+        "D2_DOC",
+        "D2_SERIE",
+        "D2_CLIENTE",
+        "D2_LOJA",
+        "D2_ITEM",
+        "D2_COD"
+      ],
+      "fields": {
+        "D2_DOC": "numero",
+        "D2_SERIE": "serie",
+        "D2_ITEM": "item",
+        "D2_ESPECIE": "especieCodigo",
+        "D2_TIPODOC": "tipoDocumento",
+        "D2_TIPO": "tipoCodigo",
+        "D2_COD": "productoCodigo",
+        "D2_CLIENTE": "terceroCodigo",
+        "D2_LOJA": "terceroTienda",
+        "D2_QUANT": {
+          "output": "cantidadDocumentada",
+          "type": "decimal"
+        },
+        "D2_PRCVEN": {
+          "output": "precioUnitario",
+          "type": "decimal"
+        },
+        "D2_TOTAL": {
+          "output": "total",
+          "type": "decimal"
+        },
+        "D2_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "D2_PEDIDO": "pedidoVenta",
+        "D2_ITEMPV": "itemPedidoVenta",
+        "D2_LOCAL": "deposito",
+        "D2_TES": "tesCodigo",
+        "D2_MILLAR": {
+          "output": "cantidadMillares",
+          "type": "decimal"
+        }
+      },
+      "filters": {
+        "numero": "D2_DOC",
+        "serie": "D2_SERIE",
+        "item": "D2_ITEM",
+        "producto": "D2_COD",
+        "cliente": "D2_CLIENTE",
+        "tienda": "D2_LOJA",
+        "pedido": "D2_PEDIDO",
+        "especie": "D2_ESPECIE",
+        "tipoDocumento": "D2_TIPODOC",
+        "tipo": "D2_TIPO"
+      },
+      "dateField": "D2_EMISSAO",
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "D2_COD": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        }
+      ],
+      "warnings": [
+        "especie_documental_sin_clasificacion_automatica:validar_TIPODOC_y_diccionario_Argentina",
+        "documento_ERP_no_acredita_entrega_fisica_confirmada"
+      ]
+    },
+    "entradasCompras": {
+      "alias": "SD1",
+      "branch": "D1_FILIAL",
+      "required": [
+        "D1_DOC",
+        "D1_SERIE",
+        "D1_FORNECE",
+        "D1_LOJA",
+        "D1_ITEM",
+        "D1_COD"
+      ],
+      "fields": {
+        "D1_DOC": "numero",
+        "D1_SERIE": "serie",
+        "D1_ITEM": "item",
+        "D1_ESPECIE": "especieCodigo",
+        "D1_TIPO": "tipoCodigo",
+        "D1_COD": "productoCodigo",
+        "D1_FORNECE": "terceroCodigo",
+        "D1_LOJA": "terceroTienda",
+        "D1_QUANT": {
+          "output": "cantidadDocumentada",
+          "type": "decimal"
+        },
+        "D1_VUNIT": {
+          "output": "precioUnitario",
+          "type": "decimal"
+        },
+        "D1_TOTAL": {
+          "output": "total",
+          "type": "decimal"
+        },
+        "D1_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "D1_DTDIGIT": {
+          "output": "fechaRegistro",
+          "type": "date"
+        },
+        "D1_PEDIDO": "pedidoCompra",
+        "D1_ITEMPC": "itemPedidoCompra",
+        "D1_LOCAL": "deposito",
+        "D1_TES": "tesCodigo"
+      },
+      "filters": {
+        "numero": "D1_DOC",
+        "serie": "D1_SERIE",
+        "item": "D1_ITEM",
+        "producto": "D1_COD",
+        "proveedor": "D1_FORNECE",
+        "tienda": "D1_LOJA",
+        "pedido": "D1_PEDIDO",
+        "especie": "D1_ESPECIE",
+        "tipo": "D1_TIPO"
+      },
+      "dateField": "D1_DTDIGIT",
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "D1_COD": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        }
+      ],
+      "warnings": [
+        "documentos_entrada:validar_especie_y_TIPODOC_para_distinguir_compras_de_devoluciones"
+      ]
+    },
+    "estructuras": {
+      "alias": "SG1",
+      "branch": "G1_FILIAL",
+      "required": [
+        "G1_COD",
+        "G1_COMP",
+        "G1_QUANT"
+      ],
+      "fields": {
+        "G1_COD": "productoCodigo",
+        "G1_COMP": "componenteCodigo",
+        "G1_TRT": "secuencia",
+        "G1_REVINI": "revisionDesde",
+        "G1_REVFIM": "revisionHasta",
+        "G1_QUANT": {
+          "output": "cantidad",
+          "type": "decimal"
+        },
+        "G1_PERDA": {
+          "output": "perdida",
+          "type": "decimal"
+        },
+        "G1_FIXVAR": "cantidadFijaVariableCodigo",
+        "G1_INI": {
+          "output": "vigenteDesde",
+          "type": "date"
+        },
+        "G1_FIM": {
+          "output": "vigenteHasta",
+          "type": "date"
+        }
+      },
+      "filters": {
+        "producto": "G1_COD",
+        "componente": "G1_COMP"
+      },
+      "dateField": "G1_INI",
+      "warnings": [
+        "estructura_bruta:filtrar_vigencia_revision_y_cantidad_fija_variable_antes_de_costear"
+      ]
+    },
+    "cotizaciones": {
+      "alias": "SCJ",
+      "branch": "CJ_FILIAL",
+      "required": [
+        "CJ_NUM",
+        "CJ_CLIENTE",
+        "CJ_LOJA"
+      ],
+      "fields": {
+        "CJ_NUM": "numero",
+        "CJ_CLIENTE": "clienteCodigo",
+        "CJ_LOJA": "clienteTienda",
+        "CJ_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "CJ_VALIDA": {
+          "output": "fechaValidez",
+          "type": "date"
+        },
+        "CJ_CONDPAG": "condicionPagoCodigo",
+        "CJ_TABELA": "listaPreciosCodigo",
+        "CJ_MOEDA": {
+          "output": "moneda",
+          "currencyParameters": true
+        },
+        "CJ_STATUS": "estadoCodigo",
+        "CJ_TIPO": "tipoCodigo"
+      },
+      "filters": {
+        "numero": "CJ_NUM",
+        "cliente": "CJ_CLIENTE",
+        "tienda": "CJ_LOJA"
+      },
+      "dateField": "CJ_EMISSAO",
+      "references": [
+        {
+          "entity": "clientes",
+          "output": "cliente",
+          "keys": {
+            "CJ_CLIENTE": "A1_COD",
+            "CJ_LOJA": "A1_LOJA"
+          },
+          "fields": {
+            "A1_COD": "codigo",
+            "A1_LOJA": "tienda",
+            "A1_NOME": "nombre"
+          }
+        }
+      ],
+      "warnings": [
+        "cotizaciones_MATA415:confirmar_uso_local_y_diccionario"
+      ]
+    },
+    "itemsCotizaciones": {
+      "alias": "SCK",
+      "branch": "CK_FILIAL",
+      "required": [
+        "CK_NUM",
+        "CK_ITEM",
+        "CK_PRODUTO"
+      ],
+      "fields": {
+        "CK_NUM": "numero",
+        "CK_ITEM": "item",
+        "CK_PRODUTO": "productoCodigo",
+        "CK_DESCRI": "descripcion",
+        "CK_QTDVEN": {
+          "output": "cantidad",
+          "type": "decimal"
+        },
+        "CK_PRCVEN": {
+          "output": "precioUnitario",
+          "type": "decimal"
+        },
+        "CK_VALOR": {
+          "output": "total",
+          "type": "decimal"
+        },
+        "CK_ENTREG": {
+          "output": "fechaEntregaPrevista",
+          "type": "date"
+        },
+        "CK_LOCAL": "deposito",
+        "CK_TES": "tesCodigo",
+        "CK_CLIENTE": "clienteCodigo",
+        "CK_LOJA": "clienteTienda"
+      },
+      "filters": {
+        "numero": "CK_NUM",
+        "item": "CK_ITEM",
+        "producto": "CK_PRODUTO"
+      },
+      "dateField": "CK_ENTREG",
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "CK_PRODUTO": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        }
+      ],
+      "warnings": [
+        "cotizaciones_MATA415:confirmar_uso_local_y_diccionario"
+      ]
+    }
+  },
+  "verification": {
+    "checkedAt": "2026-10-19T16:11:34.842Z",
+    "source": "reports/erp-schema.json",
+    "scope": "SELECT sys.tables/sys.columns/SX2/SX3 y DISTINCT filial activa; sin escrituras ERP",
+    "unresolvedBranches": [
+      "SC7",
+      "SC2",
+      "SCJ",
+      "SCK"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+import { randomBytes } from 'node:crypto';
+import { mkdirSync,writeFileSync } from 'node:fs';
+process.env.MODE='demo';
+process.env.API_READ_KEY=randomBytes(32).toString('hex');
+process.env.API_PLAN_KEY=randomBytes(32).toString('hex');
+process.env.DATA_DIR='data/demo';
+mkdirSync('data/demo',{recursive:true});
+writeFileSync('data/demo/credentials.json',JSON.stringify({readKey:process.env.API_READ_KEY,planKey:process.env.API_PLAN_KEY},null,2),{mode:0o600});
+console.log('Demo: credenciales locales en data/demo/credentials.json. Datos ficticios.');
+await import('../src/server.js');

@@ -1,0 +1,11 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+const path='docs/openapi.json',spec=JSON.parse(readFileSync(path,'utf8'));
+spec.info.description='Centralizador local con PWA, chat de lenguaje natural con modelo local y memoria y transcripción de audio local. No ejecuta escrituras ERP.';
+spec.components.securitySchemes.localSession={type:'apiKey',in:'cookie',name:'central_session',description:'Sesión de lectura local. Requiere loopback y validación de origen para POST. HttpOnly, SameSite Strict, 12 horas.'};
+const response={description:'Resultado JSON',content:{'application/json':{schema:{type:'object',additionalProperties:true}}}};
+spec.paths['/api/ui/session']={post:{summary:'Crear sesión local de lectura para la PWA',description:'Requiere Origin idéntico al Host local 127.0.0.1 o localhost y conexión loopback. No devuelve claves API.',security:[],responses:{200:response,403:{description:'Origen o equipo no permitido'}}}};
+spec.paths['/api/voice/status']={get:{summary:'Disponibilidad de Whisper local',security:[{bearerAuth:[]},{localSession:[]}],responses:{200:response}}};
+spec.paths['/api/voice/transcribe']={post:{summary:'Transcribir español localmente',description:'Máximo 8 MiB y 45 segundos. Una transcripción simultánea; texto revisable antes de consultar. Elimina audio temporal al finalizar.',security:[{bearerAuth:[]},{localSession:[]}],requestBody:{required:true,content:Object.fromEntries(['audio/webm','audio/ogg','audio/wav','audio/mp4'].map(type=>[type,{schema:{type:'string',format:'binary'}}]))},responses:{200:response,413:{description:'Audio demasiado grande'},415:{description:'Tipo no admitido'},422:{description:'Audio inválido o transcripción fallida'},429:{description:'Transcriptor ocupado'},503:{description:'Voz no instalada'},504:{description:'Tiempo de transcripción agotado'}}}};
+for(const [path,operations] of Object.entries(spec.paths))if(!path.startsWith('/api/changes/'))for(const operation of Object.values(operations))if(operation.security?.some(s=>s.bearerAuth)&&!operation.security.some(s=>s.localSession))operation.security.push({localSession:[]});
+writeFileSync(path,JSON.stringify(spec,null,2)+'\n');
+for(const path of ['README.md','docs/estado-entrega.md'])writeFileSync(path,readFileSync(path,'utf8').replaceAll('**40 pruebas automatizadas aprobadas**','**42 pruebas automatizadas aprobadas**'));

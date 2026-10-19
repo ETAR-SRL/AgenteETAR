@@ -1,0 +1,12 @@
+import {randomUUID} from 'node:crypto';
+import {assert} from '../errors.js';
+export class Memory{
+ constructor(store){this.db=store.db;this.db.exec(`CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,owner TEXT NOT NULL,updated TEXT NOT NULL,body TEXT NOT NULL); CREATE TABLE IF NOT EXISTS knowledge(id TEXT PRIMARY KEY,owner TEXT NOT NULL,created TEXT NOT NULL,topic TEXT NOT NULL,term TEXT NOT NULL,meaning TEXT NOT NULL);`);}
+ owner(actor){return actor.startsWith('ui:')?'local-user':actor;}
+ conversation(id,actor){const owner=this.owner(actor);if(!id)return {id:randomUUID(),owner,messages:[]};assert(typeof id==='string'&&/^[a-f0-9-]{36}$/.test(id),400,'CONVERSACION_INVALIDA','Conversación inválida');const row=this.db.prepare('SELECT body FROM conversations WHERE id=? AND owner=?').get(id,owner);assert(row,404,'CONVERSACION_NO_EXISTE','Conversación no encontrada');return JSON.parse(row.body);}
+ save(conversation){this.db.prepare('INSERT INTO conversations VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated=excluded.updated,body=excluded.body').run(conversation.id,conversation.owner,new Date().toISOString(),JSON.stringify({...conversation,messages:conversation.messages.slice(-20)}));}
+ list(actor){return this.db.prepare('SELECT id,created,topic,term,meaning FROM knowledge WHERE owner=? ORDER BY created DESC LIMIT 100').all(this.owner(actor));}
+ relevant(actor,text,topic){const normalize=s=>s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();const query=normalize(text);return this.list(actor).map((item,index)=>({item,score:(query.includes(normalize(item.term))?100:0)+(item.topic===topic?10:0)+normalize(item.term).split(/\s+/).filter(w=>w.length>2&&query.includes(w)).length*5-index/1000})).sort((a,b)=>b.score-a.score).slice(0,20).map(x=>x.item);}
+ add(actor,input){assert(input&&typeof input==='object',400,'MEMORIA_INVALIDA','Memoria inválida');const {topic='general',term,meaning}=input;assert(typeof topic==='string'&&topic.length<=40&&typeof term==='string'&&term.trim().length>=2&&term.length<=100&&typeof meaning==='string'&&meaning.trim().length>=2&&meaning.length<=800,400,'MEMORIA_INVALIDA','Indicar tema, término y significado');const id=randomUUID();this.db.prepare('INSERT INTO knowledge VALUES(?,?,?,?,?,?)').run(id,this.owner(actor),new Date().toISOString(),topic,term.trim(),meaning.trim());return {id,topic,term,meaning};}
+ remove(actor,id){return this.db.prepare('DELETE FROM knowledge WHERE id=? AND owner=?').run(id,this.owner(actor)).changes>0;}
+}
