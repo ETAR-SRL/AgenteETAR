@@ -214,5 +214,8 @@ test('chat explains blocked credit preview and HTTP execute rejects it without b
  const key='w'.repeat(40),server=createApp({erp:f.erp,kaiqen:createDemoKaiqen(),store,readKey:'r'.repeat(40),planKey:'p'.repeat(40),writeKey:key});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();});
  const base=`http://127.0.0.1:${server.address().port}`,post=(path,body)=>fetch(base+path,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify(body)});
  const res=await post('/api/changes/preview',f.input);assert.equal(res.status,201);const p=await res.json();assert.equal(p.executionEnabled,false);assert.equal(p.blockers[0].code,'REQUIERE_REVALIDACION_CREDITO');
+ const capabilities=await (await fetch(base+'/api/capabilities',{headers:{authorization:'Bearer '+key}})).json();
+ assert.equal(capabilities.canExecute,true);assert.equal(capabilities.writePolicy.transport,'sql');assert.equal(capabilities.writePolicy.nativeCreditRevalidation,false);assert.equal(capabilities.writePolicy.protheusRest,false);
+ assert.match(p.blockers[0].message,/UPDATE SQL/);assert.match(p.blockers[0].message,/no ejecutan la revalidación nativa/);
  const result=await post('/api/changes/'+p.id+'/execute',{confirm:true,fingerprint:p.fingerprint});assert.equal(result.status,409);assert.equal(f.state.writes,0);
 });

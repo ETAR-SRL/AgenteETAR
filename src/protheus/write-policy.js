@@ -1,6 +1,12 @@
 import Decimal from 'decimal.js';
 import {assert} from '../errors.js';
 export const D=Decimal.clone({precision:50,rounding:Decimal.ROUND_HALF_UP});
+export const sqlExecutionPolicy=Object.freeze({
+ transport:'sql',existingRecordsOnly:true,nativeCreditRevalidation:false,protheusRest:false,
+ preservesIssuedDocuments:true,
+ description:'UPDATE controlados sobre registros existentes. No se invocan REST ni rutinas ADVPL de Protheus.',
+ creditLimitation:'Los pedidos con liberaciones pendientes y control de crédito activo requieren revalidación nativa. Un UPDATE SQL no la ejecuta; esas propuestas no pueden confirmarse desde este modo.'
+});
 export const writeProfiles=Object.freeze({
  precioLista:{alias:'DA1',resource:'preciosClientes',branch:'DA1_FILIAL',product:'DA1_CODPRO',price:'DA1_PRCVEN',priceThousands:'DA1_PRCMIL',keys:['DA1_CODTAB','DA1_ITEM','DA1_CODPRO'],fields:['precio']},
  precioListaProveedor:{alias:'AIB',resource:'preciosProveedores',branch:'AIB_FILIAL',product:'AIB_CODPRO',price:'AIB_PRCCOM',keys:['AIB_CODTAB','AIB_CODFOR','AIB_LOJFOR','AIB_CODPRO'],fields:['precio']},

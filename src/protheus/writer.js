@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {assert} from '../errors.js';
 import {identifier as q} from './config.js';
-import {writeProfiles,calculateUpdate,clean,sourceNumber,numericSpec} from './write-policy.js';
+import {writeProfiles,calculateUpdate,clean,sourceNumber,numericSpec,sqlExecutionPolicy} from './write-policy.js';
 import {releaseProfile,salesBalanceContext,planSalesBalance} from './sales-balance.js';
 
 export const fingerprint=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -92,7 +92,7 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
   for(const field of Object.keys(before))if(!Object.hasOwn(updates,field)&&field!=='S_T_A_M_P_')assert(JSON.stringify(after[field])===JSON.stringify(before[field]),409,'EFECTO_NO_PREVISTO',`Cambió un campo no solicitado: ${field}`);
  }
  return {
-  enabled,
+  enabled,policy:sqlExecutionPolicy,
   async prepare(action,input){
    const c=await context(db,action,input.target),plan=calculate(action,input,c);
    return {version:2,resource:c.p.resource,identity:c.identity,snapshot:snapshot(c),snapshotHash:fingerprint(snapshot(c)),...plan,executionEnabled:enabled&&!plan.blockers.length};

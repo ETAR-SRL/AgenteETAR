@@ -56,7 +56,7 @@ export function planSalesBalance(plan,context,catalog){
  if(!permitted)blockers.push({code:'PARAMETRO_REPRECIO',message:'MV_ALTPREC no permite este reajuste por estado; revisar en Protheus sin modificar parámetros desde el agente.'});
  // SQL does not run the native credit checks or update the customer credit balances.
  // A preview remains useful, but it must not become an executable credit bypass.
- if(balance.pending.length&&parameters.MV_BLOQUEI!=='.F.')blockers.push({code:'REQUIERE_REVALIDACION_CREDITO',message:'Hay liberaciones pendientes y el control de crédito está activo o no es verificable. Reajustar mediante el circuito nativo Protheus; el agente no recalcula saldos de crédito ni renueva aprobaciones.'});
+ if(balance.pending.length&&parameters.MV_BLOQUEI!=='.F.')blockers.push({code:'REQUIERE_REVALIDACION_CREDITO',message:'Hay liberaciones pendientes y el control de crédito está activo o no es verificable. Esta instalación usa sólo UPDATE SQL, que no ejecutan la revalidación nativa de Protheus. La propuesta no puede confirmarse aquí; requiere el circuito nativo. No se desactiva crédito ni se cambian sus aprobaciones.'});
  const relatedUpdates=[];
  for(const release of balance.pending){
   const after=fit(plan.calculation.precioPorUnidad,'C9_PRCVEN',catalog,'SC9');

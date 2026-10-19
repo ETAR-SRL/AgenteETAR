@@ -45,6 +45,14 @@ SC7 y SC9 se configuran con filial `0101` por SX2 exclusivo E/E/E. No se inventa
 
 Estas fuentes describen el producto, no certifican este ejecutor SQL ni sustituyen la homologación de las personalizaciones locales.
 
+### Modo SQL y revalidación nativa
+
+Por indicación del dueño, esta instalación continúa exclusivamente con UPDATE SQL controlados, sin llamadas REST a Protheus. `GET /api/capabilities` expone `writePolicy` con transporte SQL y `nativeCreditRevalidation=false`; la PWA y el contexto del chat explicitan esa limitación. El permiso general `canExecute` no habilita una propuesta bloqueada: su validación particular sigue siendo obligatoria en el servidor.
+
+La revalidación nativa **no está implementada**. TOTVS documenta [MATA410 mediante MSExecAuto](https://tdn.totvs.com/pages/viewpage.action?pageId=6784012), con operación 4 para alterar, y [el comportamiento de MV_AVALCRD](https://tdn.totvs.com/pages/viewpage.action?pageId=776122750), que exige reinformar `C6_QTDLIB` en la alteración para someter la liberación al análisis correspondiente. Eso requiere ejecutar y homologar la rutina dentro de Protheus; cambiar campos SQL no reproduce ese circuito. Tampoco corresponde invocar MATA440 por ExecAuto: [TOTVS indica que no está disponible](https://centraldeatendimento.totvs.com/hc/pt-br/articles/4415766894359-Cross-Segmento-TOTVS-Backoffice-Linha-Protheus-SIGAFAT-Execauto-MATA440).
+
+No se escriben aprobaciones, saldos crediticios ni parámetros para simular esa ejecución. Los casos que necesitan el circuito nativo permanecen bloqueados, incluidos los pedidos liberados con crédito activo.
+
 ## Activación y uso
 
 `.env` local, nunca versionado:
@@ -95,3 +103,5 @@ Prueba HTTP con el modelo local real: una petición de cambio de precio por mill
 La comprobación adicional `node --env-file=.env scripts/check-sales-balance-readonly.js` prepara cambios de precio en ventas liberadas/parciales con un adaptador sin pool de escritura. Sólo imprime estados, campos y motivos de rechazo; no guarda datos comerciales ni ejecuta UPDATE.
 
 Relevamiento de esta ampliación: por SELECT se verificaron 13 ítems de venta abiertos con liberaciones, sin ítems parcialmente atendidos; SC7 seguía sin filas. Se comprobó MV_ALTPREC=T, MV_BLOQUEI=.T. y el trigger SC9010_STAMP (sólo sello de tiempo). Por crédito activo, las liberaciones pendientes requieren el circuito nativo. Dos intentos posteriores de preparar propuestas contra la base fallaron por timeout de conexión; no se considera validada la preparación real de esta ampliación. Los casos parciales se verificaron con dobles transaccionales, sin cambios comerciales.
+
+En una comprobación posterior del mismo día se recuperó la conexión y se completó `check-sales-balance-readonly.js`: los 13 ítems liberados muestreados fueron rechazados por dependencias o segunda unidad. Esto verifica los rechazos con datos reales, pero no acredita una preparación elegible ni una modificación real de pedidos liberados. No se ejecutaron UPDATE comerciales.

@@ -80,7 +80,7 @@ export function createApp({erp,kaiqen,store,mode='live',branches=['0101'],readKe
       if(memoryMatch?.[1]==='knowledge'&&req.method==='DELETE')return send(res,200,{deleted:intelligence.memory.remove(principal.actor,memoryMatch[2])});
       if(memoryMatch?.[1]==='conversations'&&req.method==='GET')return send(res,200,intelligence.memory.conversation(memoryMatch[2],principal.actor));
       for(const key of url.searchParams.keys())assert(url.searchParams.getAll(key).length===1,400,'FILTRO_DUPLICADO','Filtro repetido');
-      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,erp:erp.metadata(),kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true,proposalActions:changePolicies,voice:voice.status(),externalAI:false});
+      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,erp:erp.metadata(),kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true,writePolicy:erp.writes?.policy||null,proposalActions:changePolicies,voice:voice.status(),externalAI:false});
       if(req.method==='GET' && url.pathname==='/api/voice/status')return send(res,200,voice.status());
       if(req.method==='POST' && url.pathname==='/api/voice/transcribe')return send(res,200,await voice.transcribe(req));
       if(req.method==='GET' && url.pathname==='/api/openapi.json')return send(res,200,JSON.parse(readFileSync(new URL('../docs/openapi.json',import.meta.url))));

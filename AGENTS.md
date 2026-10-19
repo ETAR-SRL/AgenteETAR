@@ -11,3 +11,5 @@
 - Las actualizaciones solicitadas son sobre registros existentes: DA1, AIB y pedidos SC6/SC7; SC9 sólo como dependencia pendiente de un cambio de precio de SC6. No crear registros. El contrato de ejecución y sus límites están documentados; no presentar una propuesta como una modificación ejecutada.
 - No ejecutar cambios de negocio como prueba de arranque, publicación o tests. Las pruebas automatizadas usan dobles; las comprobaciones de producción son lecturas salvo una instrucción concreta del dueño para modificar registros identificados.
 - Ejecutar las pruebas relevantes antes del commit. Mantener explícitos los campos, filiales y circuitos que todavía no se verificaron.
+
+- Restricción actual del dueño: sólo UPDATE controlados; no invocar REST Protheus por el momento. SQL no ejecuta revalidación nativa de crédito: conservar el bloqueo de propuestas que la requieran, sin desactivar MV_BLOQUEI ni escribir aprobaciones para simularla.
