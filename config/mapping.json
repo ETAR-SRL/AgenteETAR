@@ -24,7 +24,8 @@
     "SD1": "dbo.SD1010",
     "SG1": "dbo.SG1010",
     "SCJ": "dbo.SCJ010",
-    "SCK": "dbo.SCK010"
+    "SCK": "dbo.SCK010",
+    "SC9": "dbo.SC9010"
   },
   "branches": {
     "SA1": {
@@ -63,7 +64,9 @@
     "SB2": {
       "0101": "0101"
     },
-    "SC7": {},
+    "SC7": {
+      "0101": "0101"
+    },
     "SC2": {},
     "SC5": {
       "0101": "0101"
@@ -84,7 +87,10 @@
       "0101": "0101"
     },
     "SCJ": {},
-    "SCK": {}
+    "SCK": {},
+    "SC9": {
+      "0101": "0101"
+    }
   },
   "entities": {
     "clientes": {
@@ -319,6 +325,10 @@
         "DA1_INDLOT": "indiceIntervalo",
         "DA1_FRETE": {
           "output": "flete",
+          "type": "decimal"
+        },
+        "DA1_PRCMIL": {
+          "output": "precioPorMillarGuardado",
           "type": "decimal"
         }
       },
@@ -1302,10 +1312,14 @@
     "source": "reports/erp-schema.json",
     "scope": "SELECT sys.tables/sys.columns/SX2/SX3 y DISTINCT filial activa; sin escrituras ERP",
     "unresolvedBranches": [
-      "SC7",
       "SC2",
       "SCJ",
       "SCK"
-    ]
+    ],
+    "writeScope": "2026-10-19: SC7 y SC9 exclusivos E/E/E en SX2, filial completa 0101. SC7 sin filas; pendiente validación con pedido de compra real. Triggers STAMP inspeccionados por definición."
+  },
+  "writeTriggerHashes": {
+    "SC7010_STAMP": "ab7dfbb55c61f37105564f8ba54e45b3884a308513856ba10b67807b9fab5ec4",
+    "SC6010_STAMP": "bb3a4b1da47587131c4e1db8438b65882d6308bc8c574a22f261d34d98a30b7a"
   }
 }

@@ -12,7 +12,7 @@ Actualización del asistente: 56 pruebas automatizadas aprobadas. Chat de lengua
 | Pendientes de venta | API de ítems con saldo técnico positivo | Verificado; no significa entrega física |
 | KAIQEN | PostgreSQL real, TLS validado con CA, tenant del proyecto indicado, transacciones READ ONLY | Conectado: 4 proyectos; calidad y vínculo ERP verificados |
 | Propuestas | Precio DA1/AIB y contacto de clientes/proveedores; diferencias, caducidad, relectura | Implementado y probado con datos ficticios |
-| Escritura ERP | Endpoint de ejecución rechaza con 501 | Deshabilitada; cero escrituras realizadas |
+| Escritura ERP | UPDATE transaccional DA1/AIB/SC6/SC7, con revisión y confirmación | [Alcance vigente y pruebas](actualizaciones.md); cero escrituras de negocio durante pruebas |
 | Texto | Modelo Qwen3 4B local con herramientas, contexto y memoria | Lenguaje natural verificado con ERP y KAIQEN |
 | PWA | Central abierta en Microsoft Edge; instalación ofrecida por el navegador | Implementada: asistente, explorador, proyectos/calidad, conexiones, filtros, paginación y CSV |
 | Voz | Audio sintético español → Whisper base local → consulta a KAIQEN con 4 proyectos | Implementada y verificada; micrófono físico pendiente de prueba por el usuario |
@@ -20,7 +20,7 @@ Actualización del asistente: 56 pruebas automatizadas aprobadas. Chat de lengua
 
 Actualización PWA: **42 pruebas automatizadas aprobadas**. Evidencia adicional en `reports/pwa-live-check.json`. El siguiente párrafo describe las verificaciones del backend previas al frontal.
 
-Pruebas automatizadas: **37 aprobadas**. Prueba HTTP contra ERP real: **8/8** casos esperados, incluyendo consultas de costos, remitos, pendientes y rechazo de sucursal no autorizada. Con el proceso local en ejecución se verificaron además **5/5** rutas HTTP: salud, cartera KAIQEN, proyecto, calidad y vista conjunta. Auditoría de dependencias: **0 vulnerabilidades reportadas** por npm al cierre.
+Evidencia de la entrega inicial (anterior al ejecutor): **37 pruebas aprobadas**. Prueba HTTP contra ERP real: **8/8** casos esperados, incluyendo consultas de costos, remitos, pendientes y rechazo de sucursal no autorizada. Con el proceso local en ejecución se verificaron además **5/5** rutas HTTP: salud, cartera KAIQEN, proyecto, calidad y vista conjunta. Auditoría de dependencias: **0 vulnerabilidades reportadas** por npm al cierre.
 
 Informes reproducibles: `reports/erp-live-check.json`, `reports/http-live-check.json`, `reports/kaiqen-live-check.json` y `reports/local-running-check.json`. Contienen resultados y conteos mínimos, sin filas comerciales ni credenciales. El servicio final quedó iniciado en segundo plano en `http://127.0.0.1:4310`; PID guardado en `data/server.pid`. Para una próxima sesión se puede usar `iniciar.ps1` o `npm start`, sin iniciar ambos a la vez.
 

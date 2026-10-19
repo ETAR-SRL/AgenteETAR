@@ -3,16 +3,16 @@ import { clean } from './normalize.js';
 export class Catalog {
   constructor(db, config) { this.db = db; this.config = config; this.tables = new Map(); this.dictionary = new Map(); this.sx2 = new Map(); this.warnings = []; }
   async init() {
-    const rows = await this.db.query(`SELECT s.name AS schemaName, t.name AS tableName, c.name AS columnName, ty.name AS typeName
+    const rows = await this.db.query(`SELECT s.name AS schemaName, t.name AS tableName, c.name AS columnName, ty.name AS typeName, c.precision, c.scale, c.is_computed AS computed
       FROM sys.tables t JOIN sys.schemas s ON s.schema_id=t.schema_id
       JOIN sys.columns c ON c.object_id=t.object_id JOIN sys.types ty ON ty.user_type_id=c.user_type_id`);
     const all = new Map();
     for (const r of rows) {
       const key = `${r.schemaName}.${r.tableName}`;
       if (!all.has(key)) all.set(key, { schema: r.schemaName, name: r.tableName, columns: new Map() });
-      all.get(key).columns.set(r.columnName.toUpperCase(), { name: r.columnName, type: r.typeName });
+      all.get(key).columns.set(r.columnName.toUpperCase(), { name: r.columnName, type: r.typeName, precision: r.precision, scale: r.scale, computed: r.computed });
     }
-    const aliases = new Set(['SX2','SX3','SX5','SX6', ...Object.values(this.config.entities).map(e => e.alias)]);
+    const aliases = new Set(['SX2','SX3','SX5','SX6','SC9', ...Object.values(this.config.entities).map(e => e.alias)]);
     for (const alias of aliases) {
       const override = this.config.tables?.[alias];
       const candidates = [...all.values()].filter(t => override ? `${t.schema}.${t.name}` === override : t.schema === (this.config.schema || 'dbo') && new RegExp(`^${alias}(?:[0-9]+)?$`, 'i').test(t.name));

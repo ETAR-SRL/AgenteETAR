@@ -1,6 +1,6 @@
 # Centralizador Protheus Argentina y KAIQEN
 
-Documento de arquitectura y alcance, 19 de octubre de 2026.
+Documento de arquitectura y alcance, 19 de octubre de 2026. Contrato vigente de escritura: [actualizaciones](actualizaciones.md).
 
 El objetivo es ofrecer una API Node.js que reúna información de TOTVS Protheus Argentina 12.1.2510 y KAIQEN para consultar costos, compras, producción, ventas, pendientes, proyectos y calidad. La misma API atiende la PWA local Central, con consultas por texto y dictado. Protheus conserva la responsabilidad sobre sus transacciones y KAIQEN sobre los estados de proyecto y calidad.
 
@@ -14,13 +14,13 @@ El archivo `middleware-rapido-con-IA.zip` es evidencia técnica de conectividad 
 | Adaptador Protheus | Consultas parametrizadas sobre recursos definidos, paginación, metadatos de SQL Server y lectura de SX2/SX3. Tablas, campos y reglas de sucursal se comprueban o configuran explícitamente. No hay SQL libre enviado por el consumidor. |
 | Cobertura ERP | Mapeo inicial de entidades. La disponibilidad real depende de tablas, campos, sucursales y permisos del ambiente. Un recurso configurado no acredita una lectura exitosa de producción. |
 | Adaptador KAIQEN | Lectura por HTTPS con token de acceso de usuario, limitada por su planta, permisos y proyectos visibles. No inicia sesión, renueva sesiones ni escribe en KAIQEN. |
-| Intérprete de instrucciones | Gramática local acotada para texto y filtros conocidos. No utiliza un LLM, no ofrece conversación general y no captura ni transcribe audio. |
+| Intérprete de instrucciones | Modelo local con herramientas delimitadas, memoria y dictado local. Puede preparar propuestas; no ejecutar UPDATE. |
 | Propuestas de modificación | SQLite guarda el actor, registro consultado, diferencias, huella del estado inicial, vencimiento de 15 minutos y eventos de propuesta/comprobación. Se puede releer y detectar cambios desde la propuesta. |
-| Ejecución de modificaciones | Bloqueada: el endpoint de ejecución responde HTTP 501. Una propuesta o una comprobación correcta no actualiza Protheus. |
-| Frontal/PWA | Central implementada y abierta en Edge: consultas de texto/voz, explorador ERP, proyectos/calidad y conexiones. Sesión de lectura local y caché de interfaz sin datos de negocio. |
+| Ejecución de modificaciones | UPDATE DA1/AIB/SC6/SC7 con rol writer, confirmación, transacción y recibo durable. Una propuesta o comprobación no actualiza Protheus. |
+| Frontal/PWA | Central implementada y abierta en Edge: consultas de texto/voz, explorador ERP, proyectos/calidad y conexiones. Sesión local con rol configurable y caché de interfaz sin datos de negocio. |
 | Actualización continua | Consultas bajo demanda. No se implementaron réplica, CDC, sincronización programada ni transmisión en tiempo real. |
 
-La base contiene propuestas estructuradas para `precioLista`, `clienteContacto` y `proveedorContacto`. Las dos últimas se limitan a email, teléfono y contacto; la primera, al precio de un ítem existente. Pedidos y presupuestos se contemplan en la arquitectura futura, no como acciones de modificación ya implementadas.
+La base contiene propuestas estructuradas para `precioLista`, `clienteContacto` y `proveedorContacto`. Las dos últimas se limitan a email, teléfono y contacto; la primera, al precio de un ítem existente. Los pedidos SC6/SC7 simples ya admiten modificaciones; presupuestos y contactos siguen pendientes de ejecutor.
 
 ## Componentes y conectividad
 
@@ -36,7 +36,7 @@ flowchart LR
     W -.-> E[Protheus]
 ```
 
-La instalación inicial recomendada se ejecuta en un servidor de planta con acceso de red a SQL Server. La cuenta de base de datos debe tener únicamente los permisos de lectura necesarios sobre las tablas y metadatos autorizados. `readOnlyIntent` del cliente SQL no sustituye esos permisos: es una indicación de conexión, no una barrera contra escrituras. Usar cifrado y certificados verificados en el despliegue.
+La instalación inicial recomendada se ejecuta en un servidor de planta con acceso de red a SQL Server. La cuenta SQL requiere SELECT sobre tablas/metadatos y, cuando se habilitan actualizaciones, UPDATE sobre DA1/AIB/SC6/SC7. El agente no otorga permisos. `readOnlyIntent` del cliente SQL no sustituye esos permisos: es una indicación de conexión, no una barrera contra escrituras. Usar cifrado y certificados verificados en el despliegue.
 
 Para una instalación híbrida, un conector de planta podrá consultar el ERP y enviar datos o resultados a un servicio en nube mediante HTTPS saliente. Ese conector y su protocolo de sincronización todavía deben construirse. Se deberán definir reintentos, idempotencia, cola, límites de volumen y fechas de última sincronización. Otra opción es una red privada administrada para acceder al servicio de planta. **No publicar el puerto de SQL Server en Internet.**
 
@@ -86,15 +86,15 @@ KAIQEN determina qué cartera es visible. El centralizador no amplía esa autori
 
 Antes de incorporar un proveedor de IA externo se deben respetar `sin_ia_externa` y `sin_ia_externa_por_cliente`, limitar el contexto enviado y definir retención. Actualmente no se envían consultas a un LLM. La correlación automática de proyectos con registros del ERP y la agregación histórica de calidad son trabajo futuro.
 
-## Actualizar sin crear: evolución prevista
+## Actualizar sin crear: implementación y evolución
 
-Las actualizaciones se implementarán como comandos de negocio cerrados. El cliente elegirá un registro existente, verá su identificación y el cambio concreto, y el servicio del ERP ejecutará exclusivamente la operación de alteración. Si el registro no existe, fue eliminado, cambió o no cumple las validaciones de Protheus, la operación se rechazará. No se utilizará `upsert` ni una inclusión como alternativa.
+Los UPDATE actuales son comandos cerrados documentados en [actualizaciones](actualizaciones.md). Las rutinas ADVPL siguientes son alternativas futuras para cubrir circuitos complejos. El cliente elegirá un registro existente, verá su identificación y el cambio concreto, y el servicio del ERP ejecutará exclusivamente la operación de alteración. Si el registro no existe, fue eliminado, cambió o no cumple las validaciones de Protheus, la operación se rechazará. No se utilizará `upsert` ni una inclusión como alternativa.
 
 La separación entre lectura SQL y escritura mediante rutinas tiene una razón técnica: TOTVS advierte que la ejecución SQL directa con TCSQLExec no actualiza los campos de control creados por DBAccess. Además, las rutinas del ERP realizan validaciones, disparadores y reglas de negocio que una actualización directa de columnas no reproduce. [TCSQLExec](https://tdn-homolog.totvs.com/display/tec/TCSQLExec).
 
 | Fase | Acción y ruta candidata | Condición de implementación |
 |---|---|---|
-| Actual | Propuesta de precio DA1 o contacto SA1/SA2, diferencias y comprobación posterior. | Persiste únicamente en SQLite del agente. La ejecución permanece en HTTP 501. |
+| Actual | UPDATE DA1/AIB/SC6/SC7, sin crear. | Alcance limitado a condiciones verificables, transacción SQL, revisión y confirmación; no sustituye todas las reglas ADVPL. |
 | 1 | Precio de ítem existente mediante OMSA010, operación 4 y LINPOS. | Homologar claves completas, precisión, vigencia, moneda y puntos de entrada. No reconstruir accidentalmente la lista completa. |
 | 2 | Datos de contacto de clientes mediante MATA030/CRMA980 y proveedores mediante MATA020/MVC. | Homologar alteración y longitudes SX3. Ampliar campos solo después de definir reglas; datos fiscales, bancarios y condiciones comerciales no están incluidos en las propuestas actuales. |
 | 3 | Presupuestos MATA415 y pedidos MATA410 existentes. | Homologar cambios por estado e ítem; impedir modificar documentos o cantidades ya comprometidas en procesos incompatibles. No incluir altas, liberaciones o facturación implícitas. |
@@ -106,13 +106,13 @@ TOTVS MI indica que una llamada ExecAuto MATA030 deriva a CRMA980 sin cambiar es
 
 Para presupuestos se documenta operación 4 en [MATA415](https://centraldeatendimento.totvs.com/hc/pt-br/articles/7277918530199-Cross-Segmento-TOTVS-Backoffice-Linha-Protheus-SIGAFAT-EXECAUTO-MATA415). Para pedidos se documenta alteración en [MATA410](https://centraldeatendimento.totvs.com/hc/pt-br/articles/7326654842775-Cross-Segmentos-Backoffice-Protheus-SIGAFAT-Rotina-Autom%C3%A1tica-de-Pedido-de-venda-ExecAuto-MATA410), con la limitación expresa de que `C5_BLQ` no puede alimentarse mediante ExecAuto. Estas referencias no demuestran que todas las combinaciones funcionen sin adaptación en el RPO argentino instalado.
 
-El futuro servicio ADVPL deberá volver a comprobar la identidad de empresa, ambiente, sucursal y clave de negocio, efectuar el control de concurrencia dentro de la operación y devolver resultado verificable. Deberá incorporar idempotencia y auditoría de ejecución para resolver reintentos y resultados inciertos sin duplicar efectos. La comparación actual de una propuesta detecta cambios al releer; no es un bloqueo transaccional ni garantiza que nada cambie después de la comprobación.
+El futuro servicio ADVPL deberá volver a comprobar la identidad de empresa, ambiente, sucursal y clave de negocio, efectuar el control de concurrencia dentro de la operación y devolver resultado verificable. Deberá incorporar idempotencia y auditoría de ejecución para resolver reintentos y resultados inciertos sin duplicar efectos. La comprobación separada detecta cambios sin bloquear. La ejecución implementada vuelve a comprobar dentro de una transacción SERIALIZABLE con UPDLOCK/HOLDLOCK.
 
 ## Texto, voz y futura IA
 
 El flujo actual interpreta texto con formato conocido, por ejemplo `consultar compras pendientes sucursal 0101` o `actualizar precio registro 4 a 1350.00 sucursal 0101`. La segunda instrucción produce una propuesta; no altera DA1. No interpreta instrucciones generales como “ajustá todos los precios según inflación”.
 
-La PWA captura audio mediante MediaRecorder y lo envía al endpoint autenticado `/api/voice/transcribe`. Whisper base int8 lo transcribe en CPU local, con máximo 45 segundos y borrado de archivos temporales. El usuario revisa el texto antes de consultar. La sesión de navegador se limita a lectura. Antes de habilitar actualizaciones futuras, el sistema deberá presentar registro, sucursal, moneda y valores anterior/nuevo. Un LLM, si se incorpora, propondrá llamadas a herramientas delimitadas y no generará SQL ejecutable.
+La PWA captura audio mediante MediaRecorder y lo envía al endpoint autenticado `/api/voice/transcribe`. Whisper base int8 lo transcribe en CPU local, con máximo 45 segundos y borrado de archivos temporales. El usuario revisa el texto antes de consultar. La sesión es de lectura por defecto; LOCAL_WRITE_ENABLED habilita operador local. La tarjeta presenta identidad, sucursal, moneda y diferencias antes de confirmar. El LLM propone llamadas delimitadas y nunca genera SQL ejecutable.
 
 ## Puesta en servicio y evidencia pendiente
 

@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
-import { assert } from './errors.js';
+import { assert, HttpError } from './errors.js';
+import {writeProfiles} from './protheus/write-policy.js';
 export const changePolicies={
-  precioLista:{resource:'preciosClientes',fields:['precio'],routine:'OMSA010 alteración, LINPOS del ítem existente'},
-  precioListaProveedor:{resource:'preciosProveedores',fields:['precio'],routine:'Alteración de AIB_PRCCOM sobre lista/proveedor/tienda/producto existentes; ejecución pendiente de homologar'},
+  precioLista:{resource:'preciosClientes',fields:['precio'],routine:'UPDATE DA1_PRCVEN y DA1_PRCMIL sobre ítem existente'},
+  precioListaProveedor:{resource:'preciosProveedores',fields:['precio'],routine:'UPDATE AIB_PRCCOM sobre registro existente'},
+  pedidoVenta:{resource:'itemsVentas',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC6 sin entregas, liberaciones ni condiciones dependientes'},
+  pedidoCompra:{resource:'compras',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC7 sin recepciones ni condiciones dependientes'},
   clienteContacto:{resource:'clientes',fields:['email','telefono','contacto'],routine:'MATA030 / CRMA980 alteración'},
   proveedorContacto:{resource:'proveedores',fields:['email','telefono','contacto'],routine:'MATA020 alteración'}
 };
@@ -25,6 +28,12 @@ export class Changes {
     const {target,changes}=input;
     assert(plain(target) && typeof target.sucursal==='string' && typeof target.registro==='string' && /^[1-9]\d{0,18}$/.test(target.registro) && BigInt(target.registro)<=9223372036854775807n,400,'CLAVE_INVALIDA','Indicar sucursal y registro existente como texto');
     assert(plain(changes) && Object.keys(changes).length>0 && Object.keys(changes).every(k=>policy.fields.includes(k)),400,'CAMPO_NO_HABILITADO','Campos fuera de la lista permitida');
+    if(this.erp.writes && Object.hasOwn(writeProfiles,input.action)){
+      // Mantiene la validación de acceso a sucursal del servicio de lectura.
+      const {row}=await this.current(policy,target);
+      const writePlan=await this.erp.writes.prepare(input.action,input);
+      return this.public(this.store.save(actor,{action:input.action,target,input,resource:policy.resource,before:row,diff:writePlan.diff,identity:writePlan.identity,calculation:writePlan.calculation,fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
+    }
     const {row,meta}=await this.current(policy,target);
     const metadata=this.erp.metadata();
     const diff=[];
@@ -61,9 +70,30 @@ export class Changes {
     const proposal=this.store.get(id,actor);
     assert(proposal,404,'PROPUESTA_NO_EXISTE','Propuesta inexistente');
     assert(Date.parse(proposal.expiresAt)>Date.now(),409,'PROPUESTA_VENCIDA','La propuesta venció; generar otra');
+    if(proposal.writePlan){await this.erp.writes.check(proposal);this.store.audit(actor,'proposal.checked',id);return {id,unchanged:true,executionEnabled:this.erp.writes.enabled};}
     const current=await this.current(changePolicies[proposal.action],proposal.target);
     assert(hash(current.row)===proposal.fingerprint,409,'CONFLICTO_CONCURRENCIA','El registro cambió desde la propuesta; releer y generar otra');
     this.store.audit(actor,'proposal.checked',id);
     return {id,unchanged:true,executionEnabled:false,message:'Comparación vigente; adaptador de escritura todavía no homologado'};
+  }
+  public(proposal){const {writePlan,input,actor,...visible}=proposal;return visible;}
+  status(actor,id){const proposal=this.store.get(id,actor);assert(proposal,404,'PROPUESTA_NO_EXISTE','Propuesta inexistente');return {proposal:this.public(proposal),execution:this.store.execution(id,actor)};}
+  async execute(actor,id,confirmation){
+    const proposal=this.store.get(id,actor);assert(proposal,404,'PROPUESTA_NO_EXISTE','Propuesta inexistente');
+    assert(plain(confirmation)&&confirmation.confirm===true&&confirmation.fingerprint===proposal.fingerprint,400,'CONFIRMACION_REQUERIDA','Confirmar explícitamente la huella de la propuesta revisada');
+    const existing=this.store.execution(id,actor);
+    if(existing?.status==='executed')return existing;
+    assert(!existing,409,'EJECUCION_NO_REPETIBLE','La ejecución ya se inició; consultar estado. No reenviar automáticamente');
+    assert(Date.parse(proposal.expiresAt)>Date.now(),409,'PROPUESTA_VENCIDA','La propuesta venció; generar otra');
+    assert(proposal.writePlan&&this.erp.writes?.enabled,503,'ESCRITURA_DESHABILITADA','Esta acción no tiene un ejecutor habilitado');
+    assert(this.store.claim(id,actor),409,'EJECUCION_NO_REPETIBLE','La ejecución ya se inició');
+    let result;
+    try{result=await this.erp.writes.execute(proposal);}
+    catch(error){
+      try{this.store.finish(id,actor,error.outcomeUnknown?'unknown':'failed',{code:error.code||'ERROR_SQL'});}catch{throw new HttpError(503,'RESULTADO_INCIERTO','No se pudo guardar el resultado local; no reintentar');}
+      throw error;
+    }
+    try{return this.store.finish(id,actor,'executed',result);}
+    catch{throw new HttpError(503,'RESULTADO_INCIERTO','El ERP confirmó el cambio pero falló el recibo local; no reintentar');}
   }
 }

@@ -9,6 +9,22 @@ const source={system:'protheus',mode:'test',fetchedAt:new Date().toISOString()};
 const product={codigo:'ABC/1',nombre:'Resorte prueba',unidadMedida:'UN'};
 const price={productoCodigo:'ABC/1',listaCodigo:'001',precio:'125.50',moneda:{codigo:'2',descripcion:'DOLAR'},vigenteDesde:'2025-01-01',activo:{descripcion:'Si'},registro:'1'};
 const header={codigo:'001',nombre:'Lista prueba',estado:{descripcion:'Si'},vigenteDesde:'2024-01-01',vigenteHasta:'2050-01-01'};
+test('a price lookup during a modification request continues into proposal preparation',async t=>{
+ const context=setup(),store=new Store(':memory:');t.after(()=>store.close());let prepared;
+ const decisions=[{action:'precio_venta',args:{producto:'ABC/1'}},{action:'preparar_cambio',args:{accion:'precioLista',registro:'1',precio:'90',basePrecio:'millar'}}];
+ const agent=createIntelligence({...context,store,model:{name:'test',complete:async()=>decisions.shift()},prepareChange:async(actor,input)=>{prepared=input;return {id:'test-proposal',diff:[]};}});
+ const reply=await agent.query('writer',{text:'Cambiá el precio de lista de ABC/1 a 90 por millar'},{canPlan:true});
+ assert.equal(prepared.target.registro,'1');assert.equal(prepared.changes.precio,'90');assert.equal(prepared.priceUnit,'millar');assert.equal(reply.evidence.at(-1).result.kind,'proposal');assert.match(reply.answer,/Todavía no se modificó/);
+});
+test('proposal tools resolve an exact unique product reference, but never invent a receipt after failure',async t=>{
+ for(const reference of ['ABC/1','unknown']){
+  const context=setup({preciosClientes:[price,{...price,registro:'2',activo:{descripcion:'No'}}]}),store=new Store(':memory:');t.after(()=>store.close());let calls=0;
+  const decisions=[{action:'precio_venta',args:{producto:'ABC/1'}},{action:'preparar_cambio',args:{accion:'precioLista',registro:reference,precio:'90',basePrecio:'millar'}},{action:'responder',args:{},answer:'Propuesta preparada, confirmá el cambio.'}];
+  const agent=createIntelligence({...context,store,model:{name:'test',complete:async()=>decisions.shift()},prepareChange:async(actor,input)=>{calls++;assert.equal(input.target.registro,'1');return {id:'test-proposal',diff:[]};}});
+  const reply=await agent.query('writer',{text:'Cambiá el precio de lista de ABC/1 a 90 por millar'},{canPlan:true});
+  assert.equal(calls,reference==='ABC/1'?1:0);if(reference==='unknown')assert.match(reply.answer,/No se preparó ninguna propuesta/);
+ }
+});
 function setup(overrides={}){
  const rows={productos:[product],preciosClientes:[price],listasPreciosClientes:[header],clientes:[{codigo:'C01',nombre:'Cliente Prueba',tienda:'01',listaPreciosCodigo:'001'}],...overrides};const calls=[];
  const read=async(resource,params)=>{calls.push({resource,filters:Object.fromEntries(params)});let data=structuredClone(rows[resource]||[]);for(const [k,field] of [['codigo','codigo'],['producto','productoCodigo'],['lista','listaCodigo']])if(params.has(k))data=data.filter(r=>r[field]===params.get(k));if(params.has('q'))data=data.filter(r=>(r.nombre||'').toLowerCase().includes(params.get('q').toLowerCase()));return {data,meta:{hasMore:false},source};};

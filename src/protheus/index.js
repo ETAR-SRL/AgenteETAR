@@ -3,6 +3,7 @@ import { loadConfig } from './config.js';
 import { connect } from './database.js';
 import { Catalog } from './catalog.js';
 import { Service } from './service.js';
+import {createWriter} from './writer.js';
 
 // No carga .env. El proceso anfitrión decide cómo inyectar secretos.
 export async function createErp({ env = process.env, configPath } = {}) {
@@ -13,10 +14,13 @@ export async function createErp({ env = process.env, configPath } = {}) {
     const catalog = new Catalog(db, config);
     await catalog.init();
     const service = new Service(db, catalog, config);
+    let writeDbPromise;
+    const writes=createWriter({db,catalog,enabled:env.ERP_WRITE_ENABLED==='true',allowedBranches:(env.ERP_BRANCHES||'0101').split(','),triggerHashes:config.writeTriggerHashes||{},getWriteDb:()=>writeDbPromise??=connect(env,{writable:true}).catch(error=>{writeDbPromise=undefined;throw error;})});
     return {
+      writes,
       list: (name, params) => service.list(name, params),
       metadata: () => service.metadata(),
-      close: () => db.close()
+      close: async()=>{await db.close();if(writeDbPromise)await (await writeDbPromise).close();}
     };
   } catch (error) {
     await db.close();

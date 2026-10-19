@@ -2,7 +2,7 @@
 
 Repositorio oficial: https://github.com/ETAR-SRL/AgenteETAR · desarrollo exclusivamente en `main`.
 
-Reglas de negocio permanentes: [Productos Z, listas, millares y actualizaciones](docs/reglas-etar.md). Los precios de terminados Z en UN se muestran también por millar. Las propuestas de listas de clientes y proveedores no ejecutan UPDATE; las modificaciones de pedidos siguen pendientes de implementación y homologación.
+Reglas de negocio permanentes: [Productos Z, listas, millares y actualizaciones](docs/reglas-etar.md). Los precios de terminados Z en UN se muestran también por millar. Implementa UPDATE reales de DA1/AIB y pedidos simples SC6/SC7, con revisión y confirmación. Ver [contrato, configuración y límites](docs/actualizaciones.md).
 
 Los informes, capturas y datos de pruebas locales mencionados en esta documentación se generan en `reports/` y no se publican en Git.
 
@@ -12,7 +12,7 @@ Ahora incluye **Central**, una PWA local en `http://127.0.0.1:4310/`: asistente 
 
 El dictado usa Whisper base en CPU dentro de `.venv-voice`, con el modelo en `data/models/whisper-base`. Ya está instalado en este equipo. En otra instalación: `powershell -File scripts/install-voice.ps1` (Python 3.11; descarga inicial de dependencias y modelo). El audio se procesa localmente, hasta 45 segundos, y se elimina al terminar. No se usa un servicio externo de transcripción. Se comprobó con un audio sintético en español y una consulta real; queda la prueba del micrófono del usuario concediendo el permiso normal de Edge.
 
-La PWA obtiene una sesión HttpOnly de lectura de 12 horas mediante un POST de mismo origen en loopback. No contiene claves API en JavaScript ni localStorage. Los clientes externos conservan Bearer. La interfaz se guarda para apertura offline; las respuestas ERP/KAIQEN, las sesiones y el audio no se guardan en el caché de la PWA. Esta instalación está diseñada para un único usuario de este equipo; no es un portal multiusuario accesible por la LAN.
+La PWA obtiene una sesión HttpOnly de 12 horas, de lectura por defecto o de operador con `LOCAL_WRITE_ENABLED=true`, mediante un POST de mismo origen en loopback. No contiene claves API en JavaScript ni localStorage. Los clientes externos conservan Bearer. La interfaz se guarda para apertura offline; las respuestas ERP/KAIQEN, las sesiones y el audio no se guardan en el caché de la PWA. Esta instalación está diseñada para un único usuario de este equipo; no es un portal multiusuario accesible por la LAN.
 
 El chat usa ahora **Qwen3 4B local mediante Ollama**, con interpretación de lenguaje natural y llamadas a herramientas. Puede buscar por código o nombre, cruzar DA1/DA0 y clientes, conservar el contexto y consultar proyectos/calidad. El selector Tema orienta la búsqueda; Enseñar un término guarda clasificaciones y equivalencias en SQLite local. La memoria recupera contexto, no entrena los pesos del modelo ni sustituye precios actuales del ERP. El endpoint anterior `/api/agent/query` conserva la gramática estructurada por compatibilidad; la PWA usa `/api/agent/chat`.
 
@@ -70,7 +70,7 @@ Contrato importable en Postman o generadores: [docs/openapi.json](docs/openapi.j
 | `POST /api/agent/query` | Interpreta y ejecuta sólo lecturas |
 | `POST /api/changes/preview` | Propuesta con valores anteriores y nuevos |
 | `POST /api/changes/{id}/check` | Relectura para verificar que la propuesta sigue vigente |
-| `POST /api/changes/{id}/execute` | HTTP 501: escritura no habilitada |
+| `POST /api/changes/{id}/execute` | UPDATE confirmado, transaccional, con rol writer |
 
 Recursos ERP: `clientes`, `proveedores`, `productos`, `listasPreciosClientes`, `preciosClientes`, `listasPreciosProveedores`, `preciosProveedores`, `productoProveedor`, `productoCliente`, `costos`, `compras`, `produccion`, `ventas`, `itemsVentas`, `documentosSalida`, `itemsDocumentosSalida`, `entradasCompras`, `estructuras`, `cotizaciones`, `itemsCotizaciones`.
 
@@ -100,7 +100,7 @@ El intérprete actual usa una gramática local explícita. No es todavía un asi
 - `consultar calidad proyecto ID-DEL-PROYECTO`
 - `actualizar precio registro 123 a 1500.00 sucursal 0101`
 
-La última orden produce un plan de propuesta: `/agent/query` rechaza ejecutarla. La PWA captura audio, lo transcribe localmente y deja revisar el texto antes de enviarlo a `/api/agent/chat`. El chat conversacional local usa un endpoint independiente y herramientas delimitadas. La ejecución de cambios sigue deshabilitada.
+La última orden produce un plan de propuesta: `/agent/query` rechaza ejecutarla. La PWA captura audio, lo transcribe localmente y deja revisar el texto antes de enviarlo a `/api/agent/chat`. El chat conversacional local usa un endpoint independiente y herramientas delimitadas. El chat sólo prepara propuestas. El usuario revisa y confirma en la tarjeta; la ejecución requiere rol writer y `ERP_WRITE_ENABLED=true`.
 
 Se pueden preparar cuatro tipos de cambio: `precioLista` (DA1 precio), `precioListaProveedor` (AIB precio), `clienteContacto` y `proveedorContacto` (email, teléfono y contacto). Ejemplo para `/api/changes/preview`, siempre con un `registro` leído previamente de la API:
 
@@ -116,7 +116,7 @@ No hay altas, borrados ni UPDATE SQL. Las propuestas caducan en 15 minutos, cons
 
 ## Estado de las conexiones y trabajo pendiente
 
-- **ERP:** lectura real comprobada. `SC7`, `SC2`, `SCJ` y `SCK` existen con los campos esperados, pero no se encontraron filas activas; su mapeo de filial quedó pendiente. `compras`, `produccion`, `cotizaciones` e `itemsCotizaciones` responden con error de configuración hasta validar `xFilial` y completar `branches` de esos alias. Esto no permite concluir que no existan pendientes operativos en otra base o circuito.
+- **ERP:** lectura real comprobada. `SC7`, `SC2`, `SCJ` y `SCK` existen, sin filas activas en la comprobación inicial. SC7 ya tiene filial explícita 0101 respaldada por SX2 exclusivo; compras responde sin filas en esta base. Producción y cotizaciones siguen pendientes de completar `branches`. Esto no permite concluir que no existan pendientes operativos en otra base o circuito.
 - **KAIQEN:** conectado con `KAIQEN_SOURCE=postgres`, usando la credencial local autorizada y el tenant del proyecto del dueño. TLS verifica el certificado con `config/supabase-ca.crt`; cada consulta abre una transacción `READ ONLY`, confirma que esté activa y filtra por tenant. El usuario histórico de la API fue rechazado; no se depende de su JWT. La lectura directa no reproduce permisos individuales de la API, etapas de vida derivadas ni el semáforo global de calidad: estos últimos se devuelven como no calculados. El adaptador HTTP sigue disponible con `KAIQEN_SOURCE=api`, pero requeriría una sesión válida. [Contrato y alcance](docs/kaiqen.md).
 - **Entregas:** falta identificar el evento que confirma recepción física en su operación. El remito y su autorización COT no prueban esa recepción.
 - **Escritura:** homologar en pruebas rutinas de alteración Protheus y control transaccional antes de conectar un ejecutor. DA1, clientes, proveedores, pedidos y presupuestos tienen rutas candidatas documentadas en [la arquitectura](docs/arquitectura.md).

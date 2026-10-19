@@ -14,7 +14,7 @@ async function api(path,options={},retry=true){
   const data=await response.json();if(!response.ok)throw Object.assign(new Error(data.error?.message||'No se pudo realizar la consulta'),{code:data.error?.code});return data;
 }
 function showError(where,error){
-  const friendly={SUCURSAL_CONFIGURACION:'Este recurso requiere confirmar la sucursal en el conector de Protheus.',SUCURSAL_NO_CONFIGURADA:'Este recurso todavía requiere confirmar la sucursal en el conector de Protheus.',ERP_BRANCH_MAPPING_REQUIRED:'Este recurso requiere configurar la sucursal en el conector.',CONSULTA_AMBIGUA:'No reconocí la consulta. Probá “mostrame los costos”, “ventas pendientes” o usá Explorar ERP.',PROPUESTA_REQUERIDA:'Esta pantalla consulta información. Las actualizaciones de ERP todavía no están habilitadas.'};
+  const friendly={SUCURSAL_CONFIGURACION:'Este recurso requiere confirmar la sucursal en el conector de Protheus.',SUCURSAL_NO_CONFIGURADA:'Este recurso todavía requiere confirmar la sucursal en el conector de Protheus.',ERP_BRANCH_MAPPING_REQUIRED:'Este recurso requiere configurar la sucursal en el conector.',CONSULTA_AMBIGUA:'No reconocí la consulta. Probá “mostrame los costos”, “ventas pendientes” o usá Explorar ERP.',PROPUESTA_REQUERIDA:'Prepará la modificación desde Actualizaciones o desde el chat.',RESULTADO_INCIERTO:'No se pudo confirmar el resultado. Consultá el estado de la propuesta y verificá el registro en Protheus; no repitas el cambio.',EJECUCION_NO_REPETIBLE:'La ejecución ya se inició. Consultá el estado; no repitas el cambio.'};
   const box=node('div','error-box',friendly[error.code]||error.message);box.setAttribute('role','alert');box.append(node('small','',error.code||'CONEXIÓN'));where.replaceChildren(box);
 }
 function display(value){if(value===null||value===undefined||value==='')return '—';if(typeof value==='boolean')return value?'Sí':'No';if(typeof value==='object')return JSON.stringify(value);return String(value);}
@@ -77,7 +77,7 @@ function renderQuality(where,envelope,append=false){
 }
 function switchView(view){
   document.querySelectorAll('.view').forEach(el=>el.classList.toggle('hidden',el.id!==view));document.querySelectorAll('.nav').forEach(el=>{el.classList.toggle('active',el.dataset.view===view);el.setAttribute('aria-current',el.dataset.view===view?'page':'false');});
-  $('#page-name').textContent={assistant:'Asistente',explorer:'Explorar ERP',projects:'Proyectos y calidad',sources:'Conexiones'}[view];
+  $('#page-name').textContent={assistant:'Asistente',explorer:'Explorar ERP',updates:'Actualizaciones',projects:'Proyectos y calidad',sources:'Conexiones'}[view];
   if(view==='projects'&&!$('#project-list').children.length)loadProjects();if(view==='sources')renderSources();
 }
 document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>switchView(el.dataset.view));
@@ -95,6 +95,7 @@ function renderAnswer(where,response){
   for(const evidence of response.evidence||[]){
     const result=evidence.result,heading=evidence.id+' · '+(evidence.action==='precio_venta'?(result.kind==='prices'?'Precios de lista verificados':'Consulta de precios'):labels[evidence.args.recurso]||evidence.action);
     const details=node('details','evidence');details.append(node('summary','',heading));
+    if(result.kind==='proposal'){renderProposal(where,result.proposal);continue;}
     if(result.candidates?.length){const choices=node('div','choice-list');result.candidates.forEach(candidate=>{const code=candidate.codigo||candidate.id;const b=node('button','secondary',[code,candidate.nombre||candidate.name,candidate.tienda?'Tienda '+candidate.tienda:''].filter(Boolean).join(' · '));b.onclick=()=>query(`Me refiero a ${code}${candidate.tienda?' tienda '+candidate.tienda:''}. Respondé la consulta anterior para esa opción.`);choices.append(b);});card.append(choices);renderResult(details,{...result,data:result.candidates},heading,{append:true});}
     else if(evidence.action==='calidad')renderQuality(details,result,true);
     else if(Array.isArray(result.data))renderResult(details,result,heading,{append:true});
@@ -168,7 +169,7 @@ function renderSources(){
   const erp=node('div','source-card');erp.append(node('h3','','Protheus · Argentina 2510'),node('p','',`Modo ${capabilities.mode==='live'?'real':'DEMO'} · sucursales permitidas: ${capabilities.branches.join(', ')}. Las consultas se realizan al pedir información; la disponibilidad de cada recurso se verifica con su respuesta.`));
   const list=node('div','source-list');Object.entries(capabilities.erp.entities||{}).forEach(([key,m])=>{const row=node('div','source-item');row.append(node('span','',labels[key]||key),node('small','',!m.disponible?'No disponible':m.requiereConfigurarSucursal?'Requiere sucursal':'Configurado · '+m.alias));list.append(row);});erp.append(list);where.append(erp);
   const k=node('div','source-card');k.append(node('h3','','KAIQEN'),node('p','',`${capabilities.kaiqen.configured?'Conexión configurada':'Sin conexión configurada'} · ${capabilities.kaiqen.source==='postgres'?'Lectura PostgreSQL de la planta configurada':'API'}. Proyectos, fases, registros de calidad y referencias ERP. No reproduce los permisos individuales ni el semáforo calculado de la aplicación.`));where.append(k);
-  const voice=node('div','source-card');voice.append(node('h3','','Voz y aplicación local'),node('p','',`${capabilities.voice.available?'Whisper base instalado':'Transcripción no disponible'} · Audio procesado en este equipo. Los archivos temporales se borran al terminar. La PWA conserva únicamente su interfaz para abrir sin conexión; no guarda los datos consultados.`),node('p','','Asistente con modelo de lenguaje local, búsqueda por nombre, consultas encadenadas y memoria del negocio. No ejecuta modificaciones del ERP.'));where.append(voice);
+  const voice=node('div','source-card');voice.append(node('h3','','Voz y aplicación local'),node('p','',`${capabilities.voice.available?'Whisper base instalado':'Transcripción no disponible'} · Audio procesado en este equipo. Los archivos temporales se borran al terminar. La PWA conserva únicamente su interfaz para abrir sin conexión; no guarda los datos consultados.`),node('p','','Asistente con modelo de lenguaje local, búsqueda por nombre, consultas encadenadas y memoria del negocio. Prepara modificaciones; la ejecución se confirma desde la tarjeta de revisión.'));where.append(voice);
 }
 let recorder,recordStream,recordTimer,elapsedTimer,voiceBusy=false;
 function stopRecording(){if(recorder?.state==='recording')recorder.stop();clearTimeout(recordTimer);clearInterval(elapsedTimer);recordStream?.getTracks().forEach(track=>track.stop());$('#mic').classList.remove('recording');}
@@ -200,7 +201,7 @@ $('#help').onclick=()=>$('#help-dialog').showModal();$('#close-help').onclick=()
 window.addEventListener('offline',()=>notice('Sin conexión. La interfaz está disponible, pero las consultas requieren el servicio local y acceso a las fuentes.'));
 window.addEventListener('online',()=>notice('Conexión recuperada. Volvé a consultar para actualizar la información.'));
 async function start(){
-  try{await session();capabilities=await api('/api/capabilities');$('#connection').textContent=capabilities.mode==='live'?'Servicio real':'Modo DEMO';$('#connection').classList.toggle('warn',capabilities.mode!=='live');
+  try{await session();capabilities=await api('/api/capabilities');$('#update-preview').disabled=!capabilities.canExecute;$('#update-access').textContent=capabilities.canExecute?'Actualizaciones habilitadas para esta sesión local.':'Esta sesión no tiene ejecución de cambios habilitada.';restoreProposal();$('#connection').textContent=capabilities.mode==='live'?'Servicio real':'Modo DEMO';$('#connection').classList.toggle('warn',capabilities.mode!=='live');
     capabilities.branches.forEach(v=>{const o=node('option','',v);o.value=v;$('#branch').append(o);});
     const resources=Object.keys(capabilities.erp.entities||{});for(const key of [...resources,'remitos','entregas']){const o=node('option','',labels[key]||key);o.value=key;$('#resource').append(o);}$('#resource').value='costos';buildFilters();
     $('#voice-status').textContent=capabilities.voice.available?'Dictado en español · transcripción local · hasta 45 segundos':'Transcripción local no instalada. Las consultas por texto están disponibles.';
@@ -210,3 +211,42 @@ async function start(){
   if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>notice('El navegador no permitió el modo instalable. Las consultas siguen disponibles.'));
 }
 start();
+
+function renderProposal(where,proposal,{append=true}={}){
+  const card=node('article','result-card'),result=node('div'),controls=node('div','filter-bottom');
+  card.append(node('h3','','Revisar cambio · '+proposal.action),node('p','',`Sucursal ${proposal.target.sucursal} · registro ${proposal.target.registro} · vence ${stamp(proposal.expiresAt)}`),table([proposal.identity||{}]),table(proposal.diff.map(d=>({campo:d.field,antes:d.before,despues:d.after}))));
+  if(proposal.before?.moneda)card.append(node('p','',`Moneda conservada: ${visual(proposal.before.moneda)}`));
+  if(proposal.calculation)card.append(table([proposal.calculation]));
+  const check=node('input');check.type='checkbox';const label=node('label','confirm-change');label.append(check,document.createTextNode(' Revisé el registro, la moneda y los valores. Confirmo este cambio en el ERP.'));
+  const execute=node('button','primary','Confirmar y actualizar ERP'),refresh=node('button','secondary','Consultar estado');execute.type=refresh.type='button';
+  execute.disabled=true;check.onchange=()=>{execute.disabled=!check.checked||!capabilities?.canExecute||!proposal.executionEnabled;};
+  controls.append(execute,refresh);card.append(label,controls,result);let terminal=false;
+  function status(execution){
+    const names={executed:'Cambio confirmado por el ERP.',executing:'Ejecución en curso. No repitas el cambio.',failed:'No se confirmó el cambio. Revisá el error y generá una nueva propuesta.',unknown:'Resultado incierto. Verificá el registro en Protheus antes de preparar otro cambio.'};
+    if(!execution){result.replaceChildren(node('p','','Propuesta pendiente de confirmación.'));return;}
+    terminal=true;execute.disabled=true;check.disabled=true;result.replaceChildren(node('p','',names[execution.status]||execution.status));
+    if(execution.result?.fields)result.append(table([execution.result.fields]));
+    if(execution.result?.code)result.append(node('p','',execution.result.code));
+  }
+  refresh.onclick=async()=>{try{status((await api('/api/changes/'+proposal.id)).execution);}catch(e){showError(result,e);}};
+  execute.onclick=async()=>{
+    if(terminal||!check.checked)return;terminal=true;execute.disabled=true;check.disabled=true;busy(result,'Actualizando y verificando el registro…');
+    localStorage.setItem('central-last-proposal',proposal.id);
+    try{status(await api('/api/changes/'+proposal.id+'/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,fingerprint:proposal.fingerprint})},false));}
+    catch(e){showError(result,e);result.append(node('p','','Consultá el estado con el botón de esta tarjeta. No se reenvía automáticamente el UPDATE.'));}
+  };
+  if(append)where.append(card);else where.replaceChildren(card);
+  return {status};
+}
+async function restoreProposal(){
+  const id=localStorage.getItem('central-last-proposal');if(!id||!capabilities?.canExecute)return;
+  try{const saved=await api('/api/changes/'+id);const where=$('#update-pending');where.replaceChildren(node('h2','','Última propuesta'));renderProposal(where,saved.proposal).status(saved.execution);}catch{/* La sesión anterior puede haber vencido. No reenviar escrituras. */}
+}
+$('#update-form').onsubmit=async event=>{
+  event.preventDefault();const where=$('#update-result'),action=$('#update-action').value,order=['pedidoVenta','pedidoCompra'].includes(action),changes={};
+  const price=$('#update-price').value.trim(),quantity=$('#update-quantity').value.trim();
+  if(price)changes[order?'precioUnitario':'precio']=price;if(quantity)changes.cantidadPedida=quantity;
+  $('#update-preview').disabled=true;busy(where,'Leyendo el registro y calculando diferencias…');
+  try{const proposal=await api('/api/changes/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,target:{sucursal:$('#branch').value,registro:$('#update-record').value.trim()},changes,...(price?{priceUnit:$('#update-price-unit').value}:{}),...(quantity?{quantityUnit:$('#update-quantity-unit').value}:{})})});localStorage.setItem('central-last-proposal',proposal.id);renderProposal(where,proposal,{append:false});}
+  catch(e){showError(where,e);}finally{$('#update-preview').disabled=!capabilities?.canExecute;}
+};

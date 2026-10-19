@@ -740,6 +740,8 @@
                     "enum": [
                       "precioLista",
                       "precioListaProveedor",
+                      "pedidoVenta",
+                      "pedidoCompra",
                       "clienteContacto",
                       "proveedorContacto"
                     ]
@@ -766,7 +768,23 @@
                     "additionalProperties": {
                       "type": "string"
                     },
-                    "description": "precio; o email, telefono, contacto según acción"
+                    "description": "Listas: precio. Pedidos: precioUnitario, cantidadPedida y total opcional (debe coincidir con el cálculo). Contactos: email, telefono, contacto (sin ejecutor). Importes como texto decimal con punto."
+                  },
+                  "priceUnit": {
+                    "type": "string",
+                    "enum": [
+                      "unidad",
+                      "millar"
+                    ],
+                    "default": "unidad"
+                  },
+                  "quantityUnit": {
+                    "type": "string",
+                    "enum": [
+                      "unidades",
+                      "millares"
+                    ],
+                    "description": "Obligatoria al cambiar cantidadPedida"
                   }
                 }
               }
@@ -835,7 +853,7 @@
     },
     "/api/changes/{id}/execute": {
       "post": {
-        "summary": "Ejecución deshabilitada",
+        "summary": "Ejecutar UPDATE de una fila existente con rol writer",
         "security": [
           {
             "bearerAuth": []
@@ -852,16 +870,58 @@
           }
         ],
         "responses": {
-          "501": {
-            "description": "ESCRITURA_NO_HOMOLOGADA; no modifica TOTVS"
+          "200": {
+            "description": "Recibo executed con campos verificados; reenvío del mismo id devuelve el recibo sin UPDATE"
+          },
+          "400": {
+            "description": "Falta confirmación o huella incorrecta"
+          },
+          "403": {
+            "description": "Rol insuficiente"
+          },
+          "404": {
+            "description": "Propuesta no existe o pertenece a otro actor"
+          },
+          "409": {
+            "description": "Vencimiento, conflicto, dependencias o ejecución no repetible"
+          },
+          "503": {
+            "description": "Deshabilitado, fuente no disponible o RESULTADO_INCIERTO; consultar estado, no reenviar"
+          }
+        },
+        "description": "Requiere ERP_WRITE_ENABLED, misma identidad que creó la propuesta y confirmación de su fingerprint. Sin reintentos automáticos. Consultar GET del id ante interrupción.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "confirm",
+                  "fingerprint"
+                ],
+                "properties": {
+                  "confirm": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  },
+                  "fingerprint": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/ui/session": {
       "post": {
-        "summary": "Crear sesión local de lectura para la PWA",
-        "description": "Requiere Origin idéntico al Host local 127.0.0.1 o localhost y conexión loopback. No devuelve claves API.",
+        "summary": "Crear o renovar sesión local de PWA",
+        "description": "Requiere Origin idéntico al Host local 127.0.0.1 o localhost y conexión loopback. No devuelve claves API. Rol writer sólo cuando ERP_WRITE_ENABLED y LOCAL_WRITE_ENABLED están habilitados; reader por defecto.",
         "security": [],
         "responses": {
           "200": {
@@ -1152,6 +1212,29 @@
         "responses": {
           "200": {
             "description": "Resultado con deleted booleano"
+          }
+        }
+      }
+    },
+    "/api/changes/{id}": {
+      "get": {
+        "summary": "Consultar propuesta propia y estado de ejecución",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "proposal y execution (null, executing, executed, failed o unknown)"
+          },
+          "404": {
+            "description": "Propuesta no disponible para este actor"
           }
         }
       }

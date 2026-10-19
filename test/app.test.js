@@ -30,7 +30,7 @@ test('read key cannot create proposals and no key can execute changes',async t=>
   const created=await request('/api/changes/preview',{method:'POST',key:planKey,body});assert.equal(created.status,201);
   const proposal=await created.json();assert.equal(proposal.diff[0].before,'1250.00');assert.equal(proposal.executionEnabled,false);
   assert.equal((await request(`/api/changes/${proposal.id}/check`,{method:'POST',key:planKey})).status,200);
-  assert.equal((await request(`/api/changes/${proposal.id}/execute`,{method:'POST',key:planKey})).status,501);
+  assert.equal((await request(`/api/changes/${proposal.id}/execute`,{method:'POST',key:planKey})).status,403);
   const prices=await (await request('/api/erp/preciosClientes?sucursal=0101')).json();assert.equal(prices.data[0].precio,'1250.00');
 });
 test('rejects missing records, unapproved fields, wrong types, excessive precision',async t=>{
