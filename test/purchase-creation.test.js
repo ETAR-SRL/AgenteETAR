@@ -11,19 +11,23 @@ import {createIntelligence} from '../src/intelligence/agent.js';
 
 function fixture(alias='SC1',options={}){
  const p=alias==='SC1'?'C1':'C7',action=alias==='SC1'?'crearSolicitudCompra':'crearPedidoCompra',dictionary=new Map(),tables=new Map();
- const chars={FILIAL:4,NUM:6,ITEM:4,PRODUTO:15,DESCRI:50,UM:2,LOCAL:2,EMISSAO:8,DATPRF:8,FILENT:4,CC:9,OBS:120,SEGUM:2,...(alias==='SC1'?{SOLICIT:25,APROV:1}:{FORNECE:6,LOJA:2,COND:3,CONTATO:20,CONAPRO:1})};
+ const chars={FILIAL:4,NUM:6,ITEM:4,PRODUTO:15,DESCRI:50,UM:2,LOCAL:2,EMISSAO:8,DATPRF:8,FILENT:4,CC:9,OBS:120,SEGUM:2,...(alias==='SC1'?{SOLICIT:25,APROV:1}:{FORNECE:6,LOJA:2,COND:3,CONTATO:20,CONAPRO:1,COMPRA:3})};
  const numbers={QUANT:[12,2],TOTAL:[14,2],QUJE:[12,2],MOEDA:[2,0],TIPO:[1,0],QTSEGUM:[12,2],...(alias==='SC1'?{VUNIT:[12,2],QTDORIG:[12,2]}:{PRECO:[14,4],TXMOEDA:[11,4]})};
  const columns=[{field:'R_E_C_N_O_',type:'bigint',identityColumn:false,definition:'((0))'},{field:'D_E_L_E_T_',type:'varchar',definition:"(' ')"},{field:'R_E_C_D_E_L_',type:'bigint',definition:'((0))'}];
  for(const [suffix,width] of Object.entries(chars)){const field=p+'_'+suffix;dictionary.set(field,{X3_ARQUIVO:alias,X3_CAMPO:field,X3_TIPO:['EMISSAO','DATPRF'].includes(suffix)?'D':'C',X3_TAMANHO:String(width),X3_DECIMAL:'0',X3_OBRIGAT:''});columns.push({field,type:'varchar',width,definition:"(' ')"});}
  for(const [suffix,[width,scale]] of Object.entries(numbers)){const field=p+'_'+suffix;dictionary.set(field,{X3_ARQUIVO:alias,X3_CAMPO:field,X3_TIPO:'N',X3_TAMANHO:String(width),X3_DECIMAL:String(scale),X3_OBRIGAT:''});columns.push({field,type:'float',definition:'((0))'});}
  columns.push({field:p+'_RESIDUO',type:'varchar',definition:"(' ')"},{field:'S_T_A_M_P_',type:'datetime',definition:'(getutcdate())'});
  tables.set(alias,{schema:'dbo',name:alias+'010',columns:new Map(columns.map(c=>[c.field,{type:c.type,identity:c.identityColumn||false}]))});tables.set('SX3',{schema:'dbo',name:'SX3010',columns:new Map()});
+ for(const [a,fields] of Object.entries({SX6:['X6_FIL','X6_VAR','X6_TIPO','X6_CONTEUD','D_E_L_E_T_'],SY1:['Y1_FILIAL','Y1_COD','Y1_GRAPROV','Y1_PEDIDO','D_E_L_E_T_','R_E_C_N_O_']}))tables.set(a,{schema:'dbo',name:a+'010',columns:new Map(fields.map(k=>[k,{type:'varchar'}]))});
  const refs={SB1:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',B1_FILIAL:'0101',B1_COD:'ZTEST',B1_DESC:'Prueba',B1_UM:'UN',B1_SEGUM:'MI',B1_CONV:'1000',B1_TIPCONV:'D',B1_CC:'',B1_GRADE:'N',B1_MSBLQL:'2'},SA2:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',A2_FILIAL:'01',A2_COD:'000001',A2_LOJA:'01',A2_MSBLQL:'2'},NNR:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',NNR_FILIAL:'0101',NNR_CODIGO:'01'},SE4:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',E4_FILIAL:'0101',E4_CODIGO:'001'},CTT:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',CTT_FILIAL:'0101',CTT_CUSTO:'001'}};
  for(const [a,row] of Object.entries(refs))tables.set(a,{schema:'dbo',name:a+'010',columns:new Map(Object.keys(row).map(k=>[k,{type:'varchar'}]))});
- const catalog={tables,dictionary,table:a=>{assert.ok(tables.has(a),a);return tables.get(a);},branch:(a,b)=>{assert.equal(b,'0101');return a==='SA2'?'01':b;}};
- const state={rows:[{R_E_C_N_O_:'9007199254740993',D_E_L_E_T_:'*',[p+'_NUM']:'000099',[p+'_FILIAL']:'9999'}],calls:[],inserts:0,commits:0,rollbacks:0};let queue=Promise.resolve();
+ const catalog={tables,dictionary,table:a=>{assert.ok(tables.has(a),a);return tables.get(a);},branch:(a,b)=>{assert.equal(b,'0101');return ['SA2','SY1'].includes(a)?'01':b;}};
+ const parameters=Object.entries({MV_APROVSC:['L','.F.'],MV_APRSCEC:['L','F'],MV_RESTSOL:['C','N'],MV_APRPCEC:['L','F'],MV_PCAPROV:['C',''],MV_ALTPDOC:['L','T']}).map(([X6_VAR,[X6_TIPO,X6_CONTEUD]])=>({X6_FIL:' ',X6_VAR,X6_TIPO,X6_CONTEUD}));
+ const state={parameters,buyers:[],rows:[{R_E_C_N_O_:'9007199254740993',D_E_L_E_T_:'*',[p+'_NUM']:'000099',[p+'_FILIAL']:'9999'}],calls:[],inserts:0,commits:0,rollbacks:0};let queue=Promise.resolve();
  async function query(sql,params={}){
   state.calls.push({sql,params});
+  if(sql.includes('[SX6010]'))return structuredClone(state.parameters.filter(r=>Object.values(params).includes(r.X6_VAR)&&['',params.branch].includes(r.X6_FIL.trim())));
+  if(sql.includes('[SY1010]')){assert.equal(params.branch,'01');return structuredClone(state.buyers);}
   if(sql.includes('FROM sys.columns'))return structuredClone(columns);
   if(sql.includes('FROM sys.indexes'))return options.noIndex?[]:[{name:'PK'}];
   if(sql.includes('FROM sys.triggers'))return options.trigger?[{name:'other',definition:'unexpected'}]:[];
@@ -49,7 +53,8 @@ function fixture(alias='SC1',options={}){
 for(const alias of ['SC1','SC7'])test(alias+' creates all items atomically, includes deleted/other branch maxima and preserves bigint IDs',async()=>{
  const f=fixture(alias);f.input.items.push({...f.input.items[0],cantidad:'1'});const proposal=await f.proposal();assert.equal(f.state.inserts,0);const receipt=await f.writes.execute(proposal);
  assert.equal(receipt.number,'000100');assert.deepEqual(receipt.records,['9007199254740994','9007199254740995']);assert.equal(receipt.affected,2);assert.equal(f.state.commits,1);
- const row=f.state.rows[1];assert.equal(row[f.p+'_QUANT'],'2500.00');assert.equal(row[f.p+'_QTSEGUM'],'2.50');assert.equal(row[f.p+'_TOTAL'],'200.00');assert.equal(row[alias==='SC1'?'C1_APROV':'C7_CONAPRO'],'B');assert.equal(row[f.p+'_QUJE'],'0');
+ const row=f.state.rows[1];assert.equal(row[f.p+'_QUANT'],'2500.00');assert.equal(row[f.p+'_QTSEGUM'],'2.50');assert.equal(row[f.p+'_TOTAL'],'200.00');assert.equal(row[alias==='SC1'?'C1_APROV':'C7_CONAPRO'],'L');assert.equal(row[f.p+'_QUJE'],'0');
+ assert.equal(receipt.approval.mode,'sin-aprobacion-requerida');assert.equal(receipt.fields.aprobacion,'L');
  assert.equal(f.state.rows[0].D_E_L_E_T_,'*');assert.ok(f.state.calls.every(c=>!/^UPDATE|^DELETE|^MERGE/.test(c.sql)));
 });
 test('two concurrent confirmations allocate different documents and non-overlapping RECNO ranges',async()=>{
@@ -89,4 +94,78 @@ test('chat prepares creation from observed catalogs, never executes it or invent
  const decisions=[{action:'consultar_erp',args:{recurso:'productos',filtros:{codigo:'ZTEST'}}},{action:'consultar_erp',args:{recurso:'depositos',filtros:{codigo:'01'}}},{action:'preparar_alta',args:{accion:f.action,cabecera:f.input.header,items:f.input.items}}];
  const read=async({resource})=>({data:[{codigo:resource==='productos'?'ZTEST':'01'}]});const agent=createIntelligence({erp:f.erp,kaiqen:createDemoKaiqen(),store,read,executeRead:read,branches:['0101'],prepareChange:(actor,input)=>changes.preview(actor,input),model:{name:'test',complete:async()=>decisions.shift()}});
  const reply=await agent.query('a',{text:'Creá una solicitud nueva con estos datos'},{canPlan:true});assert.equal(reply.evidence.at(-1).result.kind,'proposal');assert.equal(reply.evidence.at(-1).result.proposal.operation,'insert');assert.match(reply.answer,/No se creó ningún documento/);assert.equal(f.state.inserts,0);
+});
+
+test('approval parameters use branch overrides, global fallback and strict logical types',async()=>{
+ for(const alias of ['SC1','SC7']){
+  const key=alias==='SC1'?'MV_APROVSC':'MV_APRPCEC',f=fixture(alias);
+  f.state.parameters.find(r=>r.X6_VAR===key).X6_CONTEUD='T';
+  f.state.parameters.push({X6_VAR:key,X6_FIL:'0101',X6_TIPO:'L',X6_CONTEUD:'.F.'});
+  f.state.parameters.push({X6_VAR:key,X6_FIL:'9999',X6_TIPO:'L',X6_CONTEUD:'T'});
+  const p=await f.proposal();assert.equal(p.writePlan.approval.status,'L');
+  assert.equal(p.writePlan.approval.parameters.find(r=>r.parametro===key).filial,'0101');
+  await f.writes.execute(p);assert.equal(f.state.inserts,1);
+ }
+ for(const mutate of [
+  f=>f.state.parameters.splice(0,1),
+  f=>f.state.parameters[0].X6_CONTEUD='',
+  f=>f.state.parameters[0].X6_CONTEUD=null,
+  f=>f.state.parameters[0].X6_CONTEUD='NO',
+  f=>f.state.parameters[0].X6_TIPO='C',
+  f=>f.state.parameters.push({...f.state.parameters[0]}),
+  f=>{f.state.parameters.push({...f.state.parameters[0],X6_FIL:'0101'});f.state.parameters.push({...f.state.parameters[0],X6_FIL:'0101'});}
+ ]){
+  const f=fixture();mutate(f);const p=await f.proposal();assert.equal(p.writePlan.executionEnabled,false);assert.equal(p.writePlan.approval.status,null);
+  assert.ok(p.writePlan.blockers.some(b=>b.code==='APROBACION_NO_VERIFICABLE'));
+  assert.equal((await f.writes.check(p)).executionEnabled,false);
+  await assert.rejects(f.writes.execute(p),{code:'ALTA_NO_HABILITADA'});assert.equal(f.state.inserts,0);
+ }
+});
+
+test('active approval circuits and requester restrictions never create a released or stranded B document',async()=>{
+ for(const [alias,key,value] of [['SC1','MV_APROVSC','.T.'],['SC1','MV_APRSCEC','T'],['SC1','MV_RESTSOL','S'],['SC7','MV_APRPCEC','.T.'],['SC7','MV_PCAPROV','000001']]){
+  const f=fixture(alias);f.state.parameters.find(r=>r.X6_VAR===key).X6_CONTEUD=value;
+  const p=await f.proposal();assert.equal(p.writePlan.executionEnabled,false);assert.equal(p.writePlan.approval.status,null);
+  await assert.rejects(f.writes.execute(p),{code:'ALTA_NO_HABILITADA'});assert.equal(f.state.inserts,0);assert.equal(f.state.commits,0);
+ }
+});
+
+test('buyer group takes precedence, blank buyer group falls back, and omission cannot bypass a buyer group',async()=>{
+ const f=fixture('SC7');f.state.buyers=[{Y1_COD:'001',Y1_GRAPROV:'BUYER',Y1_PEDIDO:'1'},{Y1_COD:'002',Y1_GRAPROV:'',Y1_PEDIDO:'1'}];
+ f.state.parameters.find(r=>r.X6_VAR==='MV_PCAPROV').X6_CONTEUD='GLOBAL';
+ let p=await f.proposal();assert.ok(p.writePlan.blockers.some(b=>b.code==='COMPRADOR_REQUERIDO'));
+ f.input.header.comprador='001';p=await f.proposal();assert.equal(p.writePlan.approval.group,'BUYER');assert.equal(p.writePlan.executionEnabled,false);
+ f.input.header.comprador='002';p=await f.proposal();assert.equal(p.writePlan.approval.group,'GLOBAL');assert.equal(p.writePlan.executionEnabled,false);
+ f.state.parameters.find(r=>r.X6_VAR==='MV_PCAPROV').X6_CONTEUD='';p=await f.proposal();assert.equal(p.writePlan.approval.status,'L');
+ const receipt=await f.writes.execute(p);assert.equal(receipt.fields.aprobacion,'L');assert.equal(f.state.rows[1].C7_COMPRA,'002');
+ f.state.buyers[1].Y1_PEDIDO='2';p=await f.proposal();assert.ok(p.writePlan.blockers.some(b=>b.code==='COMPRADOR_REQUIERE_SOLICITUD'));
+ await assert.rejects(f.writes.execute(p),{code:'ALTA_NO_HABILITADA'});assert.equal(f.state.inserts,1);
+ f.input.header.comprador='999';await assert.rejects(f.proposal(),{code:'COMPRADOR_NO_UNICO'});
+ f.input.header.comprador='002';f.state.buyers.push({...f.state.buyers[1]});await assert.rejects(f.proposal(),{code:'COMPRADOR_NO_UNICO'});
+});
+
+test('approval changes invalidate previews and all approval reads are locked during execution',async()=>{
+ for(const mutate of [
+  f=>f.state.parameters.find(r=>r.X6_VAR==='MV_APRPCEC').X6_CONTEUD='T',
+  f=>f.state.parameters.push({X6_VAR:'MV_PCAPROV',X6_FIL:'0101',X6_TIPO:'C',X6_CONTEUD:'000001'}),
+  f=>f.state.buyers.push({Y1_COD:'001',Y1_GRAPROV:'000001',Y1_PEDIDO:'1'})
+ ]){
+  const f=fixture('SC7'),p=await f.proposal();mutate(f);await assert.rejects(f.writes.execute(p),{code:'CONFLICTO_CONCURRENCIA'});assert.equal(f.state.inserts,0);
+ }
+ const f=fixture('SC7'),p=await f.proposal();f.state.calls=[];await f.writes.execute(p);
+ const reads=f.state.calls.filter(c=>c.sql.includes('[SX6010]')||c.sql.includes('[SY1010]'));assert.equal(reads.length,4);
+ for(const call of reads)assert.match(call.sql,/WITH \(UPDLOCK,HOLDLOCK\)/);
+ // Old B previews and caller-supplied state cannot be used to bypass the resolver.
+ const old=await f.proposal();old.writePlan.snapshotHash='old-version-B';await assert.rejects(f.writes.execute(old),{code:'CONFLICTO_CONCURRENCIA'});
+ f.input.header.aprobacion='L';await assert.rejects(f.proposal(),{code:'CABECERA_INVALIDA'});
+});
+
+test('HTTP cannot execute a blocked approval proposal even with writer permission and correct confirmation',async t=>{
+ const f=fixture('SC7');f.state.parameters.find(r=>r.X6_VAR==='MV_PCAPROV').X6_CONTEUD='000001';
+ const store=new Store(':memory:');t.after(()=>store.close());const key='w'.repeat(40);
+ const server=createApp({erp:f.erp,kaiqen:createDemoKaiqen(),store,readKey:'r'.repeat(40),planKey:'p'.repeat(40),writeKey:key});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();});
+ const base=`http://127.0.0.1:${server.address().port}`,post=(path,body)=>fetch(base+path,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify(body)});
+ const response=await post('/api/changes/preview',f.input);assert.equal(response.status,201);const p=await response.json();
+ assert.equal(p.executionEnabled,false);assert.equal(p.approval.status,null);assert.equal(p.approval.evidence,undefined);
+ const execute=await post('/api/changes/'+p.id+'/execute',{confirm:true,fingerprint:p.fingerprint});assert.equal(execute.status,409);assert.equal(f.state.inserts,0);
 });

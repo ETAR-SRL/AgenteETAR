@@ -4,6 +4,7 @@ import {Catalog} from '../src/protheus/catalog.js';
 import {loadConfig,identifier as q} from '../src/protheus/config.js';
 import {createWriter} from '../src/protheus/writer.js';
 import {allocatePurchaseNumbers} from '../src/protheus/purchase-creation.js';
+import {purchaseApproval} from '../src/protheus/purchase-approval.js';
 const config=loadConfig(),db=await connect(),catalog=new Catalog(db,config);let lockDb;
 try{
  await catalog.init();const branch=(process.env.ERP_BRANCHES||'0101').split(',')[0];
@@ -18,11 +19,16 @@ try{
  const results=[];
  for(const [action,alias] of [['crearSolicitudCompra','SC1'],['crearPedidoCompra','SC7']]){
   const input={action,target:{sucursal:branch},header:{fechaEmision:date,moneda:'1',...(alias==='SC1'?{solicitante:'Preparación de prueba'}:{proveedor:vendor.code,tienda:vendor.store,condicionPago:payment.code})},items:[{producto:product.code,deposito:warehouse.code,fechaNecesidad:date,cantidad:'1',precio:'100',baseCantidad:'millares',basePrecio:'millar'}]};
-  const plan=await writer.prepare(action,input);results.push({alias,prepared:true,executionEnabled:plan.executionEnabled,defaultsChecked:Object.keys(plan.initials[0]).length});
+  const plan=await writer.prepare(action,input);results.push({alias,prepared:true,executionEnabled:plan.executionEnabled,approval:plan.approval.status,approvalMode:plan.approval.mode,parameters:plan.approval.parameters,blockers:plan.blockers,defaultsChecked:Object.keys(plan.initials[0]).length});
  }
  lockDb=await connect(process.env,{writable:true});
  for(const [alias,prefix] of [['SC1','C1'],['SC7','C7']]){
-  await lockDb.transaction(tx=>allocatePurchaseNumbers({query:(sql,params)=>{if(!sql.startsWith('SELECT '))throw new Error('ONLY_SELECT');return tx.query(sql,params);}},catalog.table(alias),prefix+'_NUM',Number(catalog.dictionary.get(prefix+'_NUM').X3_TAMANHO),1));
+  await lockDb.transaction(async tx=>{
+   const readOnly={query:(sql,params)=>{if(!sql.startsWith('SELECT '))throw new Error('ONLY_SELECT');return tx.query(sql,params);}};
+   await allocatePurchaseNumbers(readOnly,catalog.table(alias),prefix+'_NUM',Number(catalog.dictionary.get(prefix+'_NUM').X3_TAMANHO),1);
+   const approval=await purchaseApproval({connection:readOnly,catalog,alias,branch,lock:true});
+   if(approval.status!==results.find(r=>r.alias===alias).approval)throw new Error('Approval changed during verification');
+  });
  }
- console.log(JSON.stringify({businessWrites:0,previewsSaved:0,allocationSelectVerified:true,results},null,2));
+ console.log(JSON.stringify({businessWrites:0,previewsSaved:0,allocationSelectVerified:true,approvalLockedSelectVerified:true,results},null,2));
 }finally{await db.close();await lockDb?.close();}

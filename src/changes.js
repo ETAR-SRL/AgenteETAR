@@ -4,8 +4,8 @@ import { assert, HttpError } from './errors.js';
 import {writeProfiles} from './protheus/write-policy.js';
 import {purchaseCreationActions} from './protheus/purchase-creation.js';
 export const changePolicies={
-  crearSolicitudCompra:{resource:'solicitudesCompra',fields:[],routine:'INSERT SC1 con RECNO y número automáticos, estado B'},
-  crearPedidoCompra:{resource:'compras',fields:[],routine:'INSERT SC7 con RECNO y número automáticos, estado B'},
+  crearSolicitudCompra:{resource:'solicitudesCompra',fields:[],routine:'INSERT SC1 con RECNO y número automáticos, estado según configuración de aprobación'},
+  crearPedidoCompra:{resource:'compras',fields:[],routine:'INSERT SC7 con RECNO y número automáticos, estado según configuración de aprobación'},
   precioLista:{resource:'preciosClientes',fields:['precio'],routine:'UPDATE DA1_PRCVEN y DA1_PRCMIL sobre ítem existente'},
   precioListaProveedor:{resource:'preciosProveedores',fields:['precio'],routine:'UPDATE AIB_PRCCOM sobre registro existente'},
   pedidoVenta:{resource:'itemsVentas',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC6 y precio SC9 pendiente; conserva estados, no revalida crédito'},
@@ -30,7 +30,7 @@ export class Changes {
     if(Object.hasOwn(purchaseCreationActions,input.action)){
       assert(this.erp.writes,503,'ESCRITURA_DESHABILITADA','No hay ejecutor de altas');
       const writePlan=await this.erp.writes.prepare(input.action,input);
-      return this.public(this.store.save(actor,{action:input.action,target:input.target,input,operation:'insert',resource:writePlan.resource,diff:writePlan.diff,items:writePlan.items,identity:writePlan.identity,calculation:writePlan.calculation,blockers:writePlan.blockers,warnings:writePlan.warnings,fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
+      return this.public(this.store.save(actor,{action:input.action,target:input.target,input,operation:'insert',resource:writePlan.resource,diff:writePlan.diff,items:writePlan.items,approval:writePlan.approval,identity:writePlan.identity,calculation:writePlan.calculation,blockers:writePlan.blockers,warnings:writePlan.warnings,fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
     }
     const policy=Object.hasOwn(changePolicies,input.action)?changePolicies[input.action]:null;
     assert(policy,400,'ACCION_NO_HABILITADA','Acciones: '+Object.keys(changePolicies).join(', '));

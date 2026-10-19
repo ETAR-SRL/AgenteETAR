@@ -7,6 +7,7 @@
     "SA2": "dbo.SA2010",
     "SB1": "dbo.SB1010",
     "SX6": "dbo.SX6010",
+    "SY1": "dbo.SY1010",
     "SA1": "dbo.SA1010",
     "DA0": "dbo.DA0010",
     "DA1": "dbo.DA1010",
@@ -32,6 +33,7 @@
     "CTT": "dbo.CTT010"
   },
   "branches": {
+    "SY1": {"0101": "01"},
     "SA1": {
       "0101": "01"
     },
@@ -109,6 +111,12 @@
     }
   },
   "entities": {
+    "compradores": {
+      "alias": "SY1", "branch": "Y1_FILIAL",
+      "required": ["Y1_COD", "Y1_NOME", "Y1_GRAPROV", "Y1_PEDIDO"],
+      "fields": {"Y1_COD": "codigo", "Y1_NOME": "nombre", "Y1_GRAPROV": "grupoAprobacion", "Y1_PEDIDO": "pedidoSinSolicitud"},
+      "filters": {"codigo": "Y1_COD"}
+    },
     "clientes": {
       "alias": "SA1",
       "branch": "A1_FILIAL",

@@ -3,7 +3,7 @@
   "info": {
     "title": "Centralizador Protheus + KAIQEN",
     "version": "0.1.0",
-    "description": "Centralizador local ERP/KAIQEN con UPDATE confirmados y altas SQL SC1/SC7. RECNO MAX+1 y número automático bajo bloqueo transaccional; documentos nuevos bloqueados para revisión, sin rutinas nativas."
+    "description": "Centralizador local ERP/KAIQEN con UPDATE confirmados y altas SQL SC1/SC7. RECNO MAX+1 y número automático bajo bloqueo transaccional; estado inicial según SX6/SY1: L sin aprobación requerida; circuitos de aprobación no implementados impiden el INSERT. Sin rutinas nativas."
   },
   "servers": [
     {
@@ -826,7 +826,7 @@
                           "fechaEmision",
                           "moneda"
                         ],
-                        "description": "SC1 requiere solicitante. SC7 requiere proveedor, tienda y condicionPago. Moneda local 1; no aprobará el documento.",
+                        "description": "SC1 requiere solicitante. SC7 requiere proveedor, tienda y condicionPago. Moneda local 1. Comprador SY1 opcional, obligatorio si hay grupos por comprador. El estado se calcula según configuración; no genera SCR ni aprobación nativa.",
                         "properties": {
                           "fechaEmision": {
                             "type": "string"
@@ -846,6 +846,7 @@
                           "condicionPago": {
                             "type": "string"
                           },
+                          "comprador": {"type": "string", "description": "Código SY1; se verifica su grupo de aprobación y restricción de pedido sin solicitud."},
                           "contacto": {
                             "type": "string"
                           }
@@ -913,7 +914,7 @@
         },
         "responses": {
           "201": {
-            "description": "Propuesta sin escritura. Para altas, número/RECNO se asignan al confirmar; el recibo contiene number, records e items.",
+            "description": "Propuesta sin escritura. Para altas, número/RECNO se asignan al confirmar; la propuesta incluye approval (estado, motivo y parámetros) y blockers; el recibo contiene number, records, items y approval.",
             "content": {
               "application/json": {
                 "schema": {

@@ -2,17 +2,18 @@ import {createHash} from 'node:crypto';
 import {assert} from '../errors.js';
 import {identifier as q} from './config.js';
 import {D,clean,plain,inputNumber,sourceNumber,fit} from './write-policy.js';
+import {purchaseApproval} from './purchase-approval.js';
 export const purchaseCreationActions=Object.freeze({crearSolicitudCompra:'SC1',crearPedidoCompra:'SC7'});
 const hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const name=t=>`${q(t.schema)}.${q(t.name)}`;
 const warnings=[
- {code:'ALTA_SQL',message:'Alta directa SQL, sin rutinas ADVPL: documento bloqueado para revisión en Protheus. No genera aprobación, alçadas, recepción ni vínculo con otra solicitud.'},
+ {code:'ALTA_SQL',message:'Alta directa SQL, sin rutinas ADVPL: estado inicial según configuración verificada de Protheus. No genera alçadas SCR, recepción ni vínculo con otra solicitud; no atribuye aprobación a un usuario.'},
  {code:'NUMERACION_SQL',message:'RECNO y número se asignan al confirmar bajo bloqueo exclusivo SQL, incluyendo registros borrados. No sincroniza números reservados en memoria de DBAccess/AppServer. Si esta alta detecta una colisión, falla y revierte sin reintentar; otro proceso con números previamente reservados también podría recibir un error de duplicado.'}
 ];
 export function purchaseCreationStatus(catalog,enabled=false){
  return Object.fromEntries(Object.entries(purchaseCreationActions).map(([action,alias])=>{
   const recno=catalog.tables?.get(alias)?.columns.get('R_E_C_N_O_');
-  return [action,{alias,executionEnabled:enabled&&recno?.identity===false,recnoIdentity:recno?.identity??null,allocation:'MAX(R_E_C_N_O_)+1; MAX(número numérico)+1; TABLOCKX/HOLDLOCK',approval:'B',warnings,blockers:recno?.identity===false?[]:[{code:'RECNO_INCOMPATIBLE',message:'Se requiere RECNO sin IDENTITY verificado.'}]}];
+  return [action,{alias,executionEnabled:enabled&&recno?.identity===false,recnoIdentity:recno?.identity??null,allocation:'MAX(R_E_C_N_O_)+1; MAX(número numérico)+1; TABLOCKX/HOLDLOCK',approval:'según configuración SX6/SY1 al preparar y confirmar',warnings,blockers:recno?.identity===false?[]:[{code:'RECNO_INCOMPATIBLE',message:'Se requiere RECNO sin IDENTITY verificado.'}]}];
  }));
 }
 export async function allocatePurchaseNumbers(tx,table,numberField,width,count){
@@ -74,7 +75,7 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
   const alias=purchaseCreationActions[action];assert(alias,400,'ACCION_NO_HABILITADA','Alta inválida');
   assert(plain(input)&&Object.keys(input).every(k=>['action','target','header','items'].includes(k))&&plain(input.target)&&Object.keys(input.target).every(k=>k==='sucursal')&&allowedBranches.includes(input.target.sucursal),400,'CLAVE_INVALIDA','Sólo sucursal autorizada; RECNO y número son automáticos');
   const branch=input.target.sucursal,p=alias==='SC1'?'C1':'C7',h=input.header;
-  assert(plain(h)&&Object.keys(h).every(k=>['fechaEmision','solicitante','proveedor','tienda','condicionPago','contacto','moneda'].includes(k)),400,'CABECERA_INVALIDA','Cabecera inválida');
+  assert(plain(h)&&Object.keys(h).every(k=>['fechaEmision','solicitante','proveedor','tienda','condicionPago','contacto','moneda','comprador'].includes(k)),400,'CABECERA_INVALIDA','Cabecera inválida');
   assert(h.moneda==='1',400,'MONEDA_NO_SOPORTADA','Altas en moneda local 1, cotización 1');
   assert(Array.isArray(input.items)&&input.items.length>0&&input.items.length<=50,400,'ITEMS_INVALIDOS','Indicar de 1 a 50 ítems');
   const metadata=await schema(connection,alias),refs=[],rows=[],initials=[],summary=[];
@@ -84,7 +85,9 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    assert(Object.hasOwn(vendor,'A2_MSBLQL'),409,'ESTADO_NO_VERIFICABLE','Falta estado de bloqueo SA2');
    assert(['','2'].includes(clean(vendor.A2_MSBLQL)),409,'PROVEEDOR_BLOQUEADO','Proveedor bloqueado');
    payment=await lookup(connection,'SE4',{E4_CODIGO:text(h.condicionPago,'C7_COND',alias)},branch,lock);refs.push(vendor,payment);
-  }else assert(!h.proveedor&&!h.tienda&&!h.condicionPago&&!h.contacto,400,'CABECERA_INVALIDA','SC1 no admite datos de pedido de compra');
+  }else assert(!h.proveedor&&!h.tienda&&!h.condicionPago&&!h.contacto&&!h.comprador,400,'CABECERA_INVALIDA','SC1 no admite datos de pedido de compra');
+  const approval=await purchaseApproval({connection,catalog,alias,branch,buyerCode:alias==='SC7'?text(h.comprador??'','C7_COMPRA',alias,true):'',lock});
+  const approvalState=approval.status??' ';
   for(let i=0;i<input.items.length;i++){
    const item=input.items[i];assert(plain(item)&&Object.keys(item).every(k=>['producto','deposito','fechaNecesidad','cantidad','precio','baseCantidad','basePrecio','centroCosto','observacion'].includes(k)),400,'ITEM_INVALIDO','Campos de ítem fuera del alcance');
    const product=await lookup(connection,'SB1',{B1_COD:text(item.producto,p+'_PRODUTO',alias)},branch,lock);refs.push(product);
@@ -102,24 +105,26 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    const itemWidth=Number(catalog.dictionary.get(p+'_ITEM')?.X3_TAMANHO);assert(Number.isInteger(itemWidth)&&itemWidth>0&&itemWidth<=6,409,'ESQUEMA_INCOMPATIBLE','Longitud de ítem');
    const row={R_E_C_N_O_:'@asignar',D_E_L_E_T_:' ',R_E_C_D_E_L_:'0',[p+'_FILIAL']:filial,[p+'_NUM']:'@asignar',[p+'_ITEM']:text(String(i+1).padStart(itemWidth,'0'),p+'_ITEM',alias),[p+'_PRODUTO']:clean(product.B1_COD),[p+'_DESCRI']:text(clean(product.B1_DESC),p+'_DESCRI',alias),[p+'_UM']:unit,[p+'_LOCAL']:warehouse,[p+'_EMISSAO']:emission,[p+'_DATPRF']:due,[p+'_QUANT']:quantity,[alias==='SC1'?'C1_VUNIT':'C7_PRECO']:unitPrice,[p+'_TOTAL']:total,[p+'_QUJE']:'0',[p+'_MOEDA']:'1',[p+'_TIPO']:'1',[p+'_FILENT']:filial,[p+'_CC']:cost,[p+'_OBS']:text(item.observacion??'',p+'_OBS',alias,true)};
    if(second){const factor=sourceNumber(product.B1_CONV,'B1_CONV'),method=clean(product.B1_TIPCONV);assert(factor.gt(0)&&['M','D'].includes(method),409,'CONVERSION_NO_VERIFICABLE','Revisar factor SB1');row[p+'_SEGUM']=text(second,p+'_SEGUM',alias);row[p+'_QTSEGUM']=fit(method==='M'?qty.mul(factor):qty.div(factor),p+'_QTSEGUM',catalog,alias);}
-   if(alias==='SC1')Object.assign(row,{C1_SOLICIT:text(h.solicitante,'C1_SOLICIT',alias),C1_QTDORIG:fit(qty,'C1_QTDORIG',catalog,alias),C1_APROV:'B'});
-   else Object.assign(row,{C7_FORNECE:clean(vendor.A2_COD),C7_LOJA:clean(vendor.A2_LOJA),C7_COND:clean(payment.E4_CODIGO),C7_CONTATO:text(h.contacto??'','C7_CONTATO',alias,true),C7_TXMOEDA:fit('1','C7_TXMOEDA',catalog,alias),C7_CONAPRO:'B'});
+   if(alias==='SC1')Object.assign(row,{C1_SOLICIT:text(h.solicitante,'C1_SOLICIT',alias),C1_QTDORIG:fit(qty,'C1_QTDORIG',catalog,alias),C1_APROV:approvalState});
+   else Object.assign(row,{C7_FORNECE:clean(vendor.A2_COD),C7_LOJA:clean(vendor.A2_LOJA),C7_COND:clean(payment.E4_CODIGO),C7_CONTATO:text(h.contacto??'','C7_CONTATO',alias,true),C7_TXMOEDA:fit('1','C7_TXMOEDA',catalog,alias),C7_CONAPRO:approvalState,C7_COMPRA:approval.buyer?.codigo||''});
    for(const field of Object.keys(row))assert(metadata.columns.some(c=>c.field===field&&!c.computed&&!c.identityColumn),409,'ESQUEMA_INCOMPATIBLE',field);
-   rows.push(row);initials.push(defaults(metadata,row));summary.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],descripcion:row[p+'_DESCRI'],deposito:warehouse,unidad:unit,cantidad:quantity,precioUnitario:unitPrice,total,segundaUnidad:second||null,cantidadSegundaUnidad:row[p+'_QTSEGUM']||null,aprobacion:'B'});
+   rows.push(row);initials.push(defaults(metadata,row));summary.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],descripcion:row[p+'_DESCRI'],deposito:warehouse,unidad:unit,cantidad:quantity,precioUnitario:unitPrice,total,segundaUnidad:second||null,cantidadSegundaUnidad:row[p+'_QTSEGUM']||null,aprobacion:approval.status});
   }
-  const snapshot={version:1,action,branch,metadata,refs,rows,initials};
-  return {kind:'purchase-create',version:1,resource:alias==='SC1'?'solicitudesCompra':'compras',snapshotHash:hash(snapshot),snapshot,rows,initials,alias,p,identity:{tabla:alias,sucursal:branch,numero:'Automático al confirmar',moneda:'1',proveedor:h.proveedor||null,solicitante:h.solicitante||null,aprobacion:'B'},diff:summary.map(r=>({field:`Ítem ${r.item}`,before:null,after:JSON.stringify(r)})),items:summary,calculation:{total:rows.reduce((acc,r)=>acc.plus(r[p+'_TOTAL']),new D(0)).toFixed(2),moneda:'1',aprobacion:'B'},warnings,blockers:[],executionEnabled:enabled};
+  const {evidence,...approvalView}=approval;
+  const snapshot={version:2,action,branch,metadata,refs,rows,initials,approval};
+  return {kind:'purchase-create',version:2,resource:alias==='SC1'?'solicitudesCompra':'compras',snapshotHash:hash(snapshot),snapshot,rows,initials,alias,p,identity:{tabla:alias,sucursal:branch,numero:'Automático al confirmar',moneda:'1',proveedor:h.proveedor||null,solicitante:h.solicitante||null,aprobacion:approval.status},diff:summary.map(r=>({field:`Ítem ${r.item}`,before:null,after:JSON.stringify(r)})),items:summary,calculation:{total:rows.reduce((acc,r)=>acc.plus(r[p+'_TOTAL']),new D(0)).toFixed(2),moneda:'1',aprobacion:approval.status},approval:approvalView,warnings,blockers:approval.blockers,executionEnabled:enabled&&!approval.blockers.length};
  }
  async function verifyInput(connection,proposal,lock){const current=await plan(connection,proposal.action,proposal.input,lock);assert(current.snapshotHash===proposal.writePlan.snapshotHash,409,'CONFLICTO_CONCURRENCIA','Cambió un catálogo, esquema o dato de la propuesta; preparar otra');return current;}
  return {
   prepare:(action,input)=>plan(db,action,input),
-  async check(proposal){await verifyInput(db,proposal,false);return {executionEnabled:enabled};},
+  async check(proposal){const current=await verifyInput(db,proposal,false);return {executionEnabled:current.executionEnabled};},
   async execute(proposal){
    assert(enabled,503,'ESCRITURA_DESHABILITADA','Altas SQL deshabilitadas');const connection=await getWriteDb();
    return connection.transaction(async tx=>{
     const alias=purchaseCreationActions[proposal.action],table=catalog.table(alias),p=alias==='SC1'?'C1':'C7';
     const allocated=await allocatePurchaseNumbers(tx,table,p+'_NUM',Number(catalog.dictionary.get(p+'_NUM')?.X3_TAMANHO),proposal.input.items.length);
     const current=await verifyInput(tx,proposal,true);
+    assert(!current.blockers.length,409,'ALTA_NO_HABILITADA',current.blockers.map(b=>b.message).join(' '));
     const existing=await tx.query(`SELECT TOP (1) [R_E_C_N_O_] FROM ${name(table)} WHERE ${q(p+'_NUM')}=@number`,{number:allocated.number});assert(!existing.length,409,'NUMERO_DUPLICADO','El número ya existe');
     for(let i=0;i<current.rows.length;i++){
      const row={...current.rows[i],R_E_C_N_O_:allocated.records[i],[p+'_NUM']:allocated.number},params={},fields=Object.keys(row),values=[];
@@ -141,7 +146,7 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
      }
     }
     await verifyInput(tx,proposal,true);
-    return {affected:saved.length,operation:'insert',table:alias,number:allocated.number,records:allocated.records,items:current.items,fields:{numero:allocated.number,aprobacion:'B'},warnings,allocation:'MAX+1 bajo TABLOCKX/HOLDLOCK',nativeValidation:false};
+    return {affected:saved.length,operation:'insert',table:alias,number:allocated.number,records:allocated.records,items:current.items,fields:{numero:allocated.number,aprobacion:current.approval.status},approval:current.approval,warnings,allocation:'MAX+1 bajo TABLOCKX/HOLDLOCK',nativeValidation:false};
    });
   }
  };
