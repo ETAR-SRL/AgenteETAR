@@ -3,7 +3,7 @@
   "info": {
     "title": "Centralizador Protheus + KAIQEN",
     "version": "0.1.0",
-    "description": "Centralizador local ERP/KAIQEN con UPDATE confirmados y altas SQL SC1/SC7. RECNO MAX+1 y número automático bajo bloqueo transaccional; estado inicial según SX6/SY1: L sin aprobación requerida; circuitos de aprobación no implementados impiden el INSERT. Sin rutinas nativas."
+    "description": "Centralizador local ERP/KAIQEN con UPDATE confirmados y altas SQL SC1/SC7. RECNO MAX+1 y número automático bajo bloqueo transaccional; estado inicial según SX6/SY1: L sin aprobación requerida; B con circuito pendiente SCR/DBM, en una transacción. Grupos, niveles y perfiles desde Protheus; variantes fuera de alcance se informan como blockers. Sin rutinas nativas."
   },
   "servers": [
     {
@@ -826,7 +826,7 @@
                           "fechaEmision",
                           "moneda"
                         ],
-                        "description": "SC1 requiere solicitante. SC7 requiere proveedor, tienda y condicionPago. Moneda local 1. Comprador SY1 opcional, obligatorio si hay grupos por comprador. El estado se calcula según configuración; no genera SCR ni aprobación nativa.",
+                        "description": "SC1 requiere solicitante. SC7 requiere proveedor, tienda y condicionPago. Moneda local 1. Comprador SY1 opcional, obligatorio si hay grupos por comprador. El estado y el circuito pendiente SCR/DBM se calculan según configuración. No ejecuta aprobaciones nativas. solicitanteCodigo identifica el usuario ERP si MV_RESTSOL exige validar restricciones.",
                         "properties": {
                           "fechaEmision": {
                             "type": "string"
@@ -846,6 +846,7 @@
                           "condicionPago": {
                             "type": "string"
                           },
+                          "solicitanteCodigo": {"type": "string", "maxLength": 6, "description": "Código de usuario ERP del solicitante para restricciones SAI; no es su nombre."},
                           "comprador": {"type": "string", "description": "Código SY1; se verifica su grupo de aprobación y restricción de pedido sin solicitud."},
                           "contacto": {
                             "type": "string"

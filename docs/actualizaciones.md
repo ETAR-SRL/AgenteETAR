@@ -132,7 +132,7 @@ Los máximos se leen y todos los INSERT se ejecutan **dentro de la misma transac
 
 ### Datos y estado del documento
 
-La primera versión crea documentos independientes en moneda local `1` y cotización `1`, sin relación con otra solicitud, contrato, recepción, impuesto calculado, descuento, rateo o grilla de productos. No es la ejecución de MATA110/MATA120. El estado inicial ya no es B fijo: se resuelve con SX6/SY1 conforme al apartado siguiente. No genera alçadas SCR ni atribuye una aprobación a un usuario Protheus. La auditoría del operador queda en el recibo local. La ausencia de aprobación requerida no equivale a haber ejecutado validaciones nativas.
+La primera versión crea documentos independientes en moneda local `1` y cotización `1`, sin relación con otra solicitud, contrato, recepción, impuesto calculado, descuento, rateo o grilla de productos. No es la ejecución de MATA110/MATA120. El estado inicial ya no es B fijo: se resuelve con SX6/SY1 conforme al apartado siguiente. Genera el circuito SCR/DBM pendiente descrito en [aprobaciones SQL](aprobaciones-sql.md); no atribuye una aprobación realizada a un usuario Protheus. La auditoría del operador queda en el recibo local. La ausencia de aprobación requerida no equivale a haber ejecutado validaciones nativas.
 
 Se verifican referencias activas de producto SB1, depósito NNR, proveedor/tienda SA2 y condición SE4; el centro de costo informado o tomado de SB1 se valida en CTT. Se rechazan productos/proveedores bloqueados. Cantidad y precio tienen base explícita. Para UN se convierten millares; si SB1 tiene segunda unidad, se calcula usando B1_CONV y B1_TIPCONV, con la precisión de C1_QTSEGUM/C7_QTSEGUM. No se redondean silenciosamente cantidades ni precios; sólo totales. SC1 guarda precio estimado C1_VUNIT y cantidad original C1_QTDORIG; SC7 guarda C7_PRECO y C7_TXMOEDA. Se conservan cantidades atendidas en cero, sin tocar stock ni títulos.
 
@@ -161,29 +161,8 @@ Para `crearPedidoCompra`, la cabecera requiere `proveedor`, `tienda` y `condicio
 `node --env-file=.env scripts/check-purchase-creation-readonly.js` preparó ambos tipos contra los catálogos reales y verificó el SELECT de asignación con bloqueo en SQL Server. Comprobó 89 valores iniciales omitidos en SC1 y 249 en SC7. No guardó propuestas ni ejecutó INSERT/UPDATE comerciales. Las transacciones de alta se probaron con dobles; falta verificar un documento comercial concreto en las pantallas y reportes Protheus. La implementación está habilitada, pero esa homologación funcional no se presenta como realizada.
 
 
-### Estado inicial según aprobación de Protheus
+### Estado inicial y circuito de aprobación de Protheus
 
-La indicación posterior del dueño reemplaza el B fijo. La propuesta, el chat y el recibo muestran el estado, su motivo y los parámetros efectivos; el formulario admite comprador y el explorador permite consultar SY1. No hay campos de entrada para forzar C1_APROV/C7_CONAPRO.
+La implementación actual sustituye el bloqueo general de altas con alçadas por generación transaccional de SCR y DBM. La propuesta versión 3 y el recibo incluyen los pasos por grupo, aprobador, nivel e importe. Un documento pendiente B puede crearse desde la app; la aprobación posterior corresponde a Protheus. No se permite forzar estados por parámetros de entrada.
 
-| Caso verificado | Resultado de la propuesta |
-|---|---|
-| SC1: MV_APROVSC y MV_APRSCEC falsos, MV_RESTSOL=N | INSERT con C1_APROV=L, sin aprobación requerida |
-| SC7: MV_APRPCEC falso, sin grupo aplicable de comprador ni MV_PCAPROV | INSERT con C7_CONAPRO=L, sin aprobación requerida |
-| SC1: aprobación simple o por entidades contables activa | Propuesta sin ejecución: falta implementar su circuito de aprobación por SQL |
-| SC7: grupo de comprador/general o aprobación por entidades contables | Propuesta sin ejecución: no se evalúan perfiles, importes, niveles y tipos de documento ni se generan SCR |
-| MV_RESTSOL=S | Propuesta sin ejecución: falta validar restricciones de productos/grupos del solicitante |
-| Configuración ausente, duplicada, tipo o valor inválido | Propuesta sin ejecución; no se interpreta desconocido como desactivado |
-
-La configuración de SX6 toma prioridad de filial lógica solicitada sobre el registro global vacío. Duplicados en cualquiera de esos ámbitos se rechazan, incluso si el ámbito duplicado no resulta elegido. Se aceptan T/.T. y F/.F. para parámetros de tipo L; un lógico vacío no equivale a falso. MV_ALTPDOC se verifica pero no activa por sí solo una aprobación. No se modifica SX6.
-
-Para SC7 se consulta SY1 en la filial física explícita (`0101` → `01`, compartición SX2 verificada E/E/C). Un grupo de comprador tiene prioridad sobre MV_PCAPROV; un grupo vacío utiliza el general. Sin comprador informado, sólo se permite resolver ausencia de grupo cuando ningún comprador activo de la filial tiene grupo; de lo contrario se exige identificarlo. Un comprador seleccionado que exige solicitud (`Y1_PEDIDO=2`) no puede crear este pedido independiente. El código seleccionado se guarda en C7_COMPRA; no se escribe C7_USER ni se suplanta a un usuario ERP. El límite de 1000 compradores se controla sin aceptar una muestra truncada.
-
-Los parámetros y compradores forman parte de la huella versión 2 y se releen con UPDLOCK/HOLDLOCK dentro de la transacción SERIALIZABLE, antes del INSERT y antes del COMMIT. Cambiar la configuración invalida la propuesta. Las propuestas anteriores con B fijo requieren preparación nueva. El control del servidor impide ejecutar una propuesta con bloqueos aun si se invoca directamente la API con permiso writer.
-
-**Límite concreto:** se implementó la decisión de ausencia de aprobación requerida, no un motor de alçadas equivalente a MATA110/MATA120. Ante un circuito configurado, se impide el INSERT; no se crea un documento varado en B ni se lo libera artificialmente en L. Respetar ese circuito requiere implementar y homologar sus registros y reglas, que no forman parte de este cambio. No se ejecuta REST ni ADVPL.
-
-Fuentes oficiales consultadas: [restricciones de solicitantes, MV_APROVSC/MV_APRSCEC/MV_RESTSOL](https://centraldeatendimento.totvs.com/hc/es/articles/30077595705623), [grupo del comprador y grupo general](https://tdn.totvs.com/pages/viewpage.action?pageId=555275887), [configuración estándar, perfiles y documentos](https://centraldeatendimento.totvs.com/hc/pt-br/articles/360006822671), [estado SC1 disponible](https://centraldeatendimento.totvs.com/hc/pt-br/articles/360028523292), [estado C7_CONAPRO=L](https://tdn.totvs.com/display/public/PROT/MT097APR). La aplicación del estado L a altas sin circuito es la decisión de este adaptador basada en la configuración leída, no una ejecución nativa.
-
-Verificación local de esta revisión (2026-10-19): lectura real MV_APROVSC=.F., MV_APRSCEC=F, MV_RESTSOL=N, MV_APRPCEC=F, MV_PCAPROV vacío, MV_ALTPDOC=T; dos compradores activos, ambos sin grupo. Ambas preparaciones resultaron ejecutables en L. Se verificaron 89 valores iniciales omitidos en SC1 y 248 en SC7, más el SELECT de asignación bajo bloqueo. Cero INSERT/UPDATE comerciales y cero propuestas guardadas por el script. No se presenta como homologación de documentos nuevos en pantallas Protheus.
-
-La suite completa aprobó 108 pruebas, incluyendo prioridad por filial, configuración ausente/duplicada/inválida, compradores y sus grupos, cambios entre propuesta y confirmación, bloqueos transaccionales y rechazo HTTP de una propuesta sin circuito soportado.
+Ver [contrato de aprobaciones SQL](aprobaciones-sql.md) para reglas, campos, límites, fuentes y evidencia de pruebas. La aprobación simple SC1 se distingue del circuito por alçadas y utiliza los derechos SAI. Configuración incompleta o variantes no implementadas se informan como errores específicos, nunca como ausencia de aprobación.

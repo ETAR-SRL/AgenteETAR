@@ -1,12 +1,11 @@
 import {assert} from '../errors.js';
 import {identifier as q} from './config.js';
 import {clean} from './write-policy.js';
-
+import {readApprovalCatalog,buildApprovalCircuit,buildSimpleRequestApproval} from './approval-circuit.js';
 const name=t=>`${q(t.schema)}.${q(t.name)}`;
 const requiredFields=(table,fields)=>{
  for(const field of fields)assert(table.columns.has(field),409,'APROBACION_NO_VERIFICABLE',`Falta ${field} para verificar la aprobación`);
 };
-
 // SX6 is scoped by the requested logical branch, then the blank global scope.
 // Missing, duplicated, mistyped and empty logical values are not equivalent to false.
 export function resolveApprovalParameters(rows,branch,spec){
@@ -24,19 +23,20 @@ export function resolveApprovalParameters(rows,branch,spec){
  }
  return {values,parameters,blockers};
 }
-
-export async function purchaseApproval({connection,catalog,alias,branch,buyerCode='',lock=false}){
+export async function purchaseApproval({connection,catalog,alias,branch,buyerCode='',requester='',items=[],lock=false}){
  const spec=alias==='SC1'?{MV_APROVSC:'L',MV_APRSCEC:'L',MV_RESTSOL:'C'}:{MV_APRPCEC:'L',MV_PCAPROV:'C',MV_ALTPDOC:'L'};
  const sx6=catalog.table('SX6');requiredFields(sx6,['X6_FIL','X6_VAR','X6_TIPO','X6_CONTEUD','D_E_L_E_T_']);
- const params={branch},keys=Object.keys(spec);keys.forEach((key,i)=>params['key'+i]=key);
- const rows=await connection.query(`SELECT [X6_FIL],[X6_VAR],[X6_TIPO],[X6_CONTEUD] FROM ${name(sx6)}${lock?' WITH (UPDLOCK,HOLDLOCK)':''} WHERE [D_E_L_E_T_]=' ' AND [X6_FIL] IN (@branch,' ') AND [X6_VAR] IN (${keys.map((_,i)=>'@key'+i).join(',')}) ORDER BY [X6_VAR],[X6_FIL]`,params);
- const {values,parameters,blockers}=resolveApprovalParameters(rows,branch,spec);
- const reasons=[],evidence={parameters:rows},field=alias==='SC1'?'C1_APROV':'C7_CONAPRO';let group='',buyer=null;
+ const values={},parameters=[],blockers=[],evidence={parameters:[],catalogs:{}};
+ async function parametersFor(spec){
+  const params={branch},keys=Object.keys(spec);keys.forEach((key,i)=>params['key'+i]=key);
+  const rows=await connection.query(`SELECT [X6_FIL],[X6_VAR],[X6_TIPO],[X6_CONTEUD] FROM ${name(sx6)}${lock?' WITH (UPDLOCK,HOLDLOCK)':''} WHERE [D_E_L_E_T_]=' ' AND [X6_FIL] IN (@branch,' ') AND [X6_VAR] IN (${keys.map((_,i)=>'@key'+i).join(',')}) ORDER BY [X6_VAR],[X6_FIL]`,params);
+  const resolved=resolveApprovalParameters(rows,branch,spec);Object.assign(values,resolved.values);parameters.push(...resolved.parameters);blockers.push(...resolved.blockers);evidence.parameters.push(...rows);
+ }
+ await parametersFor(spec);
+ const reasons=[],field=alias==='SC1'?'C1_APROV':'C7_CONAPRO';let group='',buyer=null;
  if(alias==='SC1'){
-  if(values.MV_APROVSC)reasons.push('MV_APROVSC activa la aprobación de solicitudes.');
   if(values.MV_APRSCEC)reasons.push('MV_APRSCEC activa alçadas por entidades contables.');
   if(values.MV_RESTSOL!==undefined&&!['S','N'].includes(values.MV_RESTSOL))blockers.push({code:'APROBACION_NO_VERIFICABLE',message:'MV_RESTSOL debe ser S o N.'});
-  if(values.MV_RESTSOL==='S')blockers.push({code:'RESTRICCION_SOLICITANTE_NO_SOPORTADA',message:'MV_RESTSOL exige validar productos/grupos del solicitante. Ese control no está implementado en las altas SQL.'});
  }else{
   const sy1=catalog.table('SY1');requiredFields(sy1,['Y1_FILIAL','Y1_COD','Y1_GRAPROV','Y1_PEDIDO','D_E_L_E_T_','R_E_C_N_O_']);
   const buyers=await connection.query(`SELECT TOP (1001) [Y1_COD],[Y1_GRAPROV],[Y1_PEDIDO] FROM ${name(sy1)}${lock?' WITH (UPDLOCK,HOLDLOCK)':''} WHERE [D_E_L_E_T_]=' ' AND [Y1_FILIAL]=@branch ORDER BY [Y1_COD],[R_E_C_N_O_]`,{branch:catalog.branch('SY1',branch)});
@@ -56,9 +56,24 @@ export async function purchaseApproval({connection,catalog,alias,branch,buyerCod
   if(group)reasons.push(`Grupo de aprobación ${group}, origen ${buyer?.grupo?'SY1.Y1_GRAPROV':'MV_PCAPROV'}.`);
   if(values.MV_APRPCEC)reasons.push('MV_APRPCEC activa alçadas por entidades contables.');
  }
- // A group/active circuit needs profiles, ranges, levels and SCR generation. B alone
- // is not a workflow, so these proposals cannot INSERT or silently release in L.
- if(reasons.length)blockers.push({code:'ALCADA_SQL_NO_IMPLEMENTADA',message:reasons.join(' ')+' Las reglas y la generación del circuito de aprobación no están implementadas por SQL. Esta propuesta no crea el documento.'});
- const clear=!blockers.length;
- return {field,status:clear?'L':null,mode:clear?'sin-aprobacion-requerida':'requiere-validacion',label:clear?'L — sin aprobación requerida por la configuración verificada':'Alta sin habilitar — revisar circuito de aprobación',group,buyer,parameters,reasons:clear?[alias==='SC1'?'MV_APROVSC y MV_APRSCEC desactivados; MV_RESTSOL=N.':'MV_APRPCEC desactivado; sin grupo aplicable en comprador ni MV_PCAPROV.']:reasons,blockers,evidence};
+ const entity=alias==='SC1'?values.MV_APRSCEC:values.MV_APRPCEC;
+ if(entity)await parametersFor({MV_APGRDFL:'C',MV_PERFALC:'C',...(alias==='SC1'?{MV_ALTPDOC:'L'}:{MV_IPAPREC:'L',MV_APRIPPC:'C'})});
+ if(alias==='SC1'&&values.MV_RESTSOL==='S')await parametersFor({MV_CHKSOLI:'L',MV_RESTSCC:'L'});
+ let circuit={entries:[],excluded:[],routes:[],itemStates:Object.fromEntries(items.map(i=>[i.item,'L'])),status:'L',entity:false};
+ // Configuration errors are reviewable proposals. SQL/connection failures still propagate.
+ if(!blockers.length)try{
+  const load=async aliases=>{for(const a of aliases)evidence.catalogs[a]=await readApprovalCatalog(connection,catalog,a,branch,lock);return evidence.catalogs;};
+  if(alias==='SC1'&&values.MV_RESTSOL==='S'){
+   const rights=buildSimpleRequestApproval({items,requester,rows:(await load(['SAI'])).SAI,values:{...values,MV_APROVSC:!entity&&values.MV_APROVSC}});
+   if(!entity)circuit=rights;
+  }
+  if(entity||group)circuit=buildApprovalCircuit({alias,group,values,items,catalogs:await load(['SAL','SAK','DHL','DHM',...(entity?['DBL']:[])])});
+ }catch(error){
+  if(!['CIRCUITO_INVALIDO','CIRCUITO_ESQUEMA','CIRCUITO_EXCEDIDO','TABLA_NO_DISPONIBLE','SUCURSAL_CONFIGURACION'].includes(error.code))throw error;
+  blockers.push({code:error.code,message:error.message});
+ }
+ const clear=!blockers.length,status=clear?circuit.status:null;
+ const mode=!clear?'requiere-validacion':circuit.entries.length?'circuito-pendiente':status==='B'?'aprobacion-simple':'sin-aprobacion-requerida';
+ const label=!clear?'Alta sin habilitar — revisar configuración':circuit.entries.length?`B — se generarán ${circuit.entries.length} pasos de aprobación en Protheus`:status==='B'?'B — pendiente de liberación simple en MATA110':'L — sin aprobación requerida por la configuración verificada';
+ return {field,status,mode,label,group,buyer,parameters,reasons,blockers,circuit,evidence};
 }

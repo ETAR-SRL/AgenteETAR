@@ -219,6 +219,8 @@ function renderProposal(where,proposal,{append=true}={}){
   if(proposal.before?.moneda)card.append(node('p','',`Moneda conservada: ${visual(proposal.before.moneda)}`));
   if(proposal.calculation)card.append(table([proposal.calculation]));
   if(proposal.approval){card.append(node('h4','','Aprobación · '+proposal.approval.field),node('p','',proposal.approval.label));for(const reason of proposal.approval.reasons)card.append(node('p','',reason));card.append(table(proposal.approval.parameters.map(p=>({...p,filial:p.filial||'Global',valor:p.valor??'No disponible'}))));}
+  if(proposal.approval?.circuit?.entries.length){card.append(node('h4','','Circuito pendiente en Protheus'),table(proposal.approval.circuit.entries.map(e=>({tipo:e.tipo,grupo:e.grupo,itemGrupo:e.itemGrupo,nivel:e.nivel,aprobador:e.aprobador,usuario:e.usuario,importe:e.total,perfil:e.perfil,estado:e.estado==='02'?'Pendiente':'Espera nivel anterior',liberacion:e.tipoLiberacion}))));}
+  if(proposal.approval?.circuit?.excluded.length)card.append(node('h4','','Reglas no aplicables a este importe o documento'),table(proposal.approval.circuit.excluded));
   for(const warning of proposal.warnings||[])card.append(node('p','notice',warning.message));
   for(const blocker of proposal.blockers||[])card.append(node('p','notice',blocker.message));
   const check=node('input');check.type='checkbox';const label=node('label','confirm-change');label.append(check,document.createTextNode(' Revisé el registro, la moneda, los valores y las condiciones indicadas. Confirmo este cambio en el ERP.'));
@@ -233,6 +235,7 @@ function renderProposal(where,proposal,{append=true}={}){
     if(execution.result?.fields)result.append(table([execution.result.fields]));
     if(execution.result?.records)result.append(table(execution.result.records.map((registro,i)=>({registro,...execution.result.items[i]}))));
     if(execution.result?.relatedUpdates?.length)result.append(table(execution.result.relatedUpdates.map(u=>({tabla:u.alias,registro:u.record,secuencia:u.sequence,...u.updates}))));
+    if(execution.result?.circuits?.length)result.append(node('h4','','Circuito creado'),table(execution.result.circuits.map(c=>({tabla:c.table,registros:c.affected,recnos:c.records.join(', ')}))));
     if(execution.result?.code)result.append(node('p','',execution.result.code));
   }
   refresh.onclick=async()=>{try{status((await api('/api/changes/'+proposal.id)).execution);}catch(e){showError(result,e);}};
@@ -267,10 +270,10 @@ function addCreateItem(){
 }
 $('#create-add').onclick=addCreateItem;addCreateItem();
 $('#create-date').value=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-$('#create-action').onchange=()=>{const purchase=$('#create-action').value==='crearPedidoCompra';for(const id of ['create-vendor','create-store','create-payment']){$('#'+id).disabled=!purchase;$('#'+id).required=purchase;}$('#create-buyer').disabled=!purchase;$('#create-requester').disabled=purchase;$('#create-requester').required=!purchase;};
+$('#create-action').onchange=()=>{const purchase=$('#create-action').value==='crearPedidoCompra';for(const id of ['create-vendor','create-store','create-payment']){$('#'+id).disabled=!purchase;$('#'+id).required=purchase;}$('#create-buyer').disabled=!purchase;$('#create-requester-code').disabled=purchase;$('#create-requester').disabled=purchase;$('#create-requester').required=!purchase;};
 $('#create-form').onsubmit=async event=>{
  event.preventDefault();const action=$('#create-action').value,header={fechaEmision:$('#create-date').value,moneda:'1'};
- if(action==='crearSolicitudCompra')header.solicitante=$('#create-requester').value.trim();else Object.assign(header,{proveedor:$('#create-vendor').value.trim(),tienda:$('#create-store').value.trim(),condicionPago:$('#create-payment').value.trim(),comprador:$('#create-buyer').value.trim()});
+ if(action==='crearSolicitudCompra'){header.solicitante=$('#create-requester').value.trim();header.solicitanteCodigo=$('#create-requester-code').value.trim();}else Object.assign(header,{proveedor:$('#create-vendor').value.trim(),tienda:$('#create-store').value.trim(),condicionPago:$('#create-payment').value.trim(),comprador:$('#create-buyer').value.trim()});
  const items=[...$('#create-items').children].map(row=>Object.fromEntries([...row.querySelectorAll('[data-field]')].map(i=>[i.dataset.field,i.value.trim()]))),where=$('#create-result');$('#create-preview').disabled=true;busy(where,'Verificando catálogos y preparando el documento…');
  try{const proposal=await api('/api/changes/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,target:{sucursal:$('#branch').value},header,items})});localStorage.setItem('central-last-proposal',proposal.id);renderProposal(where,proposal,{append:false});}catch(e){showError(where,e);}finally{$('#create-preview').disabled=!capabilities?.canExecute;}
 };
