@@ -28,12 +28,12 @@ Se verificaron en SX3 `C6_MILLAR` (6 decimales) y `D2_MILLAR` (4 decimales), tit
 |---|---|---|
 | Lista de clientes | DA1_PRCVEN + DA1_PRCMIL; cliente por A1_TABELA | Lectura, propuesta y UPDATE confirmado |
 | Lista de proveedores | AIB_PRCCOM, proveedor/tienda/lista/producto | Lectura, propuesta y UPDATE confirmado |
-| Pedido de venta | C6_PRCVEN, C6_QTDVEN, C6_VALOR, C6_MILLAR | UPDATE de ítems simples sin dependencias; sincroniza C6_MILLAR y C6_PRUNIT cuando corresponde |
+| Pedido de venta | C6_PRCVEN, C6_QTDVEN, C6_VALOR, C6_MILLAR | UPDATE simple; en liberados/parciales sólo precio del saldo SC6 + SC9 pendiente elegible, conservando históricos y cantidades |
 | Pedido de compra | C7_PRECO, C7_QUANT, C7_TOTAL | UPDATE de ítems simples; SC7 sin filas reales en la verificación actual |
 | Informes de saldos | Pedido menos atendido, con alcance y unidad explícitos | Lectura paginada; no afirmar que una página es un informe global |
 
 El usuario autorizó implementar UPDATE sobre registros existentes. DA1, AIB, SC6 y SC7 tienen ejecución transaccional con confirmación explícita y permiso writer. No hay INSERT, DELETE, altas automáticas ni actualización de remitos SD2. El chat y el dictado preparan propuestas; sólo la tarjeta/API de ejecución puede confirmarlas. Las propuestas de contactos SA1/SA2 siguen sin ejecutor.
 
-El ejecutor relee y bloquea la fila y sus dependencias, comprueba la huella previa, actualiza una única fila y verifica los valores antes de confirmar la transacción. Los pedidos con cantidades atendidas, liberaciones, documentos, descuentos, segunda unidad o condiciones fiscales/comerciales dependientes se rechazan. El total no es un importe libre: debe coincidir con precio × cantidad redondeado a SX3.
+El ejecutor relee y bloquea la fila y sus dependencias, comprueba la huella previa, actualiza el ítem y las liberaciones pendientes incluidas en la propuesta y verifica los valores antes de confirmar la transacción. En ventas liberadas/parciales sólo admite precio; conserva SC9 documentada, SD2, cantidades y estados. Si hay liberaciones abiertas con control de crédito activo, prepara el detalle pero impide ejecutarlo por SQL: requiere validación nativa. Compras con recepciones/aprobaciones, descuentos, segunda unidad o condiciones fiscales/comerciales dependientes conservan sus restricciones. El total no es un importe libre: debe coincidir con precio × cantidad redondeado a SX3.
 
 Ver [contrato de actualizaciones](actualizaciones.md) para campos, permisos, límites y resultados inciertos. No se modificaron registros comerciales durante las pruebas de implementación.

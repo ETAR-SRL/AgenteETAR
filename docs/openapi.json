@@ -768,7 +768,7 @@
                     "additionalProperties": {
                       "type": "string"
                     },
-                    "description": "Listas: precio. Pedidos: precioUnitario, cantidadPedida y total opcional (debe coincidir con el cálculo). Contactos: email, telefono, contacto (sin ejecutor). Importes como texto decimal con punto."
+                    "description": "Listas: precio. Pedidos: precioUnitario, cantidadPedida y total opcional (debe coincidir con el cálculo). Ventas liberadas/parciales: sólo precioUnitario y total de referencia opcional; cantidades y documentos se conservan. La propuesta puede incluir blockers y executionEnabled=false por restricciones nativas. Contactos: email, telefono, contacto (sin ejecutor). Importes como texto decimal con punto."
                   },
                   "priceUnit": {
                     "type": "string",
@@ -853,7 +853,7 @@
     },
     "/api/changes/{id}/execute": {
       "post": {
-        "summary": "Ejecutar UPDATE de una fila existente con rol writer",
+        "summary": "Ejecutar UPDATE de un ítem existente y sus liberaciones pendientes elegibles con rol writer",
         "security": [
           {
             "bearerAuth": []

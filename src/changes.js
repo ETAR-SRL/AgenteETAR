@@ -5,7 +5,7 @@ import {writeProfiles} from './protheus/write-policy.js';
 export const changePolicies={
   precioLista:{resource:'preciosClientes',fields:['precio'],routine:'UPDATE DA1_PRCVEN y DA1_PRCMIL sobre ítem existente'},
   precioListaProveedor:{resource:'preciosProveedores',fields:['precio'],routine:'UPDATE AIB_PRCCOM sobre registro existente'},
-  pedidoVenta:{resource:'itemsVentas',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC6 sin entregas, liberaciones ni condiciones dependientes'},
+  pedidoVenta:{resource:'itemsVentas',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC6; precio del saldo y SC9 pendiente cuando no requiere revalidación de crédito'},
   pedidoCompra:{resource:'compras',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC7 sin recepciones ni condiciones dependientes'},
   clienteContacto:{resource:'clientes',fields:['email','telefono','contacto'],routine:'MATA030 / CRMA980 alteración'},
   proveedorContacto:{resource:'proveedores',fields:['email','telefono','contacto'],routine:'MATA020 alteración'}
@@ -32,7 +32,7 @@ export class Changes {
       // Mantiene la validación de acceso a sucursal del servicio de lectura.
       const {row}=await this.current(policy,target);
       const writePlan=await this.erp.writes.prepare(input.action,input);
-      return this.public(this.store.save(actor,{action:input.action,target,input,resource:policy.resource,before:row,diff:writePlan.diff,identity:writePlan.identity,calculation:writePlan.calculation,fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
+      return this.public(this.store.save(actor,{action:input.action,target,input,resource:policy.resource,before:row,diff:writePlan.diff,identity:writePlan.identity,calculation:writePlan.calculation,blockers:writePlan.blockers||[],fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
     }
     const {row,meta}=await this.current(policy,target);
     const metadata=this.erp.metadata();
@@ -70,7 +70,7 @@ export class Changes {
     const proposal=this.store.get(id,actor);
     assert(proposal,404,'PROPUESTA_NO_EXISTE','Propuesta inexistente');
     assert(Date.parse(proposal.expiresAt)>Date.now(),409,'PROPUESTA_VENCIDA','La propuesta venció; generar otra');
-    if(proposal.writePlan){await this.erp.writes.check(proposal);this.store.audit(actor,'proposal.checked',id);return {id,unchanged:true,executionEnabled:this.erp.writes.enabled};}
+    if(proposal.writePlan){const checked=await this.erp.writes.check(proposal);this.store.audit(actor,'proposal.checked',id);return {id,unchanged:true,executionEnabled:checked.executionEnabled};}
     const current=await this.current(changePolicies[proposal.action],proposal.target);
     assert(hash(current.row)===proposal.fingerprint,409,'CONFLICTO_CONCURRENCIA','El registro cambió desde la propuesta; releer y generar otra');
     this.store.audit(actor,'proposal.checked',id);

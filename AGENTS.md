@@ -8,6 +8,6 @@
 - Los terminados de ETAR comienzan con `Z`. Resolver cliente → `SA1.A1_TABELA` → lista DA0/DA1 → producto; no inferir un cliente único a partir del prefijo ni del nombre.
 - La operación comercial usa habitualmente millares; TOTVS guarda cantidades en unidades. Un millar = 1000 unidades. Mantener separadas cantidad, precio por unidad, precio por millar y total.
 - `C6_MILLAR` y `D2_MILLAR` son cantidades en millares, no precios. Un UPDATE SQL no ejecuta automáticamente los disparadores de pantalla/ADVPL.
-- Las actualizaciones solicitadas son sobre registros existentes: DA1, AIB y pedidos SC6/SC7. No crear registros. El contrato de ejecución y sus límites están documentados; no presentar una propuesta como una modificación ejecutada.
+- Las actualizaciones solicitadas son sobre registros existentes: DA1, AIB y pedidos SC6/SC7; SC9 sólo como dependencia pendiente de un cambio de precio de SC6. No crear registros. El contrato de ejecución y sus límites están documentados; no presentar una propuesta como una modificación ejecutada.
 - No ejecutar cambios de negocio como prueba de arranque, publicación o tests. Las pruebas automatizadas usan dobles; las comprobaciones de producción son lecturas salvo una instrucción concreta del dueño para modificar registros identificados.
 - Ejecutar las pruebas relevantes antes del commit. Mantener explícitos los campos, filiales y circuitos que todavía no se verificaron.

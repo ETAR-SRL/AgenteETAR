@@ -6,6 +6,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {createWriter} from '../src/protheus/writer.js';
 import {writeProfiles} from '../src/protheus/write-policy.js';
+import {releaseFields} from '../src/protheus/sales-balance.js';
 import {transact} from '../src/protheus/database.js';
 import {Changes} from '../src/changes.js';
 import {Store} from '../src/store.js';
@@ -23,29 +24,34 @@ function fixture(action='pedidoVenta',options={}){
  for(const f of p.zero||[])row[f]='0';for(const f of p.blank||[])row[f]=' ';
  if(p.alias==='SC6')row.C6_PRUNIT='0.08';
  const state={row,product:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',B1_FILIAL:'0101',B1_COD:'ZTEST',B1_UM:'UN',B1_DESC:'Prueba'},header:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',C5_FILIAL:'0101',C5_NUM:'001',C5_NOTA:' ',C5_LIBEROK:' ',C5_BLQ:' ',C5_CONAPRO:' ',C5_FRETE:'0'},SC9:[],SD1:[],SD2:[],triggers:[],writes:0,commits:0,rollbacks:0,sql:[]};
- const specs={[p.price]:[p.alias==='AIB'||p.alias==='SC7'?4:6,14],...(p.quantity?{[p.quantity]:[2,12],[p.total]:[2,14]}:{}),DA1_PRCMIL:[4,12],C6_MILLAR:[6,14],C6_PRUNIT:[6,11]};
+ Object.assign(state.header,{C5_CLIENTE:'CLI001',C5_LOJACLI:'01',C5_TIPO:'N'});
+ state.SX6=[{X6_FIL:' ',X6_VAR:'MV_ALTPREC',X6_CONTEUD:'T'},{X6_FIL:' ',X6_VAR:'MV_BLOQUEI',X6_CONTEUD:'.F.'}];
+ const specs={[p.price]:[p.alias==='AIB'||p.alias==='SC7'?4:6,14],...(p.quantity?{[p.quantity]:[2,12],[p.total]:[2,14]}:{}),DA1_PRCMIL:[4,12],C6_MILLAR:[6,14],C6_PRUNIT:[6,11],C6_QTDENT:[2,9],C9_QTDLIB:[2,9],C9_PRCVEN:[4,14]};
  const tables=new Map(),dictionary=new Map();
  function add(alias,data){const columns=new Map(Object.keys(data).map(k=>[k,{type:specs[k]||p.zero?.includes(k)||k==='C5_FRETE'?'float':'varchar'}]));tables.set(alias,{schema:'dbo',name:alias+'010',columns});}
  add(p.alias,row);add('SB1',state.product);add('SC5',state.header);
- for(const [alias,cols] of Object.entries({SC9:['C9_FILIAL','C9_PEDIDO','C9_ITEM'],SD2:['D2_FILIAL','D2_PEDIDO','D2_ITEMPV'],SD1:['D1_FILIAL','D1_PEDIDO','D1_ITEMPC','D1_FORNECE','D1_LOJA']}))add(alias,Object.fromEntries([...cols,'D_E_L_E_T_','R_E_C_N_O_'].map(k=>[k,''])));
+ for(const [alias,cols] of Object.entries({SC9:releaseFields,SD2:['D2_FILIAL','D2_PEDIDO','D2_ITEMPV'],SD1:['D1_FILIAL','D1_PEDIDO','D1_ITEMPC','D1_FORNECE','D1_LOJA'],SX6:['X6_FIL','X6_VAR','X6_CONTEUD']}))add(alias,Object.fromEntries([...cols,'D_E_L_E_T_','R_E_C_N_O_'].map(k=>[k,''])));
  for(const [field,[scale,width]] of Object.entries(specs))dictionary.set(field,{X3_TIPO:'N',X3_DECIMAL:String(scale),X3_TAMANHO:String(width)});
  const catalog={table:a=>{assert.ok(tables.has(a),a);return tables.get(a);},dictionary,branch:(a,b)=>{assert.equal(b,'0101');return a==='DA1'?'01':'0101';}};
  async function query(sql,params={}){
   state.sql.push({sql,params});if(sql.includes('sys.triggers'))return state.triggers;
   if(sql.startsWith('DECLARE')){
    assert.match(sql,/WHERE \[\w+_FILIAL\]=@branch AND \[R_E_C_N_O_\]=CONVERT\(bigint,@record\) AND \[D_E_L_E_T_\]=' '/);
-   assert.equal(params.record,row.R_E_C_N_O_);assert.equal(params.branch,catalog.branch(p.alias,'0101'));
-   for(const m of sql.matchAll(/\[([A-Z0-9_]+)\]=CONVERT\(decimal\(\d+,\d+\),@(v\d+)\)/g))state.row[m[1]]=params[m[2]];
-   state.row.S_T_A_M_P_='2026-10-19';state.writes++;
+   const alias=/UPDATE \[dbo\]\.\[([A-Z0-9]+)010\]/.exec(sql)[1];
+   assert.equal(params.branch,catalog.branch(alias,'0101'));
+   const target=alias===p.alias?state.row:state.SC9.find(r=>r.R_E_C_N_O_===params.record);assert.ok(target);assert.equal(params.record,target.R_E_C_N_O_);
+   for(const m of sql.matchAll(/\[([A-Z0-9_]+)\]=CONVERT\(decimal\(\d+,\d+\),@(v\d+)\)/g))target[m[1]]=params[m[2]];
+   target.S_T_A_M_P_='2026-10-19';state.writes++;
    if(options.unexpected)state.row[p.product]='OTHER';
-   return [{affected:options.affected??1}];
+   if(options.afterWrite)options.afterWrite(state,alias);
+   return [{affected:alias==='SC9'?(options.releaseAffected??1):(options.affected??1)}];
   }
   const alias=/FROM \[dbo\]\.\[([A-Z0-9]+)010\]/.exec(sql)?.[1];
   const rows=alias===p.alias?[state.row]:alias==='SB1'?[state.product]:alias==='SC5'?[state.header]:state[alias];assert.ok(rows,sql);
   if(alias===p.alias&&params.k0!==row.R_E_C_N_O_)return [];
-  return structuredClone(rows);
+  return structuredClone(rows).sort((a,b)=>BigInt(a.R_E_C_N_O_||0)<BigInt(b.R_E_C_N_O_||0)?-1:1);
  }
- const db={query,async transaction(callback){const before=structuredClone(state.row);try{const result=await callback({query});if(options.unknown)throw Object.assign(new Error('commit lost'),{outcomeUnknown:true,code:'RESULTADO_INCIERTO'});state.commits++;return result;}catch(e){if(!e.outcomeUnknown){state.row=before;state.rollbacks++;}throw e;}}};
+ const db={query,async transaction(callback){const before=structuredClone({row:state.row,SC9:state.SC9,SD2:state.SD2,header:state.header,product:state.product});try{const result=await callback({query});if(options.unknown)throw Object.assign(new Error('commit lost'),{outcomeUnknown:true,code:'RESULTADO_INCIERTO'});state.commits++;return result;}catch(e){if(!e.outcomeUnknown){Object.assign(state,before);state.rollbacks++;}throw e;}}};
  const writes=createWriter({db,catalog,getWriteDb:async()=>db,enabled:options.enabled??true});
  const erp={writes,metadata:()=>({entities:{[p.resource]:{filters:{registro:''}}}}),list:async()=>({data:[{registro:row.R_E_C_N_O_}],meta:{}})};
  const input={action,target:{sucursal:'0101',registro:row.R_E_C_N_O_},changes:p.quantity?{precioUnitario:'80',cantidadPedida:'2.5'}:{precio:'90'},priceUnit:'millar',...(p.quantity?{quantityUnit:'millares'}:{})};
@@ -131,4 +137,82 @@ test('chat prepares from an observed RECNO and never invokes execute, including 
 test('binary float noise does not create an apparent price change at SX3 precision',async()=>{
  const f=fixture('precioLista');f.state.row.DA1_PRCVEN='0.080000000000000001';f.input.changes.precio='80';
  await assert.rejects(f.proposal(),{code:'SIN_CAMBIOS'});assert.equal(f.state.writes,0);
+});
+
+function release(record,quantity,extra={}){
+ return {...Object.fromEntries(releaseFields.map(f=>[f,' '])),R_E_C_N_O_:record,D_E_L_E_T_:' ',C9_FILIAL:'0101',C9_PEDIDO:'001',C9_ITEM:'001',C9_PRODUTO:'ZTEST',C9_CLIENTE:'CLI001',C9_LOJA:'01',C9_QTDLIB:quantity,C9_PRCVEN:'0.08',C9_SEQUEN:record,...extra};
+}
+function partialFixture(options={}){
+ const f=fixture('pedidoVenta',options);f.input.changes={precioUnitario:'90'};
+ f.state.row.C6_QTDENT='400';f.state.row.C6_NOTA='F001';f.state.header.C5_LIBEROK='S';
+ f.state.SC9=[release('1','400',{C9_NFISCAL:'F001',C9_SERIENF:'A',C9_BLCRED:'10',C9_BLEST:'10'}),release('2','200'),release('3','100',{C9_BLEST:'02'}),release('4','100')];
+ f.state.SD2=[{R_E_C_N_O_:'12',D_E_L_E_T_:' ',D2_FILIAL:'0101',D2_PEDIDO:'001',D2_ITEMPV:'001',D2_DOC:'F001',D2_SERIE:'A',D2_COD:'ZTEST',D2_CLIENTE:'CLI001',D2_LOJA:'01',D2_QUANT:'400',D2_TOTAL:'32',D2_PRCVEN:'0.08',D2_MILLAR:'0.4'}];
+ return f;
+}
+test('partial sale reprices SC6 and ALL pending SC9 rows, retaining invoices, quantities and release states',async()=>{
+ const f=partialFixture(),before=structuredClone(f.state),p=await f.proposal();
+ assert.equal(p.writePlan.relatedUpdates.length,3);assert.equal(p.writePlan.calculation.totalPendiente,'54.00');assert.equal(p.writePlan.calculation.millaresPendientes,'0.6');assert.equal(p.writePlan.calculation.totalPedidoReferencia,'90.00');
+ const receipt=await f.writes.execute(p);assert.equal(receipt.affected,4);assert.equal(f.state.row.C6_VALOR,'90.00');
+ for(const field of ['C6_QTDENT','C6_QTDVEN','C6_MILLAR','C6_NOTA','C6_QTDLIB','C6_QTDEMP'])assert.equal(f.state.row[field],before.row[field]);
+ assert.deepEqual(f.state.SC9[0],before.SC9[0]);assert.deepEqual(f.state.SD2,before.SD2);assert.deepEqual(f.state.header,before.header);
+ for(const r of f.state.SC9.slice(1)){assert.equal(r.C9_PRCVEN,'0.0900');const old=before.SC9.find(x=>x.R_E_C_N_O_===r.R_E_C_N_O_);for(const k of Object.keys(old))if(k!=='C9_PRCVEN')assert.equal(r[k],old[k]);}
+ assert.ok(f.state.sql.filter(x=>x.sql.startsWith('DECLARE')).every(x=>/UPDATE \[dbo\]\.\[SC[69]010\]/.test(x.sql)));
+ assert.ok(f.state.sql.some(x=>x.sql.includes('TOP (501)')&&x.sql.includes('WITH (UPDLOCK,HOLDLOCK)')&&x.sql.includes('ORDER BY [R_E_C_N_O_]')));
+});
+test('released unbilled sale changes only price fields, preserving inconsistent legacy MILLAR rather than rewriting quantity',async()=>{
+ const f=fixture();f.input.changes={precioUnitario:'90'};f.state.header.C5_LIBEROK='S';f.state.SC9=[release('2','1000')];f.state.row.C6_QTDEMP='1000';f.state.row.C6_MILLAR='0';
+ const p=await f.proposal();assert.equal(p.writePlan.updates.C6_MILLAR,undefined);await f.writes.execute(p);assert.equal(f.state.row.C6_MILLAR,'0');assert.equal(f.state.SC9[0].C9_PRCVEN,'0.0900');
+});
+test('partial without pending releases can update future balance with credit control enabled, freezing remito and factura',async()=>{
+ const f=partialFixture();f.state.SC9=f.state.SC9.slice(0,1);f.state.SC9[0].C9_REMITO='R001';f.state.SX6[1].X6_CONTEUD='.T.';
+ const before=structuredClone(f.state.SC9),p=await f.proposal();assert.equal(p.writePlan.executionEnabled,true);assert.equal((await f.writes.execute(p)).affected,1);assert.deepEqual(f.state.SC9,before);
+});
+test('credit control produces a visible non-executable preview, and direct API execution cannot bypass it',async t=>{
+ const f=partialFixture();f.state.SX6[1].X6_CONTEUD='.T.';const store=new Store(':memory:');t.after(()=>store.close());const changes=new Changes({erp:f.erp,store,read:f.erp.list});
+ const p=await changes.preview('a',f.input);assert.equal(p.executionEnabled,false);assert.equal(p.blockers[0].code,'REQUIERE_REVALIDACION_CREDITO');assert.equal((await changes.check('a',p.id)).executionEnabled,false);
+ await assert.rejects(changes.execute('a',p.id,{confirm:true,fingerprint:p.fingerprint}),{code:'REQUIERE_REVALIDACION_CREDITO'});assert.equal(f.state.writes,0);
+});
+test('missing credit parameter and restrictive repricing policy cannot become executable',async()=>{
+ for(const mutate of [f=>f.state.SX6.pop(),f=>f.state.SX6[0].X6_CONTEUD='F',f=>f.state.SX6[0].X6_CONTEUD='L',f=>f.state.SX6[0].X6_CONTEUD='']){
+  const f=partialFixture();mutate(f);const p=await f.proposal();assert.equal(p.writePlan.executionEnabled,false);await assert.rejects(f.writes.execute(p));assert.equal(f.state.writes,0);
+ }
+});
+test('branch-specific SX6 overrides global values; duplicates fail closed',async()=>{
+ const f=partialFixture();f.state.SX6.push({X6_FIL:'0101',X6_VAR:'MV_BLOQUEI',X6_CONTEUD:'.T.'});assert.equal((await f.proposal()).writePlan.executionEnabled,false);
+ f.state.SX6.push({...f.state.SX6[2]});await assert.rejects(f.proposal(),{code:'PARAMETRO_AMBIGUO'});
+});
+test('fulfilment, quantity changes, second units, logistics and ambiguous releases are rejected',async()=>{
+ for(const mutate of [f=>f.state.row.C6_QTDENT='1000',f=>f.state.row.C6_QTDENT='0',f=>f.state.SC9[0].C9_QTDLIB='300',f=>f.input.changes.cantidadPedida='2',f=>f.state.SC9[1].C9_QTDLIB='700',f=>f.state.SC9[1].C9_NFISCAL='F002',f=>f.state.SC9[1].C9_BLCRED='10',f=>f.state.SC9[1].C9_BLCRED='01',f=>f.state.SC9[1].C9_BLWMS='01',f=>f.state.SC9[1].C9_CARGA='001',f=>f.state.SC9[1].C9_SERIENF='A',f=>f.state.SC9[1].C9_QTDLIB2='1',f=>f.state.SC9[1].C9_PRODUTO='OTHER',f=>f.state.SC9[1].C9_CLIENTE='OTHER',f=>f.state.SC9[1].C9_PRCVEN='0.1',f=>f.state.SD2=[],f=>f.state.SD2[0].D2_COD='OTHER',f=>f.state.header.C5_TIPO='C',f=>f.state.header.C5_CONAPRO='L',f=>delete f.state.SC9[1].C9_REMITO]){
+  const f=partialFixture();mutate(f);await assert.rejects(f.proposal());assert.equal(f.state.writes,0);
+ }
+});
+test('SC9 lower precision rejects silent rounding of a unit price valid in SC6',async()=>{
+ const f=partialFixture();f.input.changes.precioUnitario='90.001';await assert.rejects(f.proposal(),{code:'PRECISION_INVALIDA'});
+});
+test('new billing, remito, release, price, parameter or invoice amount after preview prevents every UPDATE',async()=>{
+ for(const mutate of [f=>f.state.row.C6_QTDENT='500',f=>f.state.SC9[1].C9_REMITO='R002',f=>f.state.SC9[1].C9_PRCVEN='0.09',f=>f.state.SC9.push(release('5','50')),f=>f.state.SD2[0].D2_TOTAL='33',f=>f.state.SX6[1].X6_CONTEUD='.T.',f=>f.state.SC9[1].C9_BLEST='02']){
+  const f=partialFixture(),p=await f.proposal();mutate(f);await assert.rejects(f.writes.execute(p));assert.equal(f.state.writes,0);assert.equal(f.state.rollbacks,1);
+ }
+});
+test('failure on a later SC9 row or collateral invoice/history update rolls back SC6 and all releases',async()=>{
+ for(const options of [{releaseAffected:0},{releaseAffected:2},{afterWrite:(s,a)=>{if(a==='SC9')s.SD2[0].D2_TOTAL='999';}},{afterWrite:(s,a)=>{if(a==='SC9')s.SC9[0].C9_PRCVEN='99';}},{afterWrite:(s,a)=>{if(a==='SC9')s.SC9[1].C9_QTDLIB='201';}}]){
+  const f=partialFixture(options),before=structuredClone({row:f.state.row,releases:f.state.SC9,documents:f.state.SD2});await assert.rejects(f.writes.execute(await f.proposal()));assert.deepEqual({row:f.state.row,releases:f.state.SC9,documents:f.state.SD2},before);assert.equal(f.state.commits,0);
+ }
+});
+test('oversized and duplicate dependency sets are never silently truncated',async()=>{
+ const f=partialFixture();f.state.SC9=Array.from({length:501},(_,i)=>release(String(i+1),'1'));await assert.rejects(f.proposal(),{code:'DEPENDENCIAS_EXCEDIDAS'});
+ f.state.SC9=[release('1','1'),release('1','1')];await assert.rejects(f.proposal(),{code:'DEPENDENCIAS_NO_UNICAS'});
+});
+test('purchase receipts remain protected with a precise native-circuit reason',async()=>{
+ const f=fixture('pedidoCompra');f.input.changes={precioUnitario:'90'};f.state.row.C7_QUJE='400';await assert.rejects(f.proposal(),{code:'COMPRA_ATENDIDA_REQUIERE_PROTHEUS'});assert.equal(f.state.writes,0);
+});
+test('chat explains blocked credit preview and HTTP execute rejects it without business UPDATE',async t=>{
+ const f=partialFixture();f.state.SX6[1].X6_CONTEUD='.T.';const store=new Store(':memory:');t.after(()=>store.close());const changes=new Changes({erp:f.erp,store,read:f.erp.list});
+ const decisions=[{action:'consultar_erp',args:{recurso:'itemsVentas',filtros:{registro:f.input.target.registro}}},{action:'preparar_cambio',args:{accion:'pedidoVenta',registro:f.input.target.registro,precio:'90',basePrecio:'millar'}}];
+ const agent=createIntelligence({erp:f.erp,store,kaiqen:createDemoKaiqen(),branches:['0101'],read:f.erp.list,executeRead:f.erp.list,prepareChange:(actor,input)=>changes.preview(actor,input),model:{name:'test',complete:async()=>decisions.shift()}});
+ const reply=await agent.query('a',{text:'Cambiar a 90 por millar el saldo pendiente de este pedido liberado'},{canPlan:true});assert.match(reply.answer,/no puede ejecutarse/);assert.match(reply.answer,/crédito/);assert.doesNotMatch(reply.answer,/requiere tu confirmación/);
+ const key='w'.repeat(40),server=createApp({erp:f.erp,kaiqen:createDemoKaiqen(),store,readKey:'r'.repeat(40),planKey:'p'.repeat(40),writeKey:key});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();});
+ const base=`http://127.0.0.1:${server.address().port}`,post=(path,body)=>fetch(base+path,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify(body)});
+ const res=await post('/api/changes/preview',f.input);assert.equal(res.status,201);const p=await res.json();assert.equal(p.executionEnabled,false);assert.equal(p.blockers[0].code,'REQUIERE_REVALIDACION_CREDITO');
+ const result=await post('/api/changes/'+p.id+'/execute',{confirm:true,fingerprint:p.fingerprint});assert.equal(result.status,409);assert.equal(f.state.writes,0);
 });

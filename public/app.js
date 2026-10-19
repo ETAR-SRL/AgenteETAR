@@ -214,18 +214,20 @@ start();
 
 function renderProposal(where,proposal,{append=true}={}){
   const card=node('article','result-card'),result=node('div'),controls=node('div','filter-bottom');
-  card.append(node('h3','','Revisar cambio · '+proposal.action),node('p','',`Sucursal ${proposal.target.sucursal} · registro ${proposal.target.registro} · vence ${stamp(proposal.expiresAt)}`),table([proposal.identity||{}]),table(proposal.diff.map(d=>({campo:d.field,antes:d.before,despues:d.after}))));
+  card.append(node('h3','','Revisar cambio · '+proposal.action),node('p','',`Sucursal ${proposal.target.sucursal} · registro ${proposal.target.registro} · vence ${stamp(proposal.expiresAt)}`),table([proposal.identity||{}]),table(proposal.diff.map(d=>({...d.table?{tabla:d.table,registro:d.record,secuencia:d.sequence||''}:{},campo:d.field,antes:d.before,despues:d.after}))));
   if(proposal.before?.moneda)card.append(node('p','',`Moneda conservada: ${visual(proposal.before.moneda)}`));
   if(proposal.calculation)card.append(table([proposal.calculation]));
+  for(const blocker of proposal.blockers||[])card.append(node('p','notice',blocker.message));
   const check=node('input');check.type='checkbox';const label=node('label','confirm-change');label.append(check,document.createTextNode(' Revisé el registro, la moneda y los valores. Confirmo este cambio en el ERP.'));
   const execute=node('button','primary','Confirmar y actualizar ERP'),refresh=node('button','secondary','Consultar estado');execute.type=refresh.type='button';
   execute.disabled=true;check.onchange=()=>{execute.disabled=!check.checked||!capabilities?.canExecute||!proposal.executionEnabled;};
   controls.append(execute,refresh);card.append(label,controls,result);let terminal=false;
   function status(execution){
     const names={executed:'Cambio confirmado por el ERP.',executing:'Ejecución en curso. No repitas el cambio.',failed:'No se confirmó el cambio. Revisá el error y generá una nueva propuesta.',unknown:'Resultado incierto. Verificá el registro en Protheus antes de preparar otro cambio.'};
-    if(!execution){result.replaceChildren(node('p','','Propuesta pendiente de confirmación.'));return;}
+    if(!execution){result.replaceChildren(node('p','',proposal.blockers?.length?'Propuesta sin ejecución habilitada: requiere revisión en Protheus.':'Propuesta pendiente de confirmación.'));return;}
     terminal=true;execute.disabled=true;check.disabled=true;result.replaceChildren(node('p','',names[execution.status]||execution.status));
     if(execution.result?.fields)result.append(table([execution.result.fields]));
+    if(execution.result?.relatedUpdates?.length)result.append(table(execution.result.relatedUpdates.map(u=>({tabla:u.alias,registro:u.record,secuencia:u.sequence,...u.updates}))));
     if(execution.result?.code)result.append(node('p','',execution.result.code));
   }
   refresh.onclick=async()=>{try{status((await api('/api/changes/'+proposal.id)).execution);}catch(e){showError(result,e);}};

@@ -34,18 +34,19 @@ export function fit(value,field,catalog,alias,{round=false}={}){
  assert(round||n.decimalPlaces()<=scale,400,'PRECISION_INVALIDA',`${field} admite ${scale} decimales; no se redondea el precio o cantidad`);
  const out=n.toFixed(scale);assert(out.length<=width,400,'VALOR_FUERA_DE_RANGO',`${field} excede la longitud SX3`);return out;
 }
-export function guardOrder(profile,row){
+export function guardOrder(profile,row,{salesBalance=false}={}){
  if(!profile.quantity)return;
  // Campos obligatorios: si no hay evidencia del estado no se habilita un UPDATE.
  const required=profile.alias==='SC6'?['C6_QTDENT','C6_QTDLIB','C6_NOTA','C6_BLQ','C6_DESCONT','C6_VALDESC']:['C7_QUJE','C7_QTDACLA','C7_ENCER','C7_RESIDUO','C7_CONAPRO','C7_DESC','C7_VLDESC'];
  for(const field of required)assert(Object.hasOwn(row,field),409,'ESTADO_NO_VERIFICABLE',`Falta ${field}`);
- for(const field of profile.zero||[])if(Object.hasOwn(row,field))assert(sourceNumber(row[field],field).eq(0),409,'PEDIDO_CON_DEPENDENCIAS',`${field} no es cero; requiere el circuito Protheus`);
- for(const field of profile.blank||[])if(Object.hasOwn(row,field))assert(clean(row[field])==='',409,'PEDIDO_CON_DEPENDENCIAS',`${field} indica estado, vínculo o aprobación que requiere Protheus`);
+ const retained=salesBalance&&profile.alias==='SC6'?new Set(['C6_QTDENT','C6_QTDLIB','C6_QTDRESE','C6_QTDEMP','C6_NOTA']):new Set();
+ for(const field of profile.zero||[])if(Object.hasOwn(row,field)&&!retained.has(field))assert(sourceNumber(row[field],field).eq(0),409,'PEDIDO_CON_DEPENDENCIAS',`${field} no es cero; requiere el circuito Protheus`);
+ for(const field of profile.blank||[])if(Object.hasOwn(row,field)&&!retained.has(field))assert(clean(row[field])==='',409,'PEDIDO_CON_DEPENDENCIAS',`${field} indica estado, vínculo o aprobación que requiere Protheus`);
  // No dejar importes fiscales, anticipos o accesorios calculados con el valor anterior.
  const tax=profile.alias==='SC7'?/^C7_(?:BAS|BASE|ALQ|ALIQ|VALIMP|VALICM|VALIPI|VALIR|VALCOF|VALPIS|IPI$|PICM$|VALEMB$)/:/^C6_(?:BAS|ALQ|VALIMP|VALICM|VALIPI|IPIDEV$|PICMRET$)/;
  for(const [field,value] of Object.entries(row))if(tax.test(field))assert(sourceNumber(value,field).eq(0),409,'FISCAL_NO_SOPORTADO',`${field} requiere recálculo fiscal Protheus`);
 }
-export function calculateUpdate(action,input,row,product,catalog){
+export function calculateUpdate(action,input,row,product,catalog,{salesBalance=false}={}){
  const p=writeProfiles[action];assert(p,400,'ACCION_NO_HABILITADA','Acción de escritura inválida');
  assert(plain(input.changes)&&Object.keys(input.changes).length&&Object.keys(input.changes).every(k=>p.fields.includes(k)),400,'CAMPO_NO_HABILITADO','Campos fuera del alcance');
  assert(input.priceUnit===undefined||['unidad','millar'].includes(input.priceUnit),400,'BASE_PRECIO_INVALIDA','priceUnit: unidad o millar');
@@ -58,14 +59,15 @@ export function calculateUpdate(action,input,row,product,catalog){
  if(p.priceThousands&&catalog.table(p.alias).columns.has(p.priceThousands)&&c[priceKey]!==undefined){
   assert(unit==='UN',409,'MILLARES_NO_APLICAN','DA1_PRCMIL requiere producto en UN');updates[p.priceThousands]=fit(price.mul(1000),p.priceThousands,catalog,p.alias);
  }
- guardOrder(p,row);
+ if(salesBalance)assert(p.alias==='SC6'&&c.precioUnitario!==undefined&&c.cantidadPedida===undefined,409,'SOLO_PRECIO_PENDIENTE','En ventas liberadas o atendidas sólo se cambia el precio del saldo pendiente; no las cantidades');
+ guardOrder(p,row,{salesBalance});
  let quantity,total;
  if(p.quantity){
   quantity=sourceNumber(row[p.quantity],p.quantity).toDecimalPlaces(numericSpec(p.quantity,catalog,p.alias).scale);assert(quantity.gt(0)&&price.gt(0),409,'PEDIDO_INCONSISTENTE','Cantidad y precio actuales deben ser positivos');
   const originalTotal=sourceNumber(row[p.total],p.total),expected=fit(quantity.mul(originalPrice),p.total,catalog,p.alias,{round:true});
   assert(originalTotal.toFixed(numericSpec(p.total,catalog,p.alias).scale)===expected,409,'TOTAL_ORIGEN_INCONSISTENTE','El total actual no coincide con cantidad × precio; requiere revisar condiciones comerciales');
   if(c.cantidadPedida!==undefined){assert(input.quantityUnit,400,'BASE_CANTIDAD_REQUERIDA','Indicar unidades o millares');quantity=inputNumber(c.cantidadPedida,'cantidadPedida');if(input.quantityUnit==='millares')quantity=quantity.mul(1000);updates[p.quantity]=fit(quantity,p.quantity,catalog,p.alias);}
-  if(p.thousands&&catalog.table(p.alias).columns.has(p.thousands)){
+  if(!salesBalance&&p.thousands&&catalog.table(p.alias).columns.has(p.thousands)){
    assert(unit==='UN',409,'MILLARES_NO_APLICAN','El campo MILLAR exige UN');
    // Se sincroniza también si antes estaba vacío/cero: ambos valores se muestran en el diff.
    updates[p.thousands]=fit(quantity.div(1000),p.thousands,catalog,p.alias);
