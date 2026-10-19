@@ -241,7 +241,7 @@ test('creation reports real RECNO identity but never enables incomplete inserts 
  const tables=new Map(['SC1','SC7'].map(alias=>[alias,{columns:new Map([['R_E_C_N_O_',{identity:false}]])}]));
  const status=purchaseCreationStatus({tables});assert.equal(status.crearSolicitudCompra.recnoIdentity,false);assert.equal(status.crearPedidoCompra.executionEnabled,false);
  tables.get('SC1').columns.get('R_E_C_N_O_').identity=true;assert.equal(purchaseCreationStatus({tables}).crearSolicitudCompra.executionEnabled,false);
- const f=changesFixture(t);for(const action of ['crearSolicitudCompra','crearPedidoCompra'])await assert.rejects(f.changes.preview('a',{action,target:{sucursal:'0101'},items:[]}),{code:'ALTA_COMPRAS_NO_DISPONIBLE'});
+ const f=changesFixture(t);for(const action of ['crearSolicitudCompra','crearPedidoCompra'])await assert.rejects(f.changes.preview('a',{action,target:{sucursal:'0101'},items:[]}),{code:'CABECERA_INVALIDA'});
  assert.equal(f.state.writes,0);assert.equal(f.store.db.prepare('SELECT COUNT(*) AS n FROM proposals').get().n,0);
 });
 

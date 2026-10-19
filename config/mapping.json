@@ -26,7 +26,10 @@
     "SCJ": "dbo.SCJ010",
     "SCK": "dbo.SCK010",
     "SC9": "dbo.SC9010",
-    "SC1": "dbo.SC1010"
+    "SC1": "dbo.SC1010",
+    "SE4": "dbo.SE4010",
+    "NNR": "dbo.NNR010",
+    "CTT": "dbo.CTT010"
   },
   "branches": {
     "SA1": {
@@ -93,6 +96,15 @@
       "0101": "0101"
     },
     "SC1": {
+      "0101": "0101"
+    },
+    "SE4": {
+      "0101": "0101"
+    },
+    "NNR": {
+      "0101": "0101"
+    },
+    "CTT": {
       "0101": "0101"
     }
   },
@@ -1385,6 +1397,51 @@
       "warnings": [
         "SC1_precio_estimado_no_es_precio_de_orden_confirmada"
       ]
+    },
+    "condicionesPago": {
+      "alias": "SE4",
+      "branch": "E4_FILIAL",
+      "required": [
+        "E4_CODIGO",
+        "E4_DESCRI"
+      ],
+      "fields": {
+        "E4_CODIGO": "codigo",
+        "E4_DESCRI": "nombre"
+      },
+      "filters": {
+        "codigo": "E4_CODIGO"
+      }
+    },
+    "depositos": {
+      "alias": "NNR",
+      "branch": "NNR_FILIAL",
+      "required": [
+        "NNR_CODIGO",
+        "NNR_DESCRI"
+      ],
+      "fields": {
+        "NNR_CODIGO": "codigo",
+        "NNR_DESCRI": "nombre"
+      },
+      "filters": {
+        "codigo": "NNR_CODIGO"
+      }
+    },
+    "centrosCosto": {
+      "alias": "CTT",
+      "branch": "CTT_FILIAL",
+      "required": [
+        "CTT_CUSTO",
+        "CTT_DESC01"
+      ],
+      "fields": {
+        "CTT_CUSTO": "codigo",
+        "CTT_DESC01": "nombre"
+      },
+      "filters": {
+        "codigo": "CTT_CUSTO"
+      }
     }
   },
   "verification": {

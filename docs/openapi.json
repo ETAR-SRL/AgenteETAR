@@ -3,7 +3,7 @@
   "info": {
     "title": "Centralizador Protheus + KAIQEN",
     "version": "0.1.0",
-    "description": "Centralizador local con PWA, texto/voz, ERP y KAIQEN. UPDATE confirmados DA1/AIB/SC1/SC6/SC7 y precios SC9 pendientes; no ejecuta revalidación nativa. Altas SC1/SC7 pendientes de numeración y homologación."
+    "description": "Centralizador local ERP/KAIQEN con UPDATE confirmados y altas SQL SC1/SC7. RECNO MAX+1 y número automático bajo bloqueo transaccional; documentos nuevos bloqueados para revisión, sin rutinas nativas."
   },
   "servers": [
     {
@@ -717,7 +717,7 @@
     },
     "/api/changes/preview": {
       "post": {
-        "summary": "Guardar propuesta sobre un registro existente; requiere API_PLAN_KEY",
+        "summary": "Preparar UPDATE o alta SQL SC1/SC7; planner o writer, ejecución posterior confirmada",
         "security": [
           {
             "bearerAuth": []
@@ -728,73 +728,192 @@
           "content": {
             "application/json": {
               "schema": {
-                "type": "object",
-                "required": [
-                  "action",
-                  "target",
-                  "changes"
-                ],
-                "additionalProperties": false,
-                "properties": {
-                  "action": {
-                    "enum": [
-                      "precioLista",
-                      "precioListaProveedor",
-                      "pedidoVenta",
-                      "pedidoCompra",
-                      "clienteContacto",
-                      "proveedorContacto",
-                      "solicitudCompra"
-                    ]
-                  },
-                  "target": {
+                "oneOf": [
+                  {
                     "type": "object",
                     "required": [
-                      "sucursal",
-                      "registro"
+                      "action",
+                      "target",
+                      "changes"
                     ],
+                    "additionalProperties": false,
                     "properties": {
-                      "sucursal": {
-                        "type": "string"
+                      "action": {
+                        "enum": [
+                          "precioLista",
+                          "precioListaProveedor",
+                          "pedidoVenta",
+                          "pedidoCompra",
+                          "clienteContacto",
+                          "proveedorContacto",
+                          "solicitudCompra"
+                        ]
                       },
-                      "registro": {
+                      "target": {
+                        "type": "object",
+                        "required": [
+                          "sucursal",
+                          "registro"
+                        ],
+                        "properties": {
+                          "sucursal": {
+                            "type": "string"
+                          },
+                          "registro": {
+                            "type": "string",
+                            "pattern": "^[1-9][0-9]{0,18}$"
+                          }
+                        }
+                      },
+                      "changes": {
+                        "type": "object",
+                        "minProperties": 1,
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "description": "Listas: precio. Pedidos: precioUnitario, cantidadPedida y total opcional (debe coincidir con el cálculo). Ventas liberadas/parciales: sólo precioUnitario y total de referencia opcional; cantidades y documentos se conservan. La propuesta puede incluir blockers y executionEnabled=false por restricciones nativas. Contactos: email, telefono, contacto (sin ejecutor). Importes como texto decimal con punto."
+                      },
+                      "priceUnit": {
                         "type": "string",
-                        "pattern": "^[1-9][0-9]{0,18}$"
+                        "enum": [
+                          "unidad",
+                          "millar"
+                        ],
+                        "default": "unidad"
+                      },
+                      "quantityUnit": {
+                        "type": "string",
+                        "enum": [
+                          "unidades",
+                          "millares"
+                        ],
+                        "description": "Obligatoria al cambiar cantidadPedida"
                       }
                     }
                   },
-                  "changes": {
+                  {
                     "type": "object",
-                    "minProperties": 1,
-                    "additionalProperties": {
-                      "type": "string"
-                    },
-                    "description": "Listas: precio. Pedidos: precioUnitario, cantidadPedida y total opcional (debe coincidir con el cálculo). Ventas liberadas/parciales: sólo precioUnitario y total de referencia opcional; cantidades y documentos se conservan. La propuesta puede incluir blockers y executionEnabled=false por restricciones nativas. Contactos: email, telefono, contacto (sin ejecutor). Importes como texto decimal con punto."
-                  },
-                  "priceUnit": {
-                    "type": "string",
-                    "enum": [
-                      "unidad",
-                      "millar"
+                    "additionalProperties": false,
+                    "required": [
+                      "action",
+                      "target",
+                      "header",
+                      "items"
                     ],
-                    "default": "unidad"
-                  },
-                  "quantityUnit": {
-                    "type": "string",
-                    "enum": [
-                      "unidades",
-                      "millares"
-                    ],
-                    "description": "Obligatoria al cambiar cantidadPedida"
+                    "properties": {
+                      "action": {
+                        "enum": [
+                          "crearSolicitudCompra",
+                          "crearPedidoCompra"
+                        ]
+                      },
+                      "target": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "sucursal"
+                        ],
+                        "properties": {
+                          "sucursal": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "header": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "fechaEmision",
+                          "moneda"
+                        ],
+                        "description": "SC1 requiere solicitante. SC7 requiere proveedor, tienda y condicionPago. Moneda local 1; no aprobará el documento.",
+                        "properties": {
+                          "fechaEmision": {
+                            "type": "string"
+                          },
+                          "moneda": {
+                            "const": "1"
+                          },
+                          "solicitante": {
+                            "type": "string"
+                          },
+                          "proveedor": {
+                            "type": "string"
+                          },
+                          "tienda": {
+                            "type": "string"
+                          },
+                          "condicionPago": {
+                            "type": "string"
+                          },
+                          "contacto": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "items": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 50,
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "producto",
+                            "deposito",
+                            "fechaNecesidad",
+                            "cantidad",
+                            "precio",
+                            "baseCantidad",
+                            "basePrecio"
+                          ],
+                          "properties": {
+                            "producto": {
+                              "type": "string"
+                            },
+                            "deposito": {
+                              "type": "string"
+                            },
+                            "fechaNecesidad": {
+                              "type": "string"
+                            },
+                            "cantidad": {
+                              "type": "string"
+                            },
+                            "precio": {
+                              "type": "string"
+                            },
+                            "centroCosto": {
+                              "type": "string"
+                            },
+                            "observacion": {
+                              "type": "string"
+                            },
+                            "baseCantidad": {
+                              "enum": [
+                                "unidades",
+                                "millares"
+                              ]
+                            },
+                            "basePrecio": {
+                              "enum": [
+                                "unidad",
+                                "millar"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
-                }
+                ]
               }
             }
           }
         },
         "responses": {
           "201": {
-            "description": "Respuesta con origen, fecha de consulta, paginación y advertencias cuando corresponda.",
+            "description": "Propuesta sin escritura. Para altas, número/RECNO se asignan al confirmar; el recibo contiene number, records e items.",
             "content": {
               "application/json": {
                 "schema": {

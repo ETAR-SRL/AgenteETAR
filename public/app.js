@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-const labels={solicitudesCompra:'Solicitudes de compra',costos:'Costos',compras:'Órdenes de compra',produccion:'Producción',ventas:'Pedidos de venta',itemsVentas:'Ítems de ventas / pendientes',documentosSalida:'Documentos de salida',itemsDocumentosSalida:'Ítems de documentos de salida',remitos:'Remitos',entregas:'Entregas físicas',clientes:'Clientes',proveedores:'Proveedores',productos:'Productos',listasPreciosClientes:'Listas de precios de clientes',preciosClientes:'Precios de clientes · DA1',listasPreciosProveedores:'Listas de precios de proveedores',preciosProveedores:'Precios de proveedores',productoProveedor:'Productos por proveedor',productoCliente:'Productos por cliente',entradasCompras:'Entradas de compras',estructuras:'Estructuras',cotizaciones:'Cotizaciones',itemsCotizaciones:'Ítems de cotizaciones',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN'};
+const labels={condicionesPago:'Condiciones de pago',depositos:'Depósitos',centrosCosto:'Centros de costo',solicitudesCompra:'Solicitudes de compra',costos:'Costos',compras:'Órdenes de compra',produccion:'Producción',ventas:'Pedidos de venta',itemsVentas:'Ítems de ventas / pendientes',documentosSalida:'Documentos de salida',itemsDocumentosSalida:'Ítems de documentos de salida',remitos:'Remitos',entregas:'Entregas físicas',clientes:'Clientes',proveedores:'Proveedores',productos:'Productos',listasPreciosClientes:'Listas de precios de clientes',preciosClientes:'Precios de clientes · DA1',listasPreciosProveedores:'Listas de precios de proveedores',preciosProveedores:'Precios de proveedores',productoProveedor:'Productos por proveedor',productoCliente:'Productos por cliente',entradasCompras:'Entradas de compras',estructuras:'Estructuras',cotizaciones:'Cotizaciones',itemsCotizaciones:'Ítems de cotizaciones',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN'};
 const fieldLabels={precioPorMillar:'Precio por millar',cantidadMillares:'Cantidad en millares',registro:'Registro',codigo:'Código',descripcion:'Descripción',sucursal:'Sucursal',producto:'Producto',cliente:'Cliente',proveedor:'Proveedor',nombre:'Nombre',tienda:'Tienda',numero:'Número',lista:'Lista',precio:'Precio',desde:'Desde',hasta:'Hasta',pendiente:'Pendientes',status_name:'Estado registrado',phase_no:'Fase',name:'Nombre',code:'Código',customer:'Cliente',current_phase_name:'Fase actual',planned_start:'Inicio previsto',planned_end:'Fin previsto',actual_start:'Inicio real',actual_end:'Fin real',updated_at:'Actualizado',part_number:'N.º de pieza',part_name:'Pieza',sin_ia_externa:'Restricción IA externa',sin_ia_externa_por_cliente:'Restricción IA del cliente'};
 let capabilities,selectedProject=null,projectOffset=0,projectQuery='',page=1,activeParams=null,activeResource=null,deferredInstall;
 let conversationId=localStorage.getItem('central-conversation-id')||undefined;
@@ -202,7 +202,7 @@ $('#help').onclick=()=>$('#help-dialog').showModal();$('#close-help').onclick=()
 window.addEventListener('offline',()=>notice('Sin conexión. La interfaz está disponible, pero las consultas requieren el servicio local y acceso a las fuentes.'));
 window.addEventListener('online',()=>notice('Conexión recuperada. Volvé a consultar para actualizar la información.'));
 async function start(){
-  try{await session();capabilities=await api('/api/capabilities');$('#update-preview').disabled=!capabilities.canExecute;$('#update-access').textContent=capabilities.canExecute?'UPDATE SQL habilitados. La ejecución depende de las validaciones de cada propuesta; este modo no revalida crédito en Protheus.':'Esta sesión no tiene ejecución de cambios habilitada.';if(capabilities.purchaseCreation){$('#creation-status').textContent='Altas SC1/SC7 pendientes de implementación: falta coordinar RECNO y numeración con Protheus y verificar el circuito de creación. El agente todavía no crea documentos nuevos.';}restoreProposal();$('#connection').textContent=capabilities.mode==='live'?'Servicio real':'Modo DEMO';$('#connection').classList.toggle('warn',capabilities.mode!=='live');
+  try{await session();capabilities=await api('/api/capabilities');$('#update-preview').disabled=!capabilities.canExecute;$('#create-preview').disabled=!capabilities.canExecute;$('#update-access').textContent=capabilities.canExecute?'UPDATE SQL habilitados. La ejecución depende de las validaciones de cada propuesta; este modo no revalida crédito en Protheus.':'Esta sesión no tiene ejecución de cambios habilitada.';if(capabilities.purchaseCreation){$('#creation-status').textContent='Altas SC1/SC7 disponibles en el formulario de abajo. Numeración automática al confirmar; documentos bloqueados para revisión en Protheus.';}restoreProposal();$('#connection').textContent=capabilities.mode==='live'?'Servicio real':'Modo DEMO';$('#connection').classList.toggle('warn',capabilities.mode!=='live');
     capabilities.branches.forEach(v=>{const o=node('option','',v);o.value=v;$('#branch').append(o);});
     const resources=Object.keys(capabilities.erp.entities||{});for(const key of [...resources,'remitos','entregas']){const o=node('option','',labels[key]||key);o.value=key;$('#resource').append(o);}$('#resource').value='costos';buildFilters();
     $('#voice-status').textContent=capabilities.voice.available?'Dictado en español · transcripción local · hasta 45 segundos':'Transcripción local no instalada. Las consultas por texto están disponibles.';
@@ -215,13 +215,13 @@ start();
 
 function renderProposal(where,proposal,{append=true}={}){
   const card=node('article','result-card'),result=node('div'),controls=node('div','filter-bottom');
-  card.append(node('h3','','Revisar cambio · '+proposal.action),node('p','',`Sucursal ${proposal.target.sucursal} · registro ${proposal.target.registro} · vence ${stamp(proposal.expiresAt)}`),table([proposal.identity||{}]),table(proposal.diff.map(d=>({...d.table?{tabla:d.table,registro:d.record,secuencia:d.sequence||''}:{},campo:d.field,antes:d.before,despues:d.after}))));
+  card.append(node('h3','','Revisar cambio · '+proposal.action),node('p','',`Sucursal ${proposal.target.sucursal} · ${proposal.operation==='insert'?'documento nuevo — numeración al confirmar':'registro '+proposal.target.registro} · vence ${stamp(proposal.expiresAt)}`),table([proposal.identity||{}]),proposal.operation==='insert'?table(proposal.items):table(proposal.diff.map(d=>({...d.table?{tabla:d.table,registro:d.record,secuencia:d.sequence||''}:{},campo:d.field,antes:d.before,despues:d.after}))));
   if(proposal.before?.moneda)card.append(node('p','',`Moneda conservada: ${visual(proposal.before.moneda)}`));
   if(proposal.calculation)card.append(table([proposal.calculation]));
   for(const warning of proposal.warnings||[])card.append(node('p','notice',warning.message));
   for(const blocker of proposal.blockers||[])card.append(node('p','notice',blocker.message));
   const check=node('input');check.type='checkbox';const label=node('label','confirm-change');label.append(check,document.createTextNode(' Revisé el registro, la moneda, los valores y las condiciones indicadas. Confirmo este cambio en el ERP.'));
-  const execute=node('button','primary','Confirmar y actualizar ERP'),refresh=node('button','secondary','Consultar estado');execute.type=refresh.type='button';
+  const execute=node('button','primary',proposal.operation==='insert'?'Confirmar y crear documento':'Confirmar y actualizar ERP'),refresh=node('button','secondary','Consultar estado');execute.type=refresh.type='button';
   execute.disabled=true;check.onchange=()=>{execute.disabled=!check.checked||!capabilities?.canExecute||!proposal.executionEnabled;};
   controls.append(execute,refresh);card.append(label,controls,result);let terminal=false;
   function status(execution){
@@ -230,6 +230,7 @@ function renderProposal(where,proposal,{append=true}={}){
     terminal=true;execute.disabled=true;check.disabled=true;result.replaceChildren(node('p','',names[execution.status]||execution.status));
     for(const warning of execution.result?.warnings||[])result.append(node('p','notice',warning.message));
     if(execution.result?.fields)result.append(table([execution.result.fields]));
+    if(execution.result?.records)result.append(table(execution.result.records.map((registro,i)=>({registro,...execution.result.items[i]}))));
     if(execution.result?.relatedUpdates?.length)result.append(table(execution.result.relatedUpdates.map(u=>({tabla:u.alias,registro:u.record,secuencia:u.sequence,...u.updates}))));
     if(execution.result?.code)result.append(node('p','',execution.result.code));
   }
@@ -254,4 +255,21 @@ $('#update-form').onsubmit=async event=>{
   $('#update-preview').disabled=true;busy(where,'Leyendo el registro y calculando diferencias…');
   try{const proposal=await api('/api/changes/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,target:{sucursal:$('#branch').value,registro:$('#update-record').value.trim()},changes,...(price?{priceUnit:$('#update-price-unit').value}:{}),...(quantity?{quantityUnit:$('#update-quantity-unit').value}:{})})});localStorage.setItem('central-last-proposal',proposal.id);renderProposal(where,proposal,{append:false});}
   catch(e){showError(where,e);}finally{$('#update-preview').disabled=!capabilities?.canExecute;}
+};
+
+function addCreateItem(){
+ const container=$('#create-items');if(container.children.length>=50)return;
+ const row=node('fieldset','panel');row.append(node('legend','','Ítem '+(container.children.length+1)));const fields=node('div','filters');
+ for(const [key,label,type] of [['producto','Producto (código)','text'],['deposito','Depósito (código)','text'],['fechaNecesidad','Fecha de necesidad','date'],['cantidad','Cantidad','text'],['precio','Precio','text']]){const l=node('label','',label),i=node('input');i.dataset.field=key;i.type=type;i.required=true;if(['cantidad','precio'].includes(key))i.inputMode='decimal';l.append(i);fields.append(l);}
+ for(const [key,label,options] of [['baseCantidad','Base de cantidad',[['millares','Millares'],['unidades','Unidades']]],['basePrecio','Base de precio',[['millar','Por millar'],['unidad','Por unidad']]]]){const l=node('label','',label),select=node('select');select.dataset.field=key;for(const [value,title] of options){const o=node('option','',title);o.value=value;select.append(o);}l.append(select);fields.append(l);}
+ const remove=node('button','secondary','Quitar ítem');remove.type='button';remove.onclick=()=>{if(container.children.length>1)row.remove();};row.append(fields,remove);container.append(row);
+}
+$('#create-add').onclick=addCreateItem;addCreateItem();
+$('#create-date').value=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+$('#create-action').onchange=()=>{const purchase=$('#create-action').value==='crearPedidoCompra';for(const id of ['create-vendor','create-store','create-payment']){$('#'+id).disabled=!purchase;$('#'+id).required=purchase;}$('#create-requester').disabled=purchase;$('#create-requester').required=!purchase;};
+$('#create-form').onsubmit=async event=>{
+ event.preventDefault();const action=$('#create-action').value,header={fechaEmision:$('#create-date').value,moneda:'1'};
+ if(action==='crearSolicitudCompra')header.solicitante=$('#create-requester').value.trim();else Object.assign(header,{proveedor:$('#create-vendor').value.trim(),tienda:$('#create-store').value.trim(),condicionPago:$('#create-payment').value.trim()});
+ const items=[...$('#create-items').children].map(row=>Object.fromEntries([...row.querySelectorAll('[data-field]')].map(i=>[i.dataset.field,i.value.trim()]))),where=$('#create-result');$('#create-preview').disabled=true;busy(where,'Verificando catálogos y preparando el documento…');
+ try{const proposal=await api('/api/changes/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,target:{sucursal:$('#branch').value},header,items})});localStorage.setItem('central-last-proposal',proposal.id);renderProposal(where,proposal,{append:false});}catch(e){showError(where,e);}finally{$('#create-preview').disabled=!capabilities?.canExecute;}
 };

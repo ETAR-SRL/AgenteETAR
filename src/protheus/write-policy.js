@@ -2,9 +2,9 @@ import Decimal from 'decimal.js';
 import {assert} from '../errors.js';
 export const D=Decimal.clone({precision:50,rounding:Decimal.ROUND_HALF_UP});
 export const sqlExecutionPolicy=Object.freeze({
- transport:'sql',existingRecordsOnly:true,nativeCreditRevalidation:false,protheusRest:false,
+ transport:'sql',existingRecordsOnly:false,nativeCreditRevalidation:false,protheusRest:false,
  preservesIssuedDocuments:true,
- description:'UPDATE controlados sobre registros existentes. No se invocan REST ni rutinas ADVPL de Protheus.',
+ description:'UPDATE controlados y altas SC1/SC7 con numeración automática SQL. No se invocan REST ni rutinas ADVPL de Protheus.',
  creditLimitation:'El reajuste directo SC6/SC9 conserva los estados existentes, pero no revalida crédito ni recalcula sus saldos en SA1. La propuesta muestra esta condición antes de confirmar.'
 });
 export const writeProfiles=Object.freeze({

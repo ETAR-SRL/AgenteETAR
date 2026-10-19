@@ -1,6 +1,6 @@
 # Actualizaciones reales de registros existentes
 
-Implementación del 19/10/2026. La API y la PWA ejecutan UPDATE parametrizados sobre un ítem activo y, cuando corresponde, sus liberaciones pendientes, después de preparar y confirmar una propuesta. No crean registros ni ejecutan SQL generado por el modelo. El alcance es una empresa/base configurada y sus sucursales autorizadas.
+Implementación del 19/10/2026. La API y la PWA ejecutan UPDATE parametrizados sobre un ítem activo y, cuando corresponde, sus liberaciones pendientes, después de preparar y confirmar una propuesta. Los UPDATE no crean registros ni ejecutan SQL generado por el modelo; las nuevas acciones de alta SC1/SC7 se describen al final. El alcance es una empresa/base configurada y sus sucursales autorizadas.
 
 ## Campos y conversiones
 
@@ -50,7 +50,7 @@ Estas fuentes describen el producto, no certifican este ejecutor SQL ni sustituy
 
 ### Modo SQL y revalidación nativa
 
-La ejecución implementada continúa con UPDATE SQL controlados, sin llamadas REST a Protheus. Las altas nuevas fueron autorizadas después, pero siguen pendientes de implementación. `GET /api/capabilities` expone `writePolicy` con transporte SQL y `nativeCreditRevalidation=false`; la PWA y el contexto del chat explicitan esa limitación. El permiso general `canExecute` no habilita una propuesta bloqueada: su validación particular sigue siendo obligatoria en el servidor.
+La ejecución implementada continúa con UPDATE SQL controlados, sin llamadas REST a Protheus. Las altas SC1/SC7 se implementaron después, con MAX+1 explícitamente autorizado y sin validación nativa. `GET /api/capabilities` expone `writePolicy` con transporte SQL y `nativeCreditRevalidation=false`; la PWA y el contexto del chat explicitan esa limitación. El permiso general `canExecute` no habilita una propuesta bloqueada: su validación particular sigue siendo obligatoria en el servidor.
 
 La revalidación nativa **no está implementada**. TOTVS documenta [MATA410 mediante MSExecAuto](https://tdn.totvs.com/pages/viewpage.action?pageId=6784012), con operación 4 para alterar, y [el comportamiento de MV_AVALCRD](https://tdn.totvs.com/pages/viewpage.action?pageId=776122750), que exige reinformar `C6_QTDLIB` en la alteración para someter la liberación al análisis correspondiente. Eso requiere ejecutar y homologar la rutina dentro de Protheus; cambiar campos SQL no reproduce ese circuito. Tampoco corresponde invocar MATA440 por ExecAuto: [TOTVS indica que no está disponible](https://centraldeatendimento.totvs.com/hc/pt-br/articles/4415766894359-Cross-Segmento-TOTVS-Backoffice-Linha-Protheus-SIGAFAT-Execauto-MATA440).
 
@@ -97,7 +97,7 @@ Referencias técnicas: [bloqueos y aislamiento SQL Server](https://learn.microso
 
 ## Verificación
 
-`npm test`: 93 pruebas aprobadas, incluyendo los escenarios de saldo parcial/liberado. Incluye actualizaciones de las cuatro tablas con dobles transaccionales, conversiones, precisiones, totales, rollback, concurrencia, aislamiento de actores, idempotencia, pérdida de COMMIT y recuperación tras reinicio. El chat se prueba preparando sin ejecutar y HTTP con permisos separados.
+`npm test`: 103 pruebas aprobadas, incluyendo los escenarios de saldo parcial/liberado. Incluye actualizaciones de las cuatro tablas con dobles transaccionales, conversiones, precisiones, totales, rollback, concurrencia, aislamiento de actores, idempotencia, pérdida de COMMIT y recuperación tras reinicio. El chat se prueba preparando sin ejecutar y HTTP con permisos separados.
 
 `node --env-file=.env scripts/check-writes-readonly.js` lee datos reales y prepara propuestas sin guardarlas ni ejecutarlas. DA1 y AIB prepararon correctamente; los tres pedidos de venta históricos muestreados se rechazaron por dependencias; SC7 no tenía registros. No se ejecutó ningún UPDATE comercial como prueba. También se comprobó por SELECT el permiso UPDATE de las cuatro tablas y una transacción real sin DML mediante el pool de escritura. Esto verifica conectividad, metadatos y preparación, no acredita una modificación real ni sus efectos en pantallas/reportes Protheus.
 
@@ -116,10 +116,46 @@ La indicación más reciente reemplaza el rechazo genérico por crédito activo 
 
 SC1 se incorpora al explorador, chat y formulario con acción `solicitudCompra`: `C1_VUNIT` es precio estimado, no precio de venta. Cantidad en unidades; millares sólo para UM=UN. La precisión local de C1_VUNIT es 2 decimales: se rechazan conversiones que no caben, sin redondear el precio. Se bloquean solicitudes atendidas, aprobadas, cotizadas, vinculadas a pedidos o con dependencias. Se consulta también SC7 por C7_NUMSC/C7_ITEMSC bajo bloqueo transaccional para detectar vínculos concurrentes. SC1 y SC7 estaban vacías en la comprobación real; los UPDATE se probaron con dobles, no con documentos reales.
 
-### Altas SC1/SC7 autorizadas, todavía pendientes
+## Altas SC1/SC7 por SQL con MAX+1
 
-El dueño confirmó que desea crear documentos nuevos, además de modificar existentes. La limitación actual es técnica, no una falta de autorización. En ambas tablas físicas `R_E_C_N_O_` es bigint, `is_identity=false`, con default 0; la numeración de SC1 usa `GetNumSC1()` en SX3. No se encontró un asignador SQL compartido verificado. No se implementó INSERT ni se alteraron tablas internas de DBAccess, secuencias o índices. Un bloqueo SQL o MAX(RECNO)+1 por sí solos no acreditan coordinación con el asignador de DBAccess.
+El dueño indicó explícitamente usar `MAX(R_E_C_N_O_)+1`, sin REST. Las acciones `crearSolicitudCompra` y `crearPedidoCompra` crean documentos completos de 1 a 50 ítems mediante la misma API de propuestas y confirmación. La PWA ofrece el formulario **Crear solicitud o pedido de compra** y el chat la herramienta `preparar_alta`; ninguno ejecuta automáticamente al preparar.
 
-[TOTVS documenta que DBAccess asigna RECNO y distingue las tablas antiguas de las que usan IDENTITY](https://tdn.totvs.com/display/public/framework/campos%2BRECNO%2Bauto-incremental). Además, [MATA120](https://tdn.totvs.com/pages/viewpage.action?pageId=6089279) exige datos de cabecera e ítems y campos específicos para vincular solicitudes; RECNO no reemplaza la numeración ni las reglas comerciales.
+### Asignación transaccional
 
-`GET /api/capabilities` informa `purchaseCreation` por acción, identidad del campo RECNO y motivos de indisponibilidad. Solicitar `crearSolicitudCompra` o `crearPedidoCompra` a `/api/changes/preview` devuelve 409 `ALTA_COMPRAS_NO_DISPONIBLE`, sin guardar una propuesta ni abrir escritura. La PWA y el chat explicitan que aún no se crean documentos. Para completar las altas falta resolver el asignador compartido de RECNO/número y homologar los valores iniciales, aprobación y vínculos de este ambiente. No se habilita un INSERT incompleto sólo porque el número de RECNO sea único.
+Al confirmar, una transacción SERIALIZABLE con XACT_ABORT y timeout de bloqueo de 10 segundos toma `TABLOCKX,HOLDLOCK` sobre toda la tabla destino. Lee el RECNO máximo global, sin filtrar filial ni borrado lógico, y reserva en memoria de la transacción un rango consecutivo para todos los ítems. Usa BigInt y texto decimal, nunca Number para esos identificadores. Verifica desborde bigint y exige un índice único de RECNO habilitado.
+
+El número de documento se obtiene del máximo número completamente numérico de esa misma tabla, también incluyendo todas las filiales y borrados, más uno, rellenado con ceros hasta la longitud SX3. Los números alfanuméricos no participan del máximo; nunca se reutiliza un número numérico eliminado. Se comprueba que el nuevo número no exista y se rechaza el agotamiento de longitud sin volver a cero. Los ítems se numeran 0001, 0002, etc. según SX3. No se aceptan RECNO, número, campos SQL ni estados proporcionados por el cliente.
+
+Los máximos se leen y todos los INSERT se ejecutan **dentro de la misma transacción**, manteniendo el bloqueo hasta COMMIT/rollback. Cada INSERT usa parámetros, OUTPUT INTO y verificación del RECNO devuelto. Se relee el documento completo y se comprueban todos sus campos: cantidades, precio, total, estados, valores iniciales y sellos generados. Un fallo en cualquier ítem revierte el documento completo. La propuesta no reserva números: se asignan al ejecutar y aparecen en el recibo. Reenviar el mismo ID confirmado devuelve ese recibo sin otra alta; ante resultado incierto no se reintenta.
+
+**Límite de interoperabilidad:** TABLOCKX coordina el acceso a la tabla SQL, pero no actualiza reservas de numeración en memoria de DBAccess/AppServer ni SXE/SXF. No se promete ausencia de conflictos con un proceso Protheus que ya tenga un número reservado. Esta implementación conserva los índices únicos; si su INSERT colisiona, falla y revierte. No altera tablas internas de DBAccess, no migra RECNO a IDENTITY ni simula que ejecutó GetNumSC1/GetNumSC7. [TOTVS distingue la asignación DBAccess de RECNO de la modalidad IDENTITY](https://tdn.totvs.com/display/public/framework/campos%2BRECNO%2Bauto-incremental).
+
+### Datos y estado del documento
+
+La primera versión crea documentos independientes en moneda local `1` y cotización `1`, sin relación con otra solicitud, contrato, recepción, impuesto calculado, descuento, rateo o grilla de productos. No es la ejecución de MATA110/MATA120. Los documentos se insertan **bloqueados para revisión** (`C1_APROV=B` / `C7_CONAPRO=B`), sin generar alçadas SCR ni atribuir una aprobación a un usuario Protheus. La auditoría del operador queda en el recibo local. Su posterior revisión/liberación se realiza dentro de Protheus; no se afirma que el flujo automático de aprobación esté generado.
+
+Se verifican referencias activas de producto SB1, depósito NNR, proveedor/tienda SA2 y condición SE4; el centro de costo informado o tomado de SB1 se valida en CTT. Se rechazan productos/proveedores bloqueados. Cantidad y precio tienen base explícita. Para UN se convierten millares; si SB1 tiene segunda unidad, se calcula usando B1_CONV y B1_TIPCONV, con la precisión de C1_QTSEGUM/C7_QTSEGUM. No se redondean silenciosamente cantidades ni precios; sólo totales. SC1 guarda precio estimado C1_VUNIT y cantidad original C1_QTDORIG; SC7 guarda C7_PRECO y C7_TXMOEDA. Se conservan cantidades atendidas en cero, sin tocar stock ni títulos.
+
+Se cotejan SX3, tipos físicos, campos obligatorios, valores iniciales e índices. Valores iniciales desconocidos, columnas nuevas obligatorias o triggers no verificados impiden el alta. Los catálogos, reglas de conversión, esquema y datos calculados forman parte de la huella; se vuelven a comprobar dentro de la transacción. La app requiere permiso SQL INSERT en SC1/SC7 además de SELECT. No otorga permisos.
+
+Ejemplo de solicitud, sustituyendo los códigos por referencias existentes:
+
+```json
+{
+  "action": "crearSolicitudCompra",
+  "target": {"sucursal": "0101"},
+  "header": {"fechaEmision": "2026-10-19", "moneda": "1", "solicitante": "Operador"},
+  "items": [{
+    "producto": "CODIGO_EXISTENTE", "deposito": "01", "fechaNecesidad": "2026-10-20",
+    "cantidad": "2.5", "baseCantidad": "millares", "precio": "80", "basePrecio": "millar"
+  }]
+}
+```
+
+Para `crearPedidoCompra`, la cabecera requiere `proveedor`, `tienda` y `condicionPago`, en lugar de `solicitante`; `contacto` es opcional. Cada ítem admite `centroCosto` y `observacion` opcionales. La confirmación continúa en `/api/changes/{id}/execute` con `confirm:true` y la huella devuelta. La API tiene un límite de cuerpo de 16 KiB, además de 50 ítems; no se divide un documento automáticamente.
+
+### Verificación de esta ampliación
+
+103 pruebas aprobaron, incluyendo altas multiítem de SC1/SC7, RECNO mayor que Number.MAX_SAFE_INTEGER, máximos de otra filial y de filas borradas, numeración agotada, dos confirmaciones concurrentes con doble transaccional, rollback del segundo INSERT, cambios de catálogos, defaults inesperados, permisos HTTP, idempotencia y COMMIT incierto. El chat se prueba preparando desde referencias observadas sin ejecutar.
+
+`node --env-file=.env scripts/check-purchase-creation-readonly.js` preparó ambos tipos contra los catálogos reales y verificó el SELECT de asignación con bloqueo en SQL Server. Comprobó 89 valores iniciales omitidos en SC1 y 249 en SC7. No guardó propuestas ni ejecutó INSERT/UPDATE comerciales. Las transacciones de alta se probaron con dobles; falta verificar un documento comercial concreto en las pantallas y reportes Protheus. La implementación está habilitada, pero esa homologación funcional no se presenta como realizada.

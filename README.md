@@ -2,7 +2,7 @@
 
 Repositorio oficial: https://github.com/ETAR-SRL/AgenteETAR · desarrollo exclusivamente en `main`.
 
-Reglas de negocio permanentes: [Productos Z, listas, millares y actualizaciones](docs/reglas-etar.md). Los precios de terminados Z en UN se muestran también por millar. Implementa UPDATE reales de DA1/AIB y solicitudes SC1 y pedidos SC6/SC7; ventas liberadas admiten reajuste directo de precio del saldo SC6/SC9 conservando documentos y estados, sin revalidar crédito, con revisión y confirmación. Ver [contrato, configuración y límites](docs/actualizaciones.md).
+Reglas de negocio permanentes: [Productos Z, listas, millares y actualizaciones](docs/reglas-etar.md). Los precios de terminados Z en UN se muestran también por millar. Implementa UPDATE reales de DA1/AIB y solicitudes SC1 y pedidos SC6/SC7; ventas liberadas admiten reajuste directo de precio del saldo SC6/SC9 conservando documentos y estados, sin revalidar crédito, con revisión y confirmación. También crea solicitudes SC1 y pedidos SC7 por SQL con numeración automática y estado B para revisión. Ver [contrato, configuración y límites](docs/actualizaciones.md).
 
 Los informes, capturas y datos de pruebas locales mencionados en esta documentación se generan en `reports/` y no se publican en Git.
 

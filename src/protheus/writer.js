@@ -3,7 +3,7 @@ import {assert} from '../errors.js';
 import {identifier as q} from './config.js';
 import {writeProfiles,calculateUpdate,clean,sourceNumber,numericSpec,sqlExecutionPolicy} from './write-policy.js';
 import {releaseProfile,salesBalanceContext,planSalesBalance} from './sales-balance.js';
-import {purchaseCreationStatus} from './purchase-creation.js';
+import {purchaseCreationStatus,purchaseCreationActions,createPurchasing} from './purchase-creation.js';
 
 export const fingerprint=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const qualified=t=>`${q(t.schema)}.${q(t.name)}`;
@@ -25,6 +25,7 @@ export function updateStatement(table,profile,updates,catalog){
  return {parameters,text:`DECLARE @affected TABLE (id bigint); UPDATE ${qualified(table)} SET ${setters.join(',')} OUTPUT inserted.[R_E_C_N_O_] INTO @affected WHERE ${q(profile.branch)}=@branch AND [R_E_C_N_O_]=CONVERT(bigint,@record) AND [D_E_L_E_T_]=' '; SELECT COUNT(*) AS affected FROM @affected;`};
 }
 export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranches=['0101'],triggerHashes={}}){
+ const purchasing=createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,triggerHashes,selection});
  function profileFor(action,target){
   const p=writeProfiles[action];assert(p,400,'ACCION_NO_HABILITADA','No hay UPDATE para esta acción');
   assert(target&&typeof target.sucursal==='string'&&allowedBranches.includes(target.sucursal)&&typeof target.registro==='string'&&/^[1-9]\d{0,18}$/.test(target.registro)&&BigInt(target.registro)<=9223372036854775807n,400,'CLAVE_INVALIDA','Sucursal autorizada y registro existente requeridos');
@@ -96,15 +97,18 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
   for(const field of Object.keys(before))if(!Object.hasOwn(updates,field)&&field!=='S_T_A_M_P_')assert(JSON.stringify(after[field])===JSON.stringify(before[field]),409,'EFECTO_NO_PREVISTO',`Cambió un campo no solicitado: ${field}`);
  }
  return {
-  enabled,policy:sqlExecutionPolicy,creation:purchaseCreationStatus(catalog),
+  enabled,policy:{...sqlExecutionPolicy,existingRecordsOnly:false},creation:purchaseCreationStatus(catalog,enabled),
   async prepare(action,input){
+   if(Object.hasOwn(purchaseCreationActions,action))return purchasing.prepare(action,input);
    const c=await context(db,action,input.target),plan=calculate(action,input,c);
    return {version:3,resource:c.p.resource,identity:c.identity,snapshot:snapshot(c),snapshotHash:fingerprint(snapshot(c)),...plan,executionEnabled:enabled&&!plan.blockers.length};
   },
   async check(proposal){
+   if(Object.hasOwn(purchaseCreationActions,proposal.action))return purchasing.check(proposal);
    const c=await context(db,proposal.action,proposal.target);assert(fingerprint(snapshot(c))===proposal.writePlan.snapshotHash,409,'CONFLICTO_CONCURRENCIA','El registro o sus dependencias cambiaron desde la propuesta');return {executionEnabled:enabled&&!calculate(proposal.action,proposal.input,c).blockers.length};
   },
   async execute(proposal){
+   if(Object.hasOwn(purchaseCreationActions,proposal.action))return purchasing.execute(proposal);
    assert(enabled,503,'ESCRITURA_DESHABILITADA','La ejecución SQL está deshabilitada');
    const connection=await getWriteDb();
    return connection.transaction(async tx=>{
