@@ -5,13 +5,15 @@ export const sqlExecutionPolicy=Object.freeze({
  transport:'sql',existingRecordsOnly:true,nativeCreditRevalidation:false,protheusRest:false,
  preservesIssuedDocuments:true,
  description:'UPDATE controlados sobre registros existentes. No se invocan REST ni rutinas ADVPL de Protheus.',
- creditLimitation:'Los pedidos con liberaciones pendientes y control de crédito activo requieren revalidación nativa. Un UPDATE SQL no la ejecuta; esas propuestas no pueden confirmarse desde este modo.'
+ creditLimitation:'El reajuste directo SC6/SC9 conserva los estados existentes, pero no revalida crédito ni recalcula sus saldos en SA1. La propuesta muestra esta condición antes de confirmar.'
 });
 export const writeProfiles=Object.freeze({
  precioLista:{alias:'DA1',resource:'preciosClientes',branch:'DA1_FILIAL',product:'DA1_CODPRO',price:'DA1_PRCVEN',priceThousands:'DA1_PRCMIL',keys:['DA1_CODTAB','DA1_ITEM','DA1_CODPRO'],fields:['precio']},
  precioListaProveedor:{alias:'AIB',resource:'preciosProveedores',branch:'AIB_FILIAL',product:'AIB_CODPRO',price:'AIB_PRCCOM',keys:['AIB_CODTAB','AIB_CODFOR','AIB_LOJFOR','AIB_CODPRO'],fields:['precio']},
  pedidoVenta:{alias:'SC6',resource:'itemsVentas',branch:'C6_FILIAL',product:'C6_PRODUTO',price:'C6_PRCVEN',quantity:'C6_QTDVEN',total:'C6_VALOR',thousands:'C6_MILLAR',unit:'C6_UM',keys:['C6_NUM','C6_ITEM','C6_PRODUTO'],fields:['precioUnitario','cantidadPedida','total'],
    zero:['C6_QTDENT','C6_QTDLIB','C6_QTDRESE','C6_QTDEMP','C6_QTDENT2','C6_QTDLIB2','C6_QTDEMP2','C6_UNSVEN','C6_DESCONT','C6_VALDESC'],blank:['C6_NOTA','C6_BLQ','C6_SEGUM','C6_NUMOP','C6_NUMPCOM']},
+ solicitudCompra:{alias:'SC1',resource:'solicitudesCompra',branch:'C1_FILIAL',product:'C1_PRODUTO',price:'C1_VUNIT',quantity:'C1_QUANT',total:'C1_TOTAL',unit:'C1_UM',keys:['C1_NUM','C1_ITEM','C1_PRODUTO'],fields:['precioUnitario','cantidadPedida','total'],
+   zero:['C1_QUJE','C1_QUJE2','C1_QUANT2','C1_QTDCANC'],blank:['C1_RESIDUO','C1_COTACAO','C1_PEDIDO','C1_APROV','C1_SEGUM','C1_RATEIO','C1_NUMOP','C1_CONTRA','C1_PROJET','C1_TAREFA']},
  pedidoCompra:{alias:'SC7',resource:'compras',branch:'C7_FILIAL',product:'C7_PRODUTO',price:'C7_PRECO',quantity:'C7_QUANT',total:'C7_TOTAL',thousands:'C7_MILLAR',unit:'C7_UM',keys:['C7_NUM','C7_ITEM','C7_PRODUTO','C7_FORNECE','C7_LOJA'],fields:['precioUnitario','cantidadPedida','total'],
    zero:['C7_QUJE','C7_QTDACLA','C7_QTSEGUM','C7_DESC','C7_DESC1','C7_DESC2','C7_DESC3','C7_VLDESC','C7_FRETE','C7_VALFRE','C7_SEGURO','C7_DESPESA','C7_DESP'],blank:['C7_RESIDUO','C7_ENCER','C7_CONAPRO','C7_APROV','C7_CODLIB','C7_SEGUM','C7_RATEIO','C7_CONTRA']}
 });
@@ -43,9 +45,10 @@ export function fit(value,field,catalog,alias,{round=false}={}){
 export function guardOrder(profile,row,{salesBalance=false}={}){
  if(!profile.quantity)return;
  // Campos obligatorios: si no hay evidencia del estado no se habilita un UPDATE.
- const required=profile.alias==='SC6'?['C6_QTDENT','C6_QTDLIB','C6_NOTA','C6_BLQ','C6_DESCONT','C6_VALDESC']:['C7_QUJE','C7_QTDACLA','C7_ENCER','C7_RESIDUO','C7_CONAPRO','C7_DESC','C7_VLDESC'];
+ const required=profile.alias==='SC6'?['C6_QTDENT','C6_QTDLIB','C6_NOTA','C6_BLQ','C6_DESCONT','C6_VALDESC']:profile.alias==='SC1'?['C1_QUJE','C1_RESIDUO','C1_COTACAO','C1_PEDIDO','C1_APROV']:['C7_QUJE','C7_QTDACLA','C7_ENCER','C7_RESIDUO','C7_CONAPRO','C7_DESC','C7_VLDESC'];
  for(const field of required)assert(Object.hasOwn(row,field),409,'ESTADO_NO_VERIFICABLE',`Falta ${field}`);
- const retained=salesBalance&&profile.alias==='SC6'?new Set(['C6_QTDENT','C6_QTDLIB','C6_QTDRESE','C6_QTDEMP','C6_NOTA']):new Set();
+ const retained=salesBalance&&profile.alias==='SC6'?new Set(['C6_QTDENT','C6_QTDLIB','C6_QTDRESE','C6_QTDEMP','C6_NOTA','C6_QTDENT2','C6_QTDLIB2','C6_QTDEMP2','C6_SEGUM']):new Set();
+ for(const field of retained)if(/2$/.test(field)&&Object.hasOwn(row,field))assert(sourceNumber(row[field],field).gte(0),409,'SALDO_INCONSISTENTE',`${field} negativo`);
  for(const field of profile.zero||[])if(Object.hasOwn(row,field)&&!retained.has(field))assert(sourceNumber(row[field],field).eq(0),409,'PEDIDO_CON_DEPENDENCIAS',`${field} no es cero; requiere el circuito Protheus`);
  for(const field of profile.blank||[])if(Object.hasOwn(row,field)&&!retained.has(field))assert(clean(row[field])==='',409,'PEDIDO_CON_DEPENDENCIAS',`${field} indica estado, vínculo o aprobación que requiere Protheus`);
  // No dejar importes fiscales, anticipos o accesorios calculados con el valor anterior.

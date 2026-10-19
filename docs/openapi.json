@@ -3,7 +3,7 @@
   "info": {
     "title": "Centralizador Protheus + KAIQEN",
     "version": "0.1.0",
-    "description": "Centralizador local con PWA, chat de lenguaje natural con modelo local, memoria y dictado. Consultas verificables a Protheus y KAIQEN; sin escrituras ERP."
+    "description": "Centralizador local con PWA, texto/voz, ERP y KAIQEN. UPDATE confirmados DA1/AIB/SC1/SC6/SC7 y precios SC9 pendientes; no ejecuta revalidación nativa. Altas SC1/SC7 pendientes de numeración y homologación."
   },
   "servers": [
     {
@@ -15,13 +15,13 @@
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "API_READ_KEY para lectura; API_PLAN_KEY para propuestas. Mantener en backend; no embeber en PWA distribuida."
+        "description": "API_READ_KEY lectura, API_PLAN_KEY propuestas, API_WRITE_KEY ejecución confirmada. No embeber claves en PWA distribuida."
       },
       "localSession": {
         "type": "apiKey",
         "in": "cookie",
         "name": "central_session",
-        "description": "Sesión de lectura local. Requiere loopback y validación de origen para POST. HttpOnly, SameSite Strict, 12 horas."
+        "description": "Sesión local HttpOnly/SameSite Strict; operador sólo con flags habilitados, loopback y mismo origen."
       }
     }
   },
@@ -743,7 +743,8 @@
                       "pedidoVenta",
                       "pedidoCompra",
                       "clienteContacto",
-                      "proveedorContacto"
+                      "proveedorContacto",
+                      "solicitudCompra"
                     ]
                   },
                   "target": {

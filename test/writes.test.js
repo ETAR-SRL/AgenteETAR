@@ -4,7 +4,8 @@ import {EventEmitter,once} from 'node:events';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {createWriter} from '../src/protheus/writer.js';
+import {createWriter,fingerprint} from '../src/protheus/writer.js';
+import {purchaseCreationStatus} from '../src/protheus/purchase-creation.js';
 import {writeProfiles} from '../src/protheus/write-policy.js';
 import {releaseFields} from '../src/protheus/sales-balance.js';
 import {transact} from '../src/protheus/database.js';
@@ -23,13 +24,13 @@ function fixture(action='pedidoVenta',options={}){
  if(p.thousands&&p.alias==='SC6')row[p.thousands]='1';
  for(const f of p.zero||[])row[f]='0';for(const f of p.blank||[])row[f]=' ';
  if(p.alias==='SC6')row.C6_PRUNIT='0.08';
- const state={row,product:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',B1_FILIAL:'0101',B1_COD:'ZTEST',B1_UM:'UN',B1_DESC:'Prueba'},header:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',C5_FILIAL:'0101',C5_NUM:'001',C5_NOTA:' ',C5_LIBEROK:' ',C5_BLQ:' ',C5_CONAPRO:' ',C5_FRETE:'0'},SC9:[],SD1:[],SD2:[],triggers:[],writes:0,commits:0,rollbacks:0,sql:[]};
+ const state={row,product:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',B1_FILIAL:'0101',B1_COD:'ZTEST',B1_UM:'UN',B1_DESC:'Prueba'},header:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',C5_FILIAL:'0101',C5_NUM:'001',C5_NOTA:' ',C5_LIBEROK:' ',C5_BLQ:' ',C5_CONAPRO:' ',C5_FRETE:'0'},SC7:[],SC9:[],SD1:[],SD2:[],triggers:[],writes:0,commits:0,rollbacks:0,sql:[]};
  Object.assign(state.header,{C5_CLIENTE:'CLI001',C5_LOJACLI:'01',C5_TIPO:'N'});
  state.SX6=[{X6_FIL:' ',X6_VAR:'MV_ALTPREC',X6_CONTEUD:'T'},{X6_FIL:' ',X6_VAR:'MV_BLOQUEI',X6_CONTEUD:'.F.'}];
- const specs={[p.price]:[p.alias==='AIB'||p.alias==='SC7'?4:6,14],...(p.quantity?{[p.quantity]:[2,12],[p.total]:[2,14]}:{}),DA1_PRCMIL:[4,12],C6_MILLAR:[6,14],C6_PRUNIT:[6,11],C6_QTDENT:[2,9],C9_QTDLIB:[2,9],C9_PRCVEN:[4,14]};
+ const specs={[p.price]:[p.alias==='SC1'?2:p.alias==='AIB'||p.alias==='SC7'?4:6,14],...(p.quantity?{[p.quantity]:[2,12],[p.total]:[2,14]}:{}),DA1_PRCMIL:[4,12],C6_MILLAR:[6,14],C6_PRUNIT:[6,11],C6_QTDENT:[2,9],C9_QTDLIB:[2,9],C9_PRCVEN:[4,14]};
  const tables=new Map(),dictionary=new Map();
  function add(alias,data){const columns=new Map(Object.keys(data).map(k=>[k,{type:specs[k]||p.zero?.includes(k)||k==='C5_FRETE'?'float':'varchar'}]));tables.set(alias,{schema:'dbo',name:alias+'010',columns});}
- add(p.alias,row);add('SB1',state.product);add('SC5',state.header);
+ add(p.alias,row);if(p.alias==='SC1')add('SC7',{C7_FILIAL:'',C7_NUMSC:'',C7_ITEMSC:'',R_E_C_N_O_:'',D_E_L_E_T_:''});add('SB1',state.product);add('SC5',state.header);
  for(const [alias,cols] of Object.entries({SC9:releaseFields,SD2:['D2_FILIAL','D2_PEDIDO','D2_ITEMPV'],SD1:['D1_FILIAL','D1_PEDIDO','D1_ITEMPC','D1_FORNECE','D1_LOJA'],SX6:['X6_FIL','X6_VAR','X6_CONTEUD']}))add(alias,Object.fromEntries([...cols,'D_E_L_E_T_','R_E_C_N_O_'].map(k=>[k,''])));
  for(const [field,[scale,width]] of Object.entries(specs))dictionary.set(field,{X3_TIPO:'N',X3_DECIMAL:String(scale),X3_TAMANHO:String(width)});
  const catalog={table:a=>{assert.ok(tables.has(a),a);return tables.get(a);},dictionary,branch:(a,b)=>{assert.equal(b,'0101');return a==='DA1'?'01':'0101';}};
@@ -167,22 +168,37 @@ test('partial without pending releases can update future balance with credit con
  const f=partialFixture();f.state.SC9=f.state.SC9.slice(0,1);f.state.SC9[0].C9_REMITO='R001';f.state.SX6[1].X6_CONTEUD='.T.';
  const before=structuredClone(f.state.SC9),p=await f.proposal();assert.equal(p.writePlan.executionEnabled,true);assert.equal((await f.writes.execute(p)).affected,1);assert.deepEqual(f.state.SC9,before);
 });
-test('credit control produces a visible non-executable preview, and direct API execution cannot bypass it',async t=>{
- const f=partialFixture();f.state.SX6[1].X6_CONTEUD='.T.';const store=new Store(':memory:');t.after(()=>store.close());const changes=new Changes({erp:f.erp,store,read:f.erp.list});
- const p=await changes.preview('a',f.input);assert.equal(p.executionEnabled,false);assert.equal(p.blockers[0].code,'REQUIERE_REVALIDACION_CREDITO');assert.equal((await changes.check('a',p.id)).executionEnabled,false);
- await assert.rejects(changes.execute('a',p.id,{confirm:true,fingerprint:p.fingerprint}),{code:'REQUIERE_REVALIDACION_CREDITO'});assert.equal(f.state.writes,0);
+test('authorized SQL repricing with active credit preserves flags, documents and parameters and discloses missing revalidation',async t=>{
+ const f=partialFixture();f.state.SX6[1].X6_CONTEUD='.T.';const before=structuredClone(f.state);const store=new Store(':memory:');t.after(()=>store.close());const changes=new Changes({erp:f.erp,store,read:f.erp.list});
+ const p=await changes.preview('a',f.input);assert.equal(p.executionEnabled,true);assert.deepEqual(p.blockers,[]);assert.equal(p.warnings[0].code,'PRECIO_SQL_SIN_REVALIDACION');assert.equal((await changes.check('a',p.id)).executionEnabled,true);
+ const receipt=await changes.execute('a',p.id,{confirm:true,fingerprint:p.fingerprint});assert.equal(receipt.status,'executed');assert.equal(receipt.result.nativeCreditRevalidation,false);assert.deepEqual(receipt.result.warnings,p.warnings);
+ assert.equal(f.state.writes,4);assert.deepEqual(f.state.SX6,before.SX6);assert.deepEqual(f.state.SD2,before.SD2);assert.deepEqual(f.state.SC9[0],before.SC9[0]);
+ for(let i=1;i<f.state.SC9.length;i++)for(const k of ['C9_BLCRED','C9_BLEST','C9_QTDLIB'])assert.equal(f.state.SC9[i][k],before.SC9[i][k]);
 });
+
+test('price-only repricing preserves all secondary-unit quantities and identifiers',async()=>{
+ const f=partialFixture();Object.assign(f.state.row,{C6_SEGUM:'MI',C6_QTDENT2:'0.4',C6_QTDLIB2:'0.4',C6_QTDEMP2:'1'});f.state.SC9[1].C9_QTDLIB2='0.2';const before=structuredClone(f.state);
+ await f.writes.execute(await f.proposal());for(const k of ['C6_SEGUM','C6_QTDENT2','C6_QTDLIB2','C6_QTDEMP2'])assert.equal(f.state.row[k],before.row[k]);assert.equal(f.state.SC9[1].C9_QTDLIB2,'0.2');
+});
+
+test('SC1 refuses attended, approved or linked requests and updates only an existing uncommitted item',async()=>{
+ for(const mutate of [f=>f.state.row.C1_QUJE='1',f=>f.state.row.C1_APROV='L',f=>f.state.row.C1_COTACAO='001',f=>f.state.row.C1_PEDIDO='001',f=>f.state.SC7.push({R_E_C_N_O_:'1'}),f=>f.state.row.C1_SEGUM='MI']){
+  const f=fixture('solicitudCompra');mutate(f);await assert.rejects(f.proposal());assert.equal(f.state.writes,0);
+ }
+ const f=fixture('solicitudCompra'),p=await f.proposal();f.state.SC7.push({R_E_C_N_O_:'1'});await assert.rejects(f.writes.execute(p));assert.equal(f.state.writes,0);
+});
+
 test('missing credit parameter and restrictive repricing policy cannot become executable',async()=>{
  for(const mutate of [f=>f.state.SX6.pop(),f=>f.state.SX6[0].X6_CONTEUD='F',f=>f.state.SX6[0].X6_CONTEUD='L',f=>f.state.SX6[0].X6_CONTEUD='']){
   const f=partialFixture();mutate(f);const p=await f.proposal();assert.equal(p.writePlan.executionEnabled,false);await assert.rejects(f.writes.execute(p));assert.equal(f.state.writes,0);
  }
 });
 test('branch-specific SX6 overrides global values; duplicates fail closed',async()=>{
- const f=partialFixture();f.state.SX6.push({X6_FIL:'0101',X6_VAR:'MV_BLOQUEI',X6_CONTEUD:'.T.'});assert.equal((await f.proposal()).writePlan.executionEnabled,false);
+ const f=partialFixture();f.state.SX6.push({X6_FIL:'0101',X6_VAR:'MV_BLOQUEI',X6_CONTEUD:'.T.'});assert.equal((await f.proposal()).writePlan.warnings[0].code,'PRECIO_SQL_SIN_REVALIDACION');
  f.state.SX6.push({...f.state.SX6[2]});await assert.rejects(f.proposal(),{code:'PARAMETRO_AMBIGUO'});
 });
-test('fulfilment, quantity changes, second units, logistics and ambiguous releases are rejected',async()=>{
- for(const mutate of [f=>f.state.row.C6_QTDENT='1000',f=>f.state.row.C6_QTDENT='0',f=>f.state.SC9[0].C9_QTDLIB='300',f=>f.input.changes.cantidadPedida='2',f=>f.state.SC9[1].C9_QTDLIB='700',f=>f.state.SC9[1].C9_NFISCAL='F002',f=>f.state.SC9[1].C9_BLCRED='10',f=>f.state.SC9[1].C9_BLCRED='01',f=>f.state.SC9[1].C9_BLWMS='01',f=>f.state.SC9[1].C9_CARGA='001',f=>f.state.SC9[1].C9_SERIENF='A',f=>f.state.SC9[1].C9_QTDLIB2='1',f=>f.state.SC9[1].C9_PRODUTO='OTHER',f=>f.state.SC9[1].C9_CLIENTE='OTHER',f=>f.state.SC9[1].C9_PRCVEN='0.1',f=>f.state.SD2=[],f=>f.state.SD2[0].D2_COD='OTHER',f=>f.state.header.C5_TIPO='C',f=>f.state.header.C5_CONAPRO='L',f=>delete f.state.SC9[1].C9_REMITO]){
+test('fulfilment, quantity changes, negative secondary quantities, logistics and ambiguous releases are rejected',async()=>{
+ for(const mutate of [f=>f.state.row.C6_QTDENT='1000',f=>f.state.row.C6_QTDENT='0',f=>f.state.SC9[0].C9_QTDLIB='300',f=>f.input.changes.cantidadPedida='2',f=>f.state.SC9[1].C9_QTDLIB='700',f=>f.state.SC9[1].C9_NFISCAL='F002',f=>f.state.SC9[1].C9_BLCRED='10',f=>f.state.SC9[1].C9_BLCRED='01',f=>f.state.SC9[1].C9_BLWMS='01',f=>f.state.SC9[1].C9_CARGA='001',f=>f.state.SC9[1].C9_SERIENF='A',f=>f.state.SC9[1].C9_QTDLIB2='-1',f=>f.state.SC9[1].C9_PRODUTO='OTHER',f=>f.state.SC9[1].C9_CLIENTE='OTHER',f=>f.state.SC9[1].C9_PRCVEN='0.1',f=>f.state.SD2=[],f=>f.state.SD2[0].D2_COD='OTHER',f=>f.state.header.C5_TIPO='C',f=>f.state.header.C5_CONAPRO='L',f=>delete f.state.SC9[1].C9_REMITO]){
   const f=partialFixture();mutate(f);await assert.rejects(f.proposal());assert.equal(f.state.writes,0);
  }
 });
@@ -207,15 +223,40 @@ test('purchase receipts remain protected with a precise native-circuit reason',a
  const f=fixture('pedidoCompra');f.input.changes={precioUnitario:'90'};f.state.row.C7_QUJE='400';await assert.rejects(f.proposal(),{code:'COMPRA_ATENDIDA_REQUIERE_PROTHEUS'});assert.equal(f.state.writes,0);
 });
 test('chat explains blocked credit preview and HTTP execute rejects it without business UPDATE',async t=>{
+ const f=partialFixture();f.state.SX6.pop();const store=new Store(':memory:');t.after(()=>store.close());const changes=new Changes({erp:f.erp,store,read:f.erp.list});
+ const decisions=[{action:'consultar_erp',args:{recurso:'itemsVentas',filtros:{registro:f.input.target.registro}}},{action:'preparar_cambio',args:{accion:'pedidoVenta',registro:f.input.target.registro,precio:'90',basePrecio:'millar'}}];
+ const agent=createIntelligence({erp:f.erp,store,kaiqen:createDemoKaiqen(),branches:['0101'],read:f.erp.list,executeRead:f.erp.list,prepareChange:(actor,input)=>changes.preview(actor,input),model:{name:'test',complete:async()=>decisions.shift()}});
+ const reply=await agent.query('a',{text:'Cambiar a 90 por millar el saldo pendiente de este pedido liberado'},{canPlan:true});assert.match(reply.answer,/no puede ejecutarse/);assert.match(reply.answer,/MV_BLOQUEI/);assert.doesNotMatch(reply.answer,/requiere tu confirmación/);
+ const key='w'.repeat(40),server=createApp({erp:f.erp,kaiqen:createDemoKaiqen(),store,readKey:'r'.repeat(40),planKey:'p'.repeat(40),writeKey:key});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();});
+ const base=`http://127.0.0.1:${server.address().port}`,post=(path,body)=>fetch(base+path,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify(body)});
+ const res=await post('/api/changes/preview',f.input);assert.equal(res.status,201);const p=await res.json();assert.equal(p.executionEnabled,false);assert.equal(p.blockers[0].code,'CREDITO_NO_VERIFICABLE');
+ const capabilities=await (await fetch(base+'/api/capabilities',{headers:{authorization:'Bearer '+key}})).json();
+ assert.equal(capabilities.canExecute,true);assert.equal(capabilities.writePolicy.transport,'sql');assert.equal(capabilities.writePolicy.nativeCreditRevalidation,false);assert.equal(capabilities.writePolicy.protheusRest,false);
+ assert.match(p.blockers[0].message,/MV_BLOQUEI/);assert.match(p.blockers[0].message,/verificar/);
+ const result=await post('/api/changes/'+p.id+'/execute',{confirm:true,fingerprint:p.fingerprint});assert.equal(result.status,409);assert.equal(f.state.writes,0);
+});
+
+
+test('creation reports real RECNO identity but never enables incomplete inserts or saves a fake proposal',async t=>{
+ const tables=new Map(['SC1','SC7'].map(alias=>[alias,{columns:new Map([['R_E_C_N_O_',{identity:false}]])}]));
+ const status=purchaseCreationStatus({tables});assert.equal(status.crearSolicitudCompra.recnoIdentity,false);assert.equal(status.crearPedidoCompra.executionEnabled,false);
+ tables.get('SC1').columns.get('R_E_C_N_O_').identity=true;assert.equal(purchaseCreationStatus({tables}).crearSolicitudCompra.executionEnabled,false);
+ const f=changesFixture(t);for(const action of ['crearSolicitudCompra','crearPedidoCompra'])await assert.rejects(f.changes.preview('a',{action,target:{sucursal:'0101'},items:[]}),{code:'ALTA_COMPRAS_NO_DISPONIBLE'});
+ assert.equal(f.state.writes,0);assert.equal(f.store.db.prepare('SELECT COUNT(*) AS n FROM proposals').get().n,0);
+});
+
+test('proposals prepared under an older credit policy cannot execute after upgrade',async()=>{
+ const f=partialFixture(),p=await f.proposal();delete p.writePlan.snapshot.policyVersion;p.writePlan.snapshotHash=fingerprint(p.writePlan.snapshot);
+ await assert.rejects(f.writes.execute(p),{code:'CONFLICTO_CONCURRENCIA'});assert.equal(f.state.writes,0);
+});
+
+test('HTTP executes active-credit price-only proposal and chat discloses retained credit state',async t=>{
  const f=partialFixture();f.state.SX6[1].X6_CONTEUD='.T.';const store=new Store(':memory:');t.after(()=>store.close());const changes=new Changes({erp:f.erp,store,read:f.erp.list});
  const decisions=[{action:'consultar_erp',args:{recurso:'itemsVentas',filtros:{registro:f.input.target.registro}}},{action:'preparar_cambio',args:{accion:'pedidoVenta',registro:f.input.target.registro,precio:'90',basePrecio:'millar'}}];
  const agent=createIntelligence({erp:f.erp,store,kaiqen:createDemoKaiqen(),branches:['0101'],read:f.erp.list,executeRead:f.erp.list,prepareChange:(actor,input)=>changes.preview(actor,input),model:{name:'test',complete:async()=>decisions.shift()}});
- const reply=await agent.query('a',{text:'Cambiar a 90 por millar el saldo pendiente de este pedido liberado'},{canPlan:true});assert.match(reply.answer,/no puede ejecutarse/);assert.match(reply.answer,/crédito/);assert.doesNotMatch(reply.answer,/requiere tu confirmación/);
+ const reply=await agent.query('a',{text:'Cambiar el precio a 90 por millar de este pedido liberado'},{canPlan:true});assert.match(reply.answer,/requiere tu confirmación/);assert.match(reply.answer,/No ejecuta análisis nativo/);assert.equal(f.state.writes,0);
  const key='w'.repeat(40),server=createApp({erp:f.erp,kaiqen:createDemoKaiqen(),store,readKey:'r'.repeat(40),planKey:'p'.repeat(40),writeKey:key});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();});
  const base=`http://127.0.0.1:${server.address().port}`,post=(path,body)=>fetch(base+path,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify(body)});
- const res=await post('/api/changes/preview',f.input);assert.equal(res.status,201);const p=await res.json();assert.equal(p.executionEnabled,false);assert.equal(p.blockers[0].code,'REQUIERE_REVALIDACION_CREDITO');
- const capabilities=await (await fetch(base+'/api/capabilities',{headers:{authorization:'Bearer '+key}})).json();
- assert.equal(capabilities.canExecute,true);assert.equal(capabilities.writePolicy.transport,'sql');assert.equal(capabilities.writePolicy.nativeCreditRevalidation,false);assert.equal(capabilities.writePolicy.protheusRest,false);
- assert.match(p.blockers[0].message,/UPDATE SQL/);assert.match(p.blockers[0].message,/no ejecutan la revalidación nativa/);
- const result=await post('/api/changes/'+p.id+'/execute',{confirm:true,fingerprint:p.fingerprint});assert.equal(result.status,409);assert.equal(f.state.writes,0);
+ const res=await post('/api/changes/preview',f.input);assert.equal(res.status,201);const p=await res.json();assert.equal(p.executionEnabled,true);assert.equal(p.warnings[0].code,'PRECIO_SQL_SIN_REVALIDACION');
+ const result=await post('/api/changes/'+p.id+'/execute',{confirm:true,fingerprint:p.fingerprint});assert.equal(result.status,200);assert.equal(f.state.writes,4);assert.equal((await result.json()).result.nativeCreditRevalidation,false);
 });

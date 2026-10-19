@@ -25,7 +25,8 @@
     "SG1": "dbo.SG1010",
     "SCJ": "dbo.SCJ010",
     "SCK": "dbo.SCK010",
-    "SC9": "dbo.SC9010"
+    "SC9": "dbo.SC9010",
+    "SC1": "dbo.SC1010"
   },
   "branches": {
     "SA1": {
@@ -89,6 +90,9 @@
     "SCJ": {},
     "SCK": {},
     "SC9": {
+      "0101": "0101"
+    },
+    "SC1": {
       "0101": "0101"
     }
   },
@@ -1304,6 +1308,82 @@
       ],
       "warnings": [
         "cotizaciones_MATA415:confirmar_uso_local_y_diccionario"
+      ]
+    },
+    "solicitudesCompra": {
+      "alias": "SC1",
+      "branch": "C1_FILIAL",
+      "required": [
+        "C1_NUM",
+        "C1_ITEM",
+        "C1_PRODUTO",
+        "C1_QUANT",
+        "C1_QUJE",
+        "C1_VUNIT",
+        "C1_TOTAL"
+      ],
+      "fields": {
+        "C1_NUM": "numero",
+        "C1_ITEM": "item",
+        "C1_PRODUTO": "productoCodigo",
+        "C1_DESCRI": "descripcion",
+        "C1_UM": "unidadMedida",
+        "C1_SOLICIT": "solicitante",
+        "C1_QUANT": {
+          "output": "cantidadPedida",
+          "type": "decimal"
+        },
+        "C1_QUJE": {
+          "output": "cantidadEnPedidos",
+          "type": "decimal"
+        },
+        "C1_VUNIT": {
+          "output": "precioUnitario",
+          "type": "decimal"
+        },
+        "C1_TOTAL": {
+          "output": "total",
+          "type": "decimal"
+        },
+        "C1_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "C1_DATPRF": {
+          "output": "fechaPrevista",
+          "type": "date"
+        },
+        "C1_APROV": "aprobacionCodigo",
+        "C1_PEDIDO": "pedidoVinculado",
+        "C1_COTACAO": "cotizacionVinculada",
+        "C1_LOCAL": "deposito"
+      },
+      "filters": {
+        "numero": "C1_NUM",
+        "item": "C1_ITEM",
+        "producto": "C1_PRODUTO"
+      },
+      "dateField": "C1_EMISSAO",
+      "pending": {
+        "ordered": "C1_QUANT",
+        "applied": "C1_QUJE"
+      },
+      "references": [
+        {
+          "entity": "productos",
+          "output": "producto",
+          "keys": {
+            "C1_PRODUTO": "B1_COD"
+          },
+          "fields": {
+            "B1_COD": "codigo",
+            "B1_DESC": "nombre",
+            "B1_UM": "unidadMedida"
+          }
+        }
+      ],
+      "warnings": [
+        "SC1_precio_estimado_no_es_precio_de_orden_confirmada"
       ]
     }
   },

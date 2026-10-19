@@ -28,7 +28,7 @@ export function salesBalanceContext(row,header,releases,documents,catalog){
   assert(!['C9_SERIENF','C9_SERIREM','C9_DTREMIT','C9_ITEMREM','C9_SDOCNF','C9_SDOCREM'].some(f=>clean(r[f])),409,'LIBERACION_INCONSISTENTE','Referencia parcial a un documento en SC9');
   assert(!clean(r.C9_BLCRED)&&['','02'].includes(clean(r.C9_BLEST)),409,'LIBERACION_BLOQUEADA','La liberación requiere análisis de crédito/estado en Protheus');
   for(const f of logisticsFields)assert(!clean(r[f]),409,'LOGISTICA_NO_SOPORTADA',`${f} requiere el circuito logístico Protheus`);
-  if(Object.hasOwn(r,'C9_QTDLIB2'))assert(sourceNumber(r.C9_QTDLIB2,'C9_QTDLIB2').eq(0),409,'SEGUNDA_UNIDAD_NO_SOPORTADA','Liberación en segunda unidad');
+  if(Object.hasOwn(r,'C9_QTDLIB2'))assert(sourceNumber(r.C9_QTDLIB2,'C9_QTDLIB2').gte(0),409,'SALDO_INCONSISTENTE','Cantidad liberada en segunda unidad negativa');
   pending.push(r);
  }
  const sum=items=>items.reduce((acc,r)=>acc.plus(normalized(r,'C9_QTDLIB',catalog,'SC9')),new D(0));
@@ -50,13 +50,13 @@ export function salesBalanceContext(row,header,releases,documents,catalog){
 
 export function planSalesBalance(plan,context,catalog){
  const {balance,parameters,row,documents}=context;
- if(!balance?.advanced)return {...plan,relatedUpdates:[],blockers:[]};
- const blockers=[];
+ if(!balance?.advanced)return {...plan,relatedUpdates:[],blockers:[],warnings:[]};
+ const blockers=[],warnings=[];
  const permitted=parameters.MV_ALTPREC==='T'||(parameters.MV_ALTPREC==='F'&&balance.delivered==='0'&&documents.length===0&&balance.historical.length===0);
  if(!permitted)blockers.push({code:'PARAMETRO_REPRECIO',message:'MV_ALTPREC no permite este reajuste por estado; revisar en Protheus sin modificar parámetros desde el agente.'});
- // SQL does not run the native credit checks or update the customer credit balances.
- // A preview remains useful, but it must not become an executable credit bypass.
- if(balance.pending.length&&parameters.MV_BLOQUEI!=='.F.')blockers.push({code:'REQUIERE_REVALIDACION_CREDITO',message:'Hay liberaciones pendientes y el control de crédito está activo o no es verificable. Esta instalación usa sólo UPDATE SQL, que no ejecutan la revalidación nativa de Protheus. La propuesta no puede confirmarse aquí; requiere el circuito nativo. No se desactiva crédito ni se cambian sus aprobaciones.'});
+ // Owner-authorized direct repricing. Never write credit flags or claim native approval.
+ if(balance.pending.length&&!['.T.','.F.'].includes(parameters.MV_BLOQUEI))blockers.push({code:'CREDITO_NO_VERIFICABLE',message:'No se pudo verificar MV_BLOQUEI; releer la configuración antes de actualizar.'});
+ if(balance.pending.length&&parameters.MV_BLOQUEI==='.T.')warnings.push({code:'PRECIO_SQL_SIN_REVALIDACION',message:'UPDATE directo de precio autorizado: conserva los estados de crédito existentes. No ejecuta análisis nativo ni recalcula los saldos de crédito de SA1; el nuevo importe puede diferir del importe previamente aprobado. Este cambio no acredita una nueva aprobación de crédito.'});
  const relatedUpdates=[];
  for(const release of balance.pending){
   const after=fit(plan.calculation.precioPorUnidad,'C9_PRCVEN',catalog,'SC9');
@@ -66,7 +66,7 @@ export function planSalesBalance(plan,context,catalog){
   if(!before.eq(after))relatedUpdates.push({alias:'SC9',record:clean(release.R_E_C_N_O_),updates:{C9_PRCVEN:after},sequence:clean(release.C9_SEQUEN)});
  }
  const pendingTotal=fit(new D(balance.remaining).mul(plan.calculation.precioPorUnidad),'C6_VALOR',catalog,'SC6',{round:true});
- return {...plan,relatedUpdates,blockers,
+ return {...plan,relatedUpdates,blockers,warnings,
   diff:[...plan.diff.map(d=>({...d,table:'SC6',record:clean(row.R_E_C_N_O_)})),...relatedUpdates.map(u=>({field:'C9_PRCVEN',table:'SC9',record:u.record,sequence:u.sequence,before:balance.pending.find(r=>clean(r.R_E_C_N_O_)===u.record).C9_PRCVEN,after:u.updates.C9_PRCVEN}))],
   calculation:{...plan.calculation,alcance:'Precio del saldo pendiente; documentos emitidos conservados',cantidadAtendida:balance.delivered,cantidadPendiente:balance.remaining,millaresPendientes:plan.calculation.unidadMedida==='UN'?new D(balance.remaining).div(1000).toFixed():null,cantidadLiberadaPendiente:balance.released,totalPendiente:pendingTotal,totalPedidoReferencia:plan.calculation.total,documentosPreservados:documents.length,liberacionesDocumentadasPreservadas:balance.historical.length,liberacionesAActualizar:relatedUpdates.length,notaTotal:'C6_VALOR = cantidad total pedida × nuevo precio. No representa el importe histórico facturado ni la suma de facturas.'}
  };

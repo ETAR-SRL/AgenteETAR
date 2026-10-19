@@ -10,6 +10,7 @@ Implementación del 19/10/2026. La API y la PWA ejecutan UPDATE parametrizados s
 | `precioListaProveedor` | AIB | `AIB_PRCCOM` |
 | `pedidoVenta` | SC6 | `C6_PRCVEN`, `C6_QTDVEN`, `C6_VALOR`, `C6_MILLAR`; sincroniza `C6_PRUNIT` al cambiar precio sólo si era igual al precio neto |
 | Dependencia de `pedidoVenta` | SC9 | Sólo `C9_PRCVEN` de liberaciones pendientes elegibles; nunca SC9 documentada |
+| `solicitudCompra` | SC1 | `C1_VUNIT`, `C1_QUANT`, `C1_TOTAL`; sólo solicitudes sin atención, aprobación o documentos vinculados |
 | `pedidoCompra` | SC7 | `C7_PRECO`, `C7_QUANT`, `C7_TOTAL`; sólo usaría `C7_MILLAR` si existiera y estuviera definido en SX3 |
 
 Sólo se incluyen en el SET los campos con diferencias. No se modifica moneda, clave, vigencia, cliente/proveedor, estado, borrado lógico ni RECNO. Los triggers STAMP existentes pueden cambiar `S_T_A_M_P_`; cualquier otro cambio inesperado de la fila causa rollback. Se contrastan las definiciones de triggers habilitados con hashes inspeccionados en esta instalación. Un trigger nuevo o modificado bloquea la operación hasta su revisión.
@@ -28,11 +29,13 @@ Se mantiene el UPDATE de precios/cantidades de ítems simples sin dependencias. 
 - La propuesta muestra cantidad atendida, pendiente, millares pendientes, total pendiente al nuevo precio, número de liberaciones a actualizar y documentos preservados. **El total de referencia del pedido no es el importe facturado histórico.** No se suman indiscriminadamente remitos y facturas para calcular lo atendido: se toma `C6_QTDENT`, manteniendo evidencia SD2 y SC9 sin duplicar documentos argentinos.
 - Una diferencia previa entre precio SC6 y SC9 exige revisión, no se unifica automáticamente. Se verifica la precisión de cada tabla: en este ambiente SC9 tiene 4 decimales, SC6 6; un precio incompatible se rechaza sin redondearlo.
 
-**Restricciones que siguen vigentes:** descuentos, segunda unidad, importes fiscales/accesorios, contratos/órdenes vinculadas, aprobaciones comerciales, WMS/TMS/carga/separación y bloqueos incompatibles. El total original debe coincidir con cantidad × precio a precisión SX3. No se homologó el circuito fiscal completo de Argentina.
+**Restricciones que siguen vigentes:** descuentos, cambios de cantidad con segunda unidad, importes fiscales/accesorios, contratos/órdenes vinculadas, aprobaciones comerciales, WMS/TMS/carga/separación y bloqueos incompatibles. El total original debe coincidir con cantidad × precio a precisión SX3. No se homologó el circuito fiscal completo de Argentina.
 
-**Crédito y parámetros:** se releen `MV_ALTPREC` y `MV_BLOQUEI` con prioridad filial explícita sobre valor general; forman parte de la huella. `MV_ALTPREC=T` admite preparar el saldo parcial; `F` sólo sin documentos/atenciones; otros valores impiden ejecutar el caso avanzado. Si hay SC9 pendiente y `MV_BLOQUEI` no es explícitamente `.F.`, la propuesta lleva `blockers` y `executionEnabled=false`. La API de ejecución también lo impide, aunque se fuerce la llamada. El SQL no revalida crédito ni actualiza sus saldos en SA1. **No desactivar crédito para eludir este control**: esos casos necesitan el circuito nativo y un adaptador de ejecución Protheus todavía no implementado. No se modifica SX6. `MV_REAJSC9` corresponde al reajuste nativo desde listas; no se lo interpreta como permiso de este UPDATE puntual ni se altera.
+**Crédito y parámetros:** por instrucción explícita posterior del dueño, `MV_BLOQUEI=.T.` ya no bloquea por sí solo el reajuste directo de precio. Se conservan `C9_BLCRED`, `C9_BLEST`, las aprobaciones de cabecera y SX6, sin recalcular los saldos de SA1 ni ejecutar análisis de crédito. La propuesta, el chat y el recibo muestran `PRECIO_SQL_SIN_REVALIDACION`: el nuevo importe puede diferir del importe previamente aprobado. No se afirma que conservar un flag equivalga a revalidar. Los bloqueos efectivos de crédito en SC9 siguen impidiendo operar. Un parámetro desconocido también bloquea. `MV_ALTPREC` continúa limitando el estado admisible; ambos parámetros forman parte de la huella y se releen con bloqueo antes de escribir. No se modifica SX6.
 
-**Compras recibidas/aprobadas:** conservan el rechazo, con motivo explícito. La documentación de MATA121 restringe precio/valor y cantidad de pedidos atendidos aun con `MV_ALTEPEDC=S`; `MV_ALTPC` añade un bloqueo por atención. No se presume que `.F.` habilite todos los casos parciales. SC7 estaba vacía en la verificación; falta homologar un pedido parcial real y su circuito de aprobación antes de habilitarlo. Este cambio no promete ejecutar compras recibidas ni liberaciones con control de crédito activo.
+En el modo avanzado de sólo precio, las cantidades de segunda unidad no negativas y `C6_SEGUM` se conservan sin convertirlas ni corregirlas. No se permite cambiar cantidad en ventas liberadas/parciales. La transacción verifica todos esos campos antes del COMMIT. Las propuestas anteriores a esta política caducan por cambio de versión en su huella.
+
+**Compras recibidas/aprobadas:** conservan el rechazo, con motivo explícito. La documentación de MATA121 restringe precio/valor y cantidad de pedidos atendidos aun con `MV_ALTEPEDC=S`; `MV_ALTPC` añade un bloqueo por atención. No se presume que `.F.` habilite todos los casos parciales. SC7 estaba vacía en la verificación; falta homologar un pedido parcial real y su circuito de aprobación antes de habilitarlo. Este cambio no habilita compras recibidas.
 
 SC7 y SC9 se configuran con filial `0101` por SX2 exclusivo E/E/E. No se inventa C7_MILLAR, ausente en este esquema. En DA1 la filial física es `01`; cada alias resuelve su propia filial. Contactos SA1/SA2 y cotizaciones siguen sin ejecución.
 
@@ -47,11 +50,11 @@ Estas fuentes describen el producto, no certifican este ejecutor SQL ni sustituy
 
 ### Modo SQL y revalidación nativa
 
-Por indicación del dueño, esta instalación continúa exclusivamente con UPDATE SQL controlados, sin llamadas REST a Protheus. `GET /api/capabilities` expone `writePolicy` con transporte SQL y `nativeCreditRevalidation=false`; la PWA y el contexto del chat explicitan esa limitación. El permiso general `canExecute` no habilita una propuesta bloqueada: su validación particular sigue siendo obligatoria en el servidor.
+La ejecución implementada continúa con UPDATE SQL controlados, sin llamadas REST a Protheus. Las altas nuevas fueron autorizadas después, pero siguen pendientes de implementación. `GET /api/capabilities` expone `writePolicy` con transporte SQL y `nativeCreditRevalidation=false`; la PWA y el contexto del chat explicitan esa limitación. El permiso general `canExecute` no habilita una propuesta bloqueada: su validación particular sigue siendo obligatoria en el servidor.
 
 La revalidación nativa **no está implementada**. TOTVS documenta [MATA410 mediante MSExecAuto](https://tdn.totvs.com/pages/viewpage.action?pageId=6784012), con operación 4 para alterar, y [el comportamiento de MV_AVALCRD](https://tdn.totvs.com/pages/viewpage.action?pageId=776122750), que exige reinformar `C6_QTDLIB` en la alteración para someter la liberación al análisis correspondiente. Eso requiere ejecutar y homologar la rutina dentro de Protheus; cambiar campos SQL no reproduce ese circuito. Tampoco corresponde invocar MATA440 por ExecAuto: [TOTVS indica que no está disponible](https://centraldeatendimento.totvs.com/hc/pt-br/articles/4415766894359-Cross-Segmento-TOTVS-Backoffice-Linha-Protheus-SIGAFAT-Execauto-MATA440).
 
-No se escriben aprobaciones, saldos crediticios ni parámetros para simular esa ejecución. Los casos que necesitan el circuito nativo permanecen bloqueados, incluidos los pedidos liberados con crédito activo.
+No se escriben aprobaciones, saldos crediticios ni parámetros para simular esa ejecución. El reajuste SQL explícitamente autorizado conserva los estados existentes sin acreditar una nueva aprobación. Los estados bloqueados, parámetros desconocidos y demás dependencias incompatibles siguen rechazándose.
 
 ## Activación y uso
 
@@ -94,7 +97,7 @@ Referencias técnicas: [bloqueos y aislamiento SQL Server](https://learn.microso
 
 ## Verificación
 
-`npm test`: 87 pruebas aprobadas, incluyendo los escenarios de saldo parcial/liberado. Incluye actualizaciones de las cuatro tablas con dobles transaccionales, conversiones, precisiones, totales, rollback, concurrencia, aislamiento de actores, idempotencia, pérdida de COMMIT y recuperación tras reinicio. El chat se prueba preparando sin ejecutar y HTTP con permisos separados.
+`npm test`: 93 pruebas aprobadas, incluyendo los escenarios de saldo parcial/liberado. Incluye actualizaciones de las cuatro tablas con dobles transaccionales, conversiones, precisiones, totales, rollback, concurrencia, aislamiento de actores, idempotencia, pérdida de COMMIT y recuperación tras reinicio. El chat se prueba preparando sin ejecutar y HTTP con permisos separados.
 
 `node --env-file=.env scripts/check-writes-readonly.js` lee datos reales y prepara propuestas sin guardarlas ni ejecutarlas. DA1 y AIB prepararon correctamente; los tres pedidos de venta históricos muestreados se rechazaron por dependencias; SC7 no tenía registros. No se ejecutó ningún UPDATE comercial como prueba. También se comprobó por SELECT el permiso UPDATE de las cuatro tablas y una transacción real sin DML mediante el pool de escritura. Esto verifica conectividad, metadatos y preparación, no acredita una modificación real ni sus efectos en pantallas/reportes Protheus.
 
@@ -105,3 +108,18 @@ La comprobación adicional `node --env-file=.env scripts/check-sales-balance-rea
 Relevamiento de esta ampliación: por SELECT se verificaron 13 ítems de venta abiertos con liberaciones, sin ítems parcialmente atendidos; SC7 seguía sin filas. Se comprobó MV_ALTPREC=T, MV_BLOQUEI=.T. y el trigger SC9010_STAMP (sólo sello de tiempo). Por crédito activo, las liberaciones pendientes requieren el circuito nativo. Dos intentos posteriores de preparar propuestas contra la base fallaron por timeout de conexión; no se considera validada la preparación real de esta ampliación. Los casos parciales se verificaron con dobles transaccionales, sin cambios comerciales.
 
 En una comprobación posterior del mismo día se recuperó la conexión y se completó `check-sales-balance-readonly.js`: los 13 ítems liberados muestreados fueron rechazados por dependencias o segunda unidad. Esto verifica los rechazos con datos reales, pero no acredita una preparación elegible ni una modificación real de pedidos liberados. No se ejecutaron UPDATE comerciales.
+
+
+## Ampliación posterior: UPDATE directo y solicitudes SC1
+
+La indicación más reciente reemplaza el rechazo genérico por crédito activo por una advertencia explícita de no revalidación, conservando bloqueos efectivos, documentos y estados. El muestreo real posterior preparó 11 de 13 ítems liberados como ejecutables; los otros dos se rechazaron por `C6_PRUNIT` distinto del precio neto y `C6_UNSVEN` no cero. Fue SELECT + preparación en memoria, sin guardar propuestas ni ejecutar UPDATE. No hubo prueba comercial de escritura.
+
+SC1 se incorpora al explorador, chat y formulario con acción `solicitudCompra`: `C1_VUNIT` es precio estimado, no precio de venta. Cantidad en unidades; millares sólo para UM=UN. La precisión local de C1_VUNIT es 2 decimales: se rechazan conversiones que no caben, sin redondear el precio. Se bloquean solicitudes atendidas, aprobadas, cotizadas, vinculadas a pedidos o con dependencias. Se consulta también SC7 por C7_NUMSC/C7_ITEMSC bajo bloqueo transaccional para detectar vínculos concurrentes. SC1 y SC7 estaban vacías en la comprobación real; los UPDATE se probaron con dobles, no con documentos reales.
+
+### Altas SC1/SC7 autorizadas, todavía pendientes
+
+El dueño confirmó que desea crear documentos nuevos, además de modificar existentes. La limitación actual es técnica, no una falta de autorización. En ambas tablas físicas `R_E_C_N_O_` es bigint, `is_identity=false`, con default 0; la numeración de SC1 usa `GetNumSC1()` en SX3. No se encontró un asignador SQL compartido verificado. No se implementó INSERT ni se alteraron tablas internas de DBAccess, secuencias o índices. Un bloqueo SQL o MAX(RECNO)+1 por sí solos no acreditan coordinación con el asignador de DBAccess.
+
+[TOTVS documenta que DBAccess asigna RECNO y distingue las tablas antiguas de las que usan IDENTITY](https://tdn.totvs.com/display/public/framework/campos%2BRECNO%2Bauto-incremental). Además, [MATA120](https://tdn.totvs.com/pages/viewpage.action?pageId=6089279) exige datos de cabecera e ítems y campos específicos para vincular solicitudes; RECNO no reemplaza la numeración ni las reglas comerciales.
+
+`GET /api/capabilities` informa `purchaseCreation` por acción, identidad del campo RECNO y motivos de indisponibilidad. Solicitar `crearSolicitudCompra` o `crearPedidoCompra` a `/api/changes/preview` devuelve 409 `ALTA_COMPRAS_NO_DISPONIBLE`, sin guardar una propuesta ni abrir escritura. La PWA y el chat explicitan que aún no se crean documentos. Para completar las altas falta resolver el asignador compartido de RECNO/número y homologar los valores iniciales, aprobación y vínculos de este ambiente. No se habilita un INSERT incompleto sólo porque el número de RECNO sea único.

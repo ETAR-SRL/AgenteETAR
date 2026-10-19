@@ -14,7 +14,7 @@ try{
  for(const row of candidates){
   try{const plan=await writer.prepare('pedidoVenta',{target:{sucursal:branch,registro:row.record},changes:{precioUnitario:new Decimal(row.price).toDecimalPlaces(4).plus('0.0001').toFixed()},priceUnit:'unidad'});
    results.push({state:row.state,status:'prepared',executionEnabled:plan.executionEnabled,blockers:plan.blockers.map(b=>b.code),fields:[...new Set(plan.diff.map(d=>d.field))]});
-  }catch(error){results.push({state:row.state,status:'rejected',code:error.code||'SOURCE_ERROR'});}
+  }catch(error){results.push({state:row.state,status:'rejected',code:error.code||'SOURCE_ERROR',reason:error.code?error.message:undefined});}
  }
  console.log(JSON.stringify({readOnly:true,erpUpdates:0,sampled:candidates.length,results},null,2));
 }finally{await db.close();}

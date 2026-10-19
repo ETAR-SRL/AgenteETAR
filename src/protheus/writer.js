@@ -3,6 +3,7 @@ import {assert} from '../errors.js';
 import {identifier as q} from './config.js';
 import {writeProfiles,calculateUpdate,clean,sourceNumber,numericSpec,sqlExecutionPolicy} from './write-policy.js';
 import {releaseProfile,salesBalanceContext,planSalesBalance} from './sales-balance.js';
+import {purchaseCreationStatus} from './purchase-creation.js';
 
 export const fingerprint=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const qualified=t=>`${q(t.schema)}.${q(t.name)}`;
@@ -33,7 +34,7 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
  async function rows(connection,alias,fields,branch,lock,collection=false){
   const table=catalog.table(alias),clauses=[],params={branch:catalog.branch(alias,branch)};
   for(const [field,value] of Object.entries(fields)){assert(table.columns.has(field),409,'ESQUEMA_INCOMPATIBLE',`Falta ${field}`);const key='k'+clauses.length;params[key]=value;clauses.push(field==='R_E_C_N_O_'?`${q(field)}=CONVERT(bigint,@${key})`:`${q(field)}=@${key}`);}
-  const branchField=alias==='DA1'?'DA1_FILIAL':alias==='AIB'?'AIB_FILIAL':({SB1:'B1_FILIAL',SC5:'C5_FILIAL',SC6:'C6_FILIAL',SC7:'C7_FILIAL',SC9:'C9_FILIAL',SD1:'D1_FILIAL',SD2:'D2_FILIAL'})[alias];
+  const branchField=alias==='DA1'?'DA1_FILIAL':alias==='AIB'?'AIB_FILIAL':({SB1:'B1_FILIAL',SC1:'C1_FILIAL',SC5:'C5_FILIAL',SC6:'C6_FILIAL',SC7:'C7_FILIAL',SC9:'C9_FILIAL',SD1:'D1_FILIAL',SD2:'D2_FILIAL'})[alias];
   assert(branchField&&table.columns.has(branchField)&&table.columns.has('D_E_L_E_T_'),409,'ESQUEMA_INCOMPATIBLE',alias);
   const result=await connection.query(`SELECT TOP (${collection?501:2}) ${selection(table)} FROM ${qualified(table)}${lock?' WITH (UPDLOCK,HOLDLOCK)':''} WHERE ${q(branchField)}=@branch AND [D_E_L_E_T_]=' ' AND ${clauses.join(' AND ')} ORDER BY [R_E_C_N_O_]`,params);
   if(collection){
@@ -76,6 +77,9 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
    if(balance.advanced){parameters=await salesParameters(connection,target.sucursal,lock);if(balance.pending.length)releaseTriggers=await triggers(connection,releaseProfile);}
    else for(const f of ['C5_NOTA','C5_LIBEROK'])assert(!clean(header[f]),409,'PEDIDO_CON_DEPENDENCIAS',`${f} requiere Protheus`);
   }
+  if(p.alias==='SC1'){
+   assert((await rows(connection,'SC7',{C7_NUMSC:clean(row.C1_NUM),C7_ITEMSC:clean(row.C1_ITEM)},target.sucursal,lock)).length===0,409,'SOLICITUD_CON_PEDIDO','Hay un pedido de compra vinculado a esta solicitud');
+  }
   if(p.alias==='SC7'){
    assert(sourceNumber(row.C7_QUJE,'C7_QUJE').eq(0),409,'COMPRA_ATENDIDA_REQUIERE_PROTHEUS','Pedido de compra atendido: MATA121 restringe precio/valor y cantidad incluso con MV_ALTEPEDC habilitado. No se sobrescribe por SQL ni se altera SD1.');
    assert((await rows(connection,'SD1',{D1_PEDIDO:clean(row.C7_NUM),D1_ITEMPC:clean(row.C7_ITEM),D1_FORNECE:clean(row.C7_FORNECE),D1_LOJA:clean(row.C7_LOJA)},target.sucursal,lock)).length===0,409,'PEDIDO_DOCUMENTADO','Existen entradas SD1 vinculadas');
@@ -85,17 +89,17 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
   if(header)for(const k of ['C5_CLIENTE','C5_LOJACLI','C5_TABELA','C5_MOEDA'])if(Object.hasOwn(header,k))identity[k]=clean(header[k]);
   return {p,row,product,header,activeTriggers,identity,balance,parameters,releases,documents,releaseTriggers,scope:{table:qualified(catalog.table(p.alias)),branch:catalog.branch(p.alias,target.sucursal),...(p.alias==='SC6'?{releaseTable:qualified(catalog.table('SC9')),releaseBranch:catalog.branch('SC9',target.sucursal)}:{})}};
  }
- function snapshot(c){return {row:c.row,product:c.product,header:c.header,triggers:c.activeTriggers,scope:c.scope,releases:c.releases,documents:c.documents,parameters:c.parameters,releaseTriggers:c.releaseTriggers};}
+ function snapshot(c){return {policyVersion:3,row:c.row,product:c.product,header:c.header,triggers:c.activeTriggers,scope:c.scope,releases:c.releases,documents:c.documents,parameters:c.parameters,releaseTriggers:c.releaseTriggers};}
  function calculate(action,input,c){return planSalesBalance(calculateUpdate(action,input,c.row,c.product,catalog,{salesBalance:c.balance?.advanced}),c,catalog);}
  function verifyAfter(before,after,updates,p){
   for(const [field,value] of Object.entries(updates))assert(sourceNumber(after[field],field).toFixed(numericSpec(field,catalog,p.alias).scale)===value,409,'LECTURA_POSTERIOR_DIFIERE',`No se guardó el valor esperado de ${field}`);
   for(const field of Object.keys(before))if(!Object.hasOwn(updates,field)&&field!=='S_T_A_M_P_')assert(JSON.stringify(after[field])===JSON.stringify(before[field]),409,'EFECTO_NO_PREVISTO',`Cambió un campo no solicitado: ${field}`);
  }
  return {
-  enabled,policy:sqlExecutionPolicy,
+  enabled,policy:sqlExecutionPolicy,creation:purchaseCreationStatus(catalog),
   async prepare(action,input){
    const c=await context(db,action,input.target),plan=calculate(action,input,c);
-   return {version:2,resource:c.p.resource,identity:c.identity,snapshot:snapshot(c),snapshotHash:fingerprint(snapshot(c)),...plan,executionEnabled:enabled&&!plan.blockers.length};
+   return {version:3,resource:c.p.resource,identity:c.identity,snapshot:snapshot(c),snapshotHash:fingerprint(snapshot(c)),...plan,executionEnabled:enabled&&!plan.blockers.length};
   },
   async check(proposal){
    const c=await context(db,proposal.action,proposal.target);assert(fingerprint(snapshot(c))===proposal.writePlan.snapshotHash,409,'CONFLICTO_CONCURRENCIA','El registro o sus dependencias cambiaron desde la propuesta');return {executionEnabled:enabled&&!calculate(proposal.action,proposal.input,c).blockers.length};
@@ -128,7 +132,7 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
     assert(fingerprint(final.header)===fingerprint(c.header)&&fingerprint(final.product)===fingerprint(c.product)&&fingerprint(final.parameters)===fingerprint(c.parameters),409,'EFECTO_NO_PREVISTO','Cambió una dependencia no solicitada');
     assert(final.releases.length===c.releases.length,409,'EFECTO_NO_PREVISTO','Cambió el conjunto de liberaciones');
     for(const before of c.releases){const current=final.releases.find(r=>clean(r.R_E_C_N_O_)===clean(before.R_E_C_N_O_));assert(current,409,'EFECTO_NO_PREVISTO','Desapareció una liberación');const update=calculated.relatedUpdates.find(u=>u.record===clean(before.R_E_C_N_O_));if(update)verifyAfter(before,current,update.updates,releaseProfile);else assert(fingerprint(before)===fingerprint(current),409,'HISTORICO_MODIFICADO','Cambió una liberación que debía conservarse');}
-    return {affected:1+calculated.relatedUpdates.length,identity:c.identity,fields:Object.fromEntries(Object.keys(calculated.updates).map(f=>[f,after[f]])),relatedUpdates:calculated.relatedUpdates,afterHash:fingerprint(snapshot(final)),calculation:calculated.calculation};
+    return {affected:1+calculated.relatedUpdates.length,identity:c.identity,fields:Object.fromEntries(Object.keys(calculated.updates).map(f=>[f,after[f]])),relatedUpdates:calculated.relatedUpdates,afterHash:fingerprint(snapshot(final)),calculation:calculated.calculation,warnings:calculated.warnings,nativeCreditRevalidation:false};
    });
   }
  };

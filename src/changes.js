@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto';
 import Decimal from 'decimal.js';
 import { assert, HttpError } from './errors.js';
 import {writeProfiles} from './protheus/write-policy.js';
+import {purchaseCreationActions} from './protheus/purchase-creation.js';
 export const changePolicies={
   precioLista:{resource:'preciosClientes',fields:['precio'],routine:'UPDATE DA1_PRCVEN y DA1_PRCMIL sobre ítem existente'},
   precioListaProveedor:{resource:'preciosProveedores',fields:['precio'],routine:'UPDATE AIB_PRCCOM sobre registro existente'},
-  pedidoVenta:{resource:'itemsVentas',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC6; precio del saldo y SC9 pendiente cuando no requiere revalidación de crédito'},
+  pedidoVenta:{resource:'itemsVentas',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC6 y precio SC9 pendiente; conserva estados, no revalida crédito'},
+  solicitudCompra:{resource:'solicitudesCompra',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC1 sin atención ni documentos vinculados'},
   pedidoCompra:{resource:'compras',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC7 sin recepciones ni condiciones dependientes'},
   clienteContacto:{resource:'clientes',fields:['email','telefono','contacto'],routine:'MATA030 / CRMA980 alteración'},
   proveedorContacto:{resource:'proveedores',fields:['email','telefono','contacto'],routine:'MATA020 alteración'}
@@ -23,6 +25,9 @@ export class Changes {
   }
   async preview(actor,input){
     assert(plain(input),400,'PROPUESTA_INVALIDA','Objeto requerido');
+    if(Object.hasOwn(purchaseCreationActions,input.action)){
+      assert(false,409,'ALTA_COMPRAS_NO_DISPONIBLE','El alta de documentos SC1/SC7 está autorizada, pero falta un asignador de RECNO/numeración compartido con Protheus y homologar el circuito de creación. No se insertó ningún registro.');
+    }
     const policy=Object.hasOwn(changePolicies,input.action)?changePolicies[input.action]:null;
     assert(policy,400,'ACCION_NO_HABILITADA','Acciones: '+Object.keys(changePolicies).join(', '));
     const {target,changes}=input;
@@ -32,7 +37,7 @@ export class Changes {
       // Mantiene la validación de acceso a sucursal del servicio de lectura.
       const {row}=await this.current(policy,target);
       const writePlan=await this.erp.writes.prepare(input.action,input);
-      return this.public(this.store.save(actor,{action:input.action,target,input,resource:policy.resource,before:row,diff:writePlan.diff,identity:writePlan.identity,calculation:writePlan.calculation,blockers:writePlan.blockers||[],fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
+      return this.public(this.store.save(actor,{action:input.action,target,input,resource:policy.resource,before:row,diff:writePlan.diff,identity:writePlan.identity,calculation:writePlan.calculation,blockers:writePlan.blockers||[],warnings:writePlan.warnings||[],fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
     }
     const {row,meta}=await this.current(policy,target);
     const metadata=this.erp.metadata();
