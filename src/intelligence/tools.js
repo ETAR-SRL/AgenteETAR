@@ -77,6 +77,7 @@ export function createBusinessTools({read,executeRead,kaiqen,branch,metadata,rep
        for(const value of Object.values(filters))assert(typeof value==='string'&&value.length<=256,400,'FILTROS_INVALIDOS','Valores de filtro deben ser texto');
        assert(!filters.limit||Number(filters.limit)<=100,400,'LIMITE_IA','La IA consulta hasta 100 filas por llamada');
        const nonempty=Object.fromEntries(Object.entries(filters).filter(([,value])=>value.trim()!==''));
+       for(const [key,value] of Object.entries(nonempty))if(['cliente','proveedor','producto','tienda','numero','moneda'].includes(key))assert(!/^(?:codigo|nombre|string|undefined|null|código)$/i.test(value.trim()),400,'FILTRO_NO_IDENTIFICADO','Falta identificar '+key+'; no se consultó con un valor de ejemplo.');
        // El modelo suele copiar moneda 1 de las reglas de ALTAS al resumir.
        // Una consulta general conserva todas las monedas salvo petición del usuario.
        if(metadata.entities[args.recurso]?.aggregate&&!reportCurrencyRequested)delete nonempty.moneda;

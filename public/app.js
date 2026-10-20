@@ -73,7 +73,7 @@ function renderDashboard(where,envelope,heading,{append=false}={}){
   if(Object.keys(envelope.scope.filtros||{}).length)card.append(node('p','metrics-note','Filtros aplicados: '+visual(envelope.scope.filtros)));
   const metrics=node('div','metrics');
   for(const row of rows.filter(r=>r.agrupacion==='total')){
-    const metric=node('div','metric');metric.append(node('span','',`Moneda ${row.moneda} · ${row.unidad}`),node('strong','',row.importeNeto),node('span','',`${row.documentos} documentos · ${row.lineas} ítems · cantidad ${row.cantidad}${row.cantidadMillares!==undefined?' / '+row.cantidadMillares+' millares':''}`));metrics.append(metric);
+    const metric=node('div','metric');metric.append(node('span','',`Moneda ${row.moneda} · ${row.unidad}`),node('strong','',visual(row.importeNeto)),node('span','',`${row.documentos} documentos · ${row.lineas} ítems · cantidad ${row.cantidad}${row.cantidadMillares!==undefined?' / '+row.cantidadMillares+' millares':''}`));metrics.append(metric);
   }
   card.append(metrics,node('p','metrics-note','Totales del alcance completo. Monedas y unidades separadas; los importes no incluyen automáticamente impuestos ni fletes.'));
   if(!rows.length)card.append(node('p','empty','No hay movimientos para estos filtros.'));
@@ -92,7 +92,7 @@ function renderDashboard(where,envelope,heading,{append=false}={}){
     card.append(chart);if(items.length>24)card.append(node('p','metrics-note','Gráfico: primeras 24 agrupaciones. Tabla y CSV incluyen todas.'));
   }
   if(rows.length){const details=node('details');details.append(node('summary','','Ver todos los valores'),table(rows));card.append(details);}
-  card.append(node('p','result-notes',(envelope.limitations||[]).join(' ')));
+  if(envelope.limitations?.length){const details=node('details');details.append(node('summary','','Cómo se calculó'),node('p','result-notes',envelope.limitations.join(' ')));card.append(details);}
   if(append)where.append(card);else where.replaceChildren(card);return card;
 }
 function renderQuality(where,envelope,append=false){

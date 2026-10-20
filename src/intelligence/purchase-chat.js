@@ -8,9 +8,9 @@ const number='(\\d+(?:[.,]\\d+)?)';
 const quantity=new RegExp('\\b'+number+'\\s*(unidad(?:es)?|un|millar(?:es)?|kg|g|mt|m|lt|l)\\b','i');
 const price=new RegExp('(?:\\bprecio\\s*(?:es|de|a|:)?\\s*|\\ba\\s+)'+number+'(?:\\s*(?:pesos?|d[oó]lares?|ars|usd))?\\s*(?:por\\s+(unidad|millar|kg|g|mt|m|lt|l))?','i');
 const codePattern=/\b(?:producto|articulo|codigo)\s+(?:es\s+|codigo\s+)?([a-z0-9][a-z0-9_./-]*)(?=\s|[,;!?]|$)/i;
-function extract(text){
+export function purchaseValues(text){
  const n=norm(text),literal=literalAttachmentIntent(text),values={};
- for(const key of ['currency','warehouse','requester','requesterCode','requestType','costCenter'])if(literal[key])values[key]=literal[key];
+ for(const key of ['currency','warehouse','requester','requesterCode','requestType','costCenter','party','shop','payment','buyer'])if(literal[key])values[key]=literal[key];
  for(const key of ['emission','due'])if(literal[key])values[key]=importDate(literal[key]);
  const today=new Date().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'});
  if(/\bemision\s+(?:para\s+)?hoy\b/.test(n))values.emission=today;
@@ -20,7 +20,7 @@ function extract(text){
  const q=quantity.exec(text),explicitQuantity=new RegExp('\\bcantidad\\s*(?:es|de|:)?\\s*'+number,'i').exec(text);
  if(q){values.quantity=importedNumber(q[1]);values.quantityUnit=norm(q[2]);}
  else if(explicitQuantity)values.quantity=importedNumber(explicitQuantity[1]);
- const p=price.exec(text);if(p&&(p[2]||/^precio/i.test(p[0])||/\b(?:pesos?|d[oó]lares?|ars|usd)\b/i.test(p[0]))){values.price=importedNumber(p[1]);if(p[2])values.priceUnit=norm(p[2]);}
+ const p=[...text.matchAll(new RegExp(price.source,'ig'))].find(p=>p[2]||/^precio/i.test(p[0])||/\b(?:pesos?|d[oó]lares?|ars|usd)\b/i.test(p[0]));if(p){values.price=importedNumber(p[1]);if(p[2])values.priceUnit=norm(p[2]);}
  const priceBasis=/\bpor (unidad|millar|kg|g|mt|m|lt|l)\b/.exec(n);
  if(priceBasis)values.priceUnit=priceBasis[1];
  const quantityBasis=/\bcantidades?\s+(?:en\s+)?(unidades|millares|kg|g|mt|m|lt|l)\b/.exec(n);
@@ -31,20 +31,21 @@ function extract(text){
 // A bounded, single-item intake avoids repeated inference for explicit references.
 // Values remain user input, never executed SQL or instructions from an ERP row.
 export async function purchaseChat({text,conversation,branch,canPlan,authorizePlan,read,prepare,actor}){
- const n=norm(text),start=/\b(crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?)\b/.test(n)&&/\bsolicitud(?: de)? (?:compra|importacion)\b/.test(n);
+ const n=norm(text),purchaseOrder=/\bpedido(?: de)? compra\b/.test(n),start=/\b(crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?)\b/.test(n)&&/\b(?:solicitud(?: de)? (?:compra|importacion)|pedido(?: de)? compra)\b/.test(n);
  let state=conversation.purchaseDraft;
- const values=extract(text);
+ const values=purchaseValues(text);
  if(/\bno\b|\b(?:solo|solamente)\s+consult/.test(n)){delete conversation.purchaseDraft;return null;}
  if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&state){delete conversation.purchaseDraft;return {answer:'Descarté los datos de esta solicitud. No se creó ningún documento.',evidence:[],trace:[]};}
  // Do not turn a multi-item or another business operation into a single item.
- if(/\bproductos\b|\b(?:pedido|factura|venta|lista)\b/.test(n)||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n)){
+ if(/\bproductos\b|\b(?:factura|venta|lista)\b/.test(n)||/\bpedido\b/.test(n)&&!purchaseOrder&&state?.action!=='crearPedidoCompra'||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n)){
   delete conversation.purchaseDraft;return null;
  }
  if(start&&!values.product)return null;
  if(!start&&(!state||state.branch!==branch||!Object.keys(values).length)){delete conversation.purchaseDraft;return null;}
  assert(canPlan&&prepare,403,'ROL_INSUFICIENTE','Tu rol no permite preparar solicitudes de compra.');
- await authorizePlan?.('crearSolicitudCompra');
- if(start)state={branch,values:{}};
+ const action=start&&purchaseOrder?'crearPedidoCompra':start?'crearSolicitudCompra':state.action||'crearSolicitudCompra',pc=action==='crearPedidoCompra';
+ await authorizePlan?.(action);
+ if(start)state={branch,action,values:{}};
  state.values={...state.values,...values};
  const v=state.values,evidence=[],trace=[];
  const query=async(resource,filters)=>{
@@ -59,7 +60,7 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
   return {answer:matches.length?'El código no identifica un producto único en SB1. ¿Podés precisar el producto?':`No encontré el código exacto ${v.product} en SB1 de esta sucursal. ¿Cuál es el código o nombre del producto? No se creó ninguna solicitud.`,evidence,trace};
  }
  const product=matches[0],unit=String(product.unidadMedida||'').trim().toUpperCase();
- const description=`Producto verificado en SB1: ${product.codigo} — ${product.nombre||'sin descripción'}. Tipo: ${product.tipo?.descripcion||product.tipo?.codigo||'no informado'}. Unidad: ${unit||'no informada'}.`;
+ const description=`Encontré ${product.codigo} — ${product.nombre||'sin descripción'}. Tipo: ${product.tipo?.descripcion||product.tipo?.codigo||'no informado'}. Unidad: ${unit||'no informada'}.`;
  const blocked=String(product.bloqueado?.codigo??product.bloqueado??'');
  if(blocked==='1'){delete conversation.purchaseDraft;return {answer:description+' Está bloqueado; no preparé el alta.',evidence,trace};}
  const basis=(value,isQuantity)=>{
@@ -78,17 +79,34 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
  if(!v.warehouse)missing.push(`depósito${product.depositoPredeterminado?` (SB1 indica ${product.depositoPredeterminado}; podés elegirlo)` :''}`);
  if(!v.emission)missing.push('fecha de emisión');
  if(!v.due)missing.push('fecha de necesidad');
- if(!v.requester)missing.push('solicitante');
- if(v.currency&&v.currency!=='ARS'&&v.currency!=='1'&&!v.requestType)missing.push('confirmar si corresponde una solicitud de importación (MATA113)');
+ if(!pc&&!v.requester)missing.push('solicitante');
+ if(!pc&&v.currency&&v.currency!=='ARS'&&v.currency!=='1'&&!v.requestType)missing.push('confirmar si corresponde una solicitud de importación (MATA113)');
  if(v.warehouse){
   const result=await query('depositos',{codigo:v.warehouse});
   if(result.data?.length!==1||result.meta?.hasMore){delete v.warehouse;missing.push('un depósito válido');}
  }
+ const resolve=async(resource,term,extra={})=>{
+  let r=await query(resource,{codigo:term,...extra});
+  if(!r.data.length&&term.length>1)r=await query(resource,{q:term,...extra});
+  return r;
+ };
+ let vendor,payment;
+ if(pc){
+  if(!v.party)missing.push('proveedor');
+  else{const r=await resolve('proveedores',v.party,v.shop?{tienda:v.shop}:{});if(r.data.length===1&&!r.meta?.hasMore){vendor=r.data[0];v.party=vendor.codigo;v.shop=vendor.tienda;}else missing.push('proveedor y tienda únicos (ver coincidencias)');}
+  if(!v.payment)missing.push('condición de pago');
+  else{const r=await resolve('condicionesPago',v.payment);if(r.data.length===1&&!r.meta?.hasMore){payment=r.data[0];v.payment=payment.codigo;}else missing.push('una condición de pago válida');}
+ }
  conversation.purchaseDraft=state;
- if(missing.length)return {answer:description+`\n\nVamos a crear una solicitud nueva. Falta ${missing.join('; ')}. ¿Me pasás esos datos? Podés responder en un solo mensaje; conservo lo ya indicado.\n\nAntes de crearla te mostraré el resumen para confirmar.`,evidence,trace};
- const proposal=await prepare(actor,{action:'crearSolicitudCompra',target:{sucursal:branch},header:{fechaEmision:v.emission,solicitante:v.requester,moneda:v.currency,...(v.requestType?{tipoSolicitud:v.requestType}:{}),...(v.requesterCode?{solicitanteCodigo:v.requesterCode}:{})},items:[{producto:product.codigo,deposito:v.warehouse,fechaNecesidad:v.due,cantidad:v.quantity,precio:v.price,baseCantidad,basePrecio,...(v.costCenter?{centroCosto:v.costCenter}:{})}]});
+ if(missing.length){
+  const essentials=missing.filter(x=>/cantidad|precio|moneda|importación/.test(x));
+  const questions=essentials.length?essentials:missing;
+  return {answer:description+`\n\nPara preparar ${pc?'el pedido':'la solicitud'}, necesito ${questions.join('; ')}.\n\nPodés pasarme los datos juntos o de a poco. Antes de crear el documento te mostraré el resumen para confirmar.`,evidence,trace};
+ }
+
+ const proposal=await prepare(actor,{action,target:{sucursal:branch},header:{fechaEmision:v.emission,moneda:v.currency,...(pc?{proveedor:vendor.codigo,tienda:vendor.tienda,condicionPago:payment.codigo,...(v.buyer?{comprador:v.buyer}:{})}:{solicitante:v.requester,...(v.requestType?{tipoSolicitud:v.requestType}:{}),...(v.requesterCode?{solicitanteCodigo:v.requesterCode}:{})})},items:[{producto:product.codigo,deposito:v.warehouse,fechaNecesidad:v.due,cantidad:v.quantity,precio:v.price,baseCantidad,basePrecio,...(v.costCenter?{centroCosto:v.costCenter}:{})}]});
  delete conversation.purchaseDraft;
- evidence.push({id:'P1',action:'preparar_alta',args:{accion:'crearSolicitudCompra'},result:{kind:'proposal',proposal}});
+ evidence.push({id:'P1',action:'preparar_alta',args:{accion:action},result:{kind:'proposal',proposal}});
  trace.push({action:'preparar_alta',status:'ok'});
- return {answer:description+'\n\nPreparé una solicitud NUEVA desde cero. Revisá el resumen antes de confirmar. No se creó ningún documento. '+(proposal.approval?.label||''),evidence,trace};
+ return {answer:description+`\n\nPreparé ${pc?'un pedido de compra NUEVO':'una solicitud NUEVA'} desde cero. Revisá el resumen antes de confirmar. No se creó ningún documento. `+(proposal.approval?.label||''),evidence,trace};
 }

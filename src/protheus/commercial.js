@@ -168,8 +168,8 @@ export class Commercial {
     if(spec.summary) {
       const totals=data.filter(r=>r.agrupacion==='total');
       result.verifiedSummary=`${spec.label}, del ${scope.desde} al ${scope.hasta}, sucursal ${scope.sucursal}.${Object.keys(filters).length?' Filtros: '+JSON.stringify(filters)+'.':''}\n`+
-        (totals.length?totals.map(r=>`Moneda ${r.moneda||'sin determinar'} · ${r.unidad||'unidad no informada'}: ${r.documentos} documentos, ${r.lineas} ítems, ${pending?'importe pendiente estimado':'NF + ND − NC'} ${r.importeNeto}; cantidad ${r.cantidad}${r.cantidadMillares!==undefined?' ('+r.cantidadMillares+' millares)':''}.`).join('\n'):'No hay movimientos de las especies incluidas para estos filtros.')+
-        '\nSe calculó todo el alcance filtrado en SQL, no una suma de la primera página. '+limitations.slice(1).join(' ');
+        (totals.length?totals.map(r=>`Moneda ${r.moneda||'sin determinar'} · ${r.unidad||'unidad no informada'}: ${r.documentos} documentos, ${r.lineas} ítems, ${pending?'importe pendiente estimado':'NF + ND − NC'} ${r.importeNeto}; cantidad ${r.cantidad}${r.cantidadMillares!==undefined?' ('+r.cantidadMillares+' millares)':''}.`).join('\n'):'No encontré movimientos en el período y alcance consultados.')+
+        '\nImportes netos de ítems, sin sumar monedas distintas. Podés ver el detalle y descargarlo abajo.';
     }
     return result;
   }

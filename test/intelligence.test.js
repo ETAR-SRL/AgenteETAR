@@ -67,9 +67,9 @@ test('update proposal fails when the row product is not uniquely verified in SB1
   const context=setup({productos:rows,itemsVentas:[{registro:'7',productoCodigo:product.codigo,numero:'123',item:'01'}]}),store=new Store(':memory:');t.after(()=>store.close());let prepared=0;
   const decisions=[{action:'consultar_erp',args:{recurso:'itemsVentas',filtros:{}}},{action:'preparar_cambio',args:{accion:'pedidoVenta',registro:'7',precio:'80',basePrecio:'millar'}},{action:'responder',answer:'¿Podés verificar el producto?'}];
   const agent=createIntelligence({...context,store,prepareChange:async()=>{prepared++;},model:{name:'test',complete:async()=>decisions.shift()}});
-  const reply=await agent.query('writer',{text:'Cambiá el precio del pedido 123 a 80 por millar'},{canPlan:true});
+  const reply=await agent.query('writer',{text:'Cambiá el precio del pedido de venta 123 a 80 por millar'},{canPlan:true});
   assert.equal(prepared,0);assert.ok(reply.trace.some(r=>r.code==='PRODUCTO_NO_VERIFICADO'));
-  assert.match(reply.answer,/No se preparó ninguna propuesta/);
+  assert.match(reply.answer,/No se creó ningún documento/);
  }
 });
 test('summary tool accepts grouping by supplier or customer and preserves explicit currency',async()=>{

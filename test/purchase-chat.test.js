@@ -24,7 +24,7 @@ test('numeric product 1 is read exactly and its real type is returned without mo
  const r=await f.query('Creame una solicitud de compra con el producto 1.');
  assert.match(r.answer,/VARIOS-MIGRACION/);assert.match(r.answer,/SERVICIO/);assert.doesNotMatch(r.answer,/terminado|grupo Z/);
  assert.equal(f.modelCalls,0);assert.equal(f.calls.length,1);assert.equal(f.calls[0].filters.codigo,'1');assert.equal(f.prepared.length,0);
- assert.match(r.answer,/SB1 indica 16/);assert.ok(r.durationMs>=0);
+ assert.doesNotMatch(r.answer,/fecha de emisión|solicitante/);assert.ok(r.durationMs>=0);
 });
 test('SC1 intake keeps supplied fields and prepares only a reviewable proposal',async t=>{
  const f=fixture(t),first=await f.query('Creame una solicitud de compra con el producto 1');
