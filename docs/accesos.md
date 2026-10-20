@@ -1,5 +1,7 @@
 # Usuarios, roles y acceso a los datos
 
+Los [adjuntos de precios](precios-desde-archivos.md) requieren preparar DA1/AIB y leer catálogo, tercero y precios. Sus borradores y resultados se aíslan por actor y sucursal. Subir un archivo no concede permisos ni ejecuta cambios; la ejecución conserva los permisos y confirmación existentes.
+
 ## Primer ingreso
 
 Abrir `http://127.0.0.1:4310/`. Si aún no hay usuarios, Central solicita crear el primer administrador. Elegir nombre, usuario y una contraseña de entre 12 y 128 caracteres. No hay una contraseña inicial compartida. El alta inicial es única, incluso si dos solicitudes llegan juntas.

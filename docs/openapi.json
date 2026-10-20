@@ -1925,6 +1925,190 @@
           }
         }
       }
+    },
+    "/api/price-imports": {
+      "post": {
+        "summary": "Extraer lista de precios local para revisión, sin modificar ERP",
+        "description": "Requiere preparar DA1/AIB y leer catálogo, tercero y precios. Máximo 20 MB; XLSX, XLS, PDF, PNG, JPG, WebP. El binario temporal se elimina al finalizar.",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "proveedor",
+                "cliente"
+              ]
+            }
+          },
+          {
+            "name": "sucursal",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-File-Name",
+            "in": "header",
+            "required": true,
+            "description": "Nombre con encodeURIComponent",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Borrador propio con filas editables, origen, texto y avisos; vence en 24 horas"
+          },
+          "403": {
+            "description": "Permiso o sucursal denegada"
+          },
+          "413": {
+            "description": "Archivo o extracción supera límites"
+          },
+          "422": {
+            "description": "Archivo ilegible"
+          }
+        }
+      }
+    },
+    "/api/price-imports/{id}": {
+      "get": {
+        "summary": "Recuperar borrador propio de precios",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Borrador con lectura y último resultado"
+          },
+          "404": {
+            "description": "Inexistente, vencido o de otro actor"
+          }
+        }
+      }
+    },
+    "/api/price-imports/{id}/preview": {
+      "post": {
+        "summary": "Verificar filas revisadas contra ERP y preparar propuestas DA1/AIB",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "reviewed",
+                  "party",
+                  "rows"
+                ],
+                "properties": {
+                  "reviewed": {
+                    "const": true
+                  },
+                  "party": {
+                    "type": "string"
+                  },
+                  "shop": {
+                    "type": "string"
+                  },
+                  "list": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "rows": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 500,
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "price"
+                      ],
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "product": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "price": {
+                          "type": "string"
+                        },
+                        "currency": {
+                          "type": "string"
+                        },
+                        "unit": {
+                          "type": "string"
+                        },
+                        "record": {
+                          "type": "string",
+                          "description": "Registro elegido entre candidatos; se verifica con producto/tercero/lista"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Propuestas, incidencias por fila y candidatos para resolver ambigüedades; no ejecuta cambios"
+          },
+          "403": {
+            "description": "Permiso o sucursal denegada"
+          },
+          "404": {
+            "description": "Borrador inexistente para este actor"
+          }
+        }
+      }
     }
   }
 }

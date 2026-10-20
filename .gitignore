@@ -19,3 +19,4 @@ reports/
 *.pfx
 *.p12
 *.key
+.venv-documents/

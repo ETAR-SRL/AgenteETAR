@@ -10,17 +10,19 @@ import { Changes, changePolicies } from './changes.js';
 import { readFileSync } from 'node:fs';
 import { createUi } from './ui.js';
 import { createVoice } from './voice.js';
+import {createDocumentReader} from './intelligence/document-reader.js';
+import {createPriceImports,importAction} from './intelligence/price-imports.js';
 import { createIntelligence } from './intelligence/agent.js';
 
 const safeEqual=(a,b)=>{const x=Buffer.from(a),y=Buffer.from(b||'');return x.length===y.length && timingSafeEqual(x,y);};
 function rawSend(res,status,body){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));}
-async function body(req){
+async function body(req,maxBytes=16384){
   assert((req.headers['content-type']||'').split(';')[0]==='application/json',415,'JSON_REQUERIDO','Usar Content-Type: application/json');
   const chunks=[];let bytes=0;
-  for await(const chunk of req){bytes+=chunk.length;assert(bytes<=16384,413,'CUERPO_GRANDE','Máximo 16 KiB');chunks.push(chunk);}
+  for await(const chunk of req){bytes+=chunk.length;assert(bytes<=maxBytes,413,'CUERPO_GRANDE','Solicitud demasiado grande');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new HttpError(400,'JSON_INVALIDO','JSON inválido');}
 }
-export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),model,network=createNetworkAccess()}){
+export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),documents=createDocumentReader(),model,network=createNetworkAccess()}){
   assert(readKey?.length>=32 && planKey?.length>=32 && readKey!==planKey,500,'CLAVES_INVALIDAS','Configurar dos claves distintas de al menos 32 caracteres');
   assert(!writeKey || (writeKey.length>=32 && writeKey!==readKey && writeKey!==planKey),500,'CLAVES_INVALIDAS','La clave de escritura debe ser distinta y de al menos 32 caracteres');
   const access=new Access(store,branches),context=new AsyncLocalStorage();
@@ -58,6 +60,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     return {...result,source:{system:'protheus',mode,fetchedAt:new Date().toISOString(),companyScope:'configured_database'},limitations:result.limitations||['Consulta paginada; no representa un total global','Saldo técnico no prueba entrega física']};
   }
   const changes=new Changes({erp,store,read});
+  const priceImports=createPriceImports({store,read,prepare:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
   async function executeRead(command){
     guard(command.resource);
     const params=new URLSearchParams(command.filters);
@@ -117,6 +120,22 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
       }
       if(req.method==='GET'&&url.pathname==='/api/approvals/automation'){guard('aprobacionesCompras');assert(principal.role==='writer',403,'ROL_REQUERIDO','Requiere operador de escritura');return send(res,200,{status:approvalScheduler?.status()||{enabled:false},...store.escalationHistory()});}
+      if(url.pathname.startsWith('/api/price-imports')){
+        const importGuard=kind=>{guard('productos');guard(kind==='proveedor'?'proveedores':'clientes');guard(kind==='proveedor'?'preciosProveedores':'preciosClientes');};
+        assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere permiso para preparar precios.');
+        if(req.method==='POST'&&url.pathname==='/api/price-imports'){
+          const kind=url.searchParams.get('kind'),branch=url.searchParams.get('sucursal'),action=importAction(kind);
+          assert(action,400,'DESTINO_INVALIDO','Elegí proveedor o cliente.');assertAction(principalNow(),action);branchGuard(branch);assert(branches.includes(branch),403,'SUCURSAL_NO_AUTORIZADA','Sucursal no autorizada.');
+          importGuard(kind);const document=await documents.extract(req);assertAction(principalNow(),action);branchGuard(branch);importGuard(kind);
+          return send(res,201,priceImports.save(principal.actor,kind,branch,document));
+        }
+        const match=/^\/api\/price-imports\/([a-f0-9-]{36})(\/preview)?$/.exec(url.pathname);
+        if(match){const draft=priceImports.get(principal.actor,match[1]);assertAction(principalNow(),importAction(draft.kind));branchGuard(draft.branch);importGuard(draft.kind);
+          if(req.method==='GET'&&!match[2])return send(res,200,draft);
+          if(req.method==='POST'&&match[2])return send(res,200,await priceImports.preview(principal.actor,match[1],await body(req,512000)));
+        }
+        throw new HttpError(404,'RUTA_NO_EXISTE','Ruta de adjuntos inexistente.');
+      }
       if(req.method==='GET'&&url.pathname==='/api/agent/status')return send(res,200,await intelligence.status());
       if(req.method==='POST'&&url.pathname==='/api/agent/chat')return send(res,200,await intelligence.query(principal.actor,await body(req),{canPlan:['planner','writer'].includes(principal.role),allowedBranches:principal.branches||branches}));
       if(url.pathname==='/api/agent/knowledge'){
@@ -127,7 +146,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       if(memoryMatch?.[1]==='knowledge'&&req.method==='DELETE')return send(res,200,{deleted:intelligence.memory.remove(principal.actor,memoryMatch[2])});
       if(memoryMatch?.[1]==='conversations'&&req.method==='GET')return send(res,200,intelligence.memory.conversation(memoryMatch[2],principal.actor));
       for(const key of url.searchParams.keys())assert(url.searchParams.getAll(key).length===1,400,'FILTRO_DUPLICADO','Filtro repetido');
-      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,user:principal,erp:{...erp.metadata(),entities:Object.fromEntries(Object.entries(erp.metadata().entities).filter(([name])=>canRead(principal,name)))},kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches:principal.branches||branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true&&(!principal.userId||localWrites),writePolicy:erp.writes?.policy||null,purchaseCreation:erp.writes?.creation||null,approvalAutomation:canRead(principal,'aprobacionesCompras')?(approvalScheduler?.status()||{enabled:false}):{enabled:false},proposalActions:Object.fromEntries(Object.entries(changePolicies).filter(([action,policy])=>canRead(principal,policy.resource)&&(principal.admin||principal.unrestricted||principal.permissions.includes('plan:'+action)))),voice:voice.status(),externalAI:false});
+      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,user:principal,erp:{...erp.metadata(),entities:Object.fromEntries(Object.entries(erp.metadata().entities).filter(([name])=>canRead(principal,name)))},kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches:principal.branches||branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true&&(!principal.userId||localWrites),writePolicy:erp.writes?.policy||null,purchaseCreation:erp.writes?.creation||null,approvalAutomation:canRead(principal,'aprobacionesCompras')?(approvalScheduler?.status()||{enabled:false}):{enabled:false},proposalActions:Object.fromEntries(Object.entries(changePolicies).filter(([action,policy])=>canRead(principal,policy.resource)&&(principal.admin||principal.unrestricted||principal.permissions.includes('plan:'+action)))),voice:voice.status(),documents:documents.status(),externalAI:false});
       if(req.method==='GET' && url.pathname==='/api/voice/status')return send(res,200,voice.status());
       if(req.method==='POST' && url.pathname==='/api/voice/transcribe')return send(res,200,await voice.transcribe(req));
       if(req.method==='GET' && url.pathname==='/api/openapi.json')return send(res,200,JSON.parse(readFileSync(new URL('../docs/openapi.json',import.meta.url))));

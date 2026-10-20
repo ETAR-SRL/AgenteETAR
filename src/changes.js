@@ -55,7 +55,7 @@ export class Changes {
       // Mantiene la validación de acceso a sucursal del servicio de lectura.
       const {row}=await this.current(policy,target);
       const writePlan=await this.erp.writes.prepare(input.action,input);
-      return this.public(this.store.save(actor,{action:input.action,target,input,resource:policy.resource,before:row,diff:writePlan.diff,identity:writePlan.identity,calculation:writePlan.calculation,blockers:writePlan.blockers||[],warnings:writePlan.warnings||[],fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
+      return this.public(this.store.save(actor,{action:input.action,target,input,origin:input.origin,resource:policy.resource,before:row,diff:writePlan.diff,identity:writePlan.identity,calculation:writePlan.calculation,blockers:writePlan.blockers||[],warnings:writePlan.warnings||[],fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
     }
     const {row,meta}=await this.current(policy,target);
     const metadata=this.erp.metadata();

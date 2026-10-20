@@ -2,6 +2,8 @@
 
 Repositorio oficial: https://github.com/ETAR-SRL/AgenteETAR · desarrollo exclusivamente en `main`.
 
+El chat también acepta listas de precios en Excel, fotos y PDF: revisión del archivo, validación de productos y preparación de cambios AIB/DA1 con confirmación. Ver [uso, instalación y límites de adjuntos](docs/precios-desde-archivos.md).
+
 Reglas de negocio permanentes: [Productos Z, listas, millares y actualizaciones](docs/reglas-etar.md). Los precios de terminados Z en UN se muestran también por millar. Implementa UPDATE reales de DA1/AIB y solicitudes SC1 y pedidos SC6/SC7; ventas liberadas admiten reajuste directo de precio del saldo SC6/SC9 conservando documentos y estados, sin revalidar crédito, con revisión y confirmación. También crea solicitudes SC1 y pedidos SC7 por SQL con numeración automática y estado de aprobación según SX6/SY1: L sin aprobación requerida; B con circuito SCR/DBM pendiente según grupos, niveles y rangos. Las altas con circuito soportado, incluyendo IP+PC y superiores configurados, se pueden confirmar en la app. El panel permite continuar a PC tras IP aprobado y transferir pendientes al superior con trazabilidad. Ver [aprobaciones SQL y alcance](docs/aprobaciones-sql.md). Ver [contrato, configuración y límites](docs/actualizaciones.md).
 
 Los informes, capturas y datos de pruebas locales mencionados en esta documentación se generan en `reports/` y no se publican en Git.

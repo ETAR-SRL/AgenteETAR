@@ -69,6 +69,16 @@ for(const action of Object.keys(writeProfiles))test(action+': updates one existi
  const mutations=f.state.sql.filter(x=>x.sql.startsWith('DECLARE'));assert.ok(mutations.every(x=>!/(?:INSERT INTO \[|DELETE FROM|MERGE|CREATE TABLE)/i.test(x.sql)));
  assert.ok(f.state.sql.some(x=>x.sql.includes('WITH (UPDLOCK,HOLDLOCK)')));
 });
+test('AIB import revalidates current price, product, list, currency, supplier and shop',async()=>{
+ const good={producto:'ZTEST',lista:'001',moneda:'2',proveedor:'001',tienda:'001'};
+ for(const patch of [{},{producto:'OTHER'},{lista:'002'},{moneda:'1'},{proveedor:'002'},{tienda:'02'}]){
+  const f=fixture('precioListaProveedor');f.state.row.AIB_MOEDA='2';f.input.expectedPrice='0.08';f.input.expectedIdentity={...good,...patch};
+  if(Object.keys(patch).length)await assert.rejects(f.proposal(),{code:'CONFLICTO_CONCURRENCIA'});else assert.ok(await f.proposal());
+  assert.equal(f.state.writes,0);
+ }
+ const f=fixture('precioListaProveedor');f.state.row.AIB_MOEDA='2';f.input.expectedPrice='0.09';f.input.expectedIdentity=good;
+ await assert.rejects(f.proposal(),{code:'CONFLICTO_CONCURRENCIA'});
+});
 test('price change updates net, base list price and total atomically',async()=>{
  const f=fixture();f.input.changes={precioUnitario:'85.123'};const p=await f.proposal();await f.writes.execute(p);
  assert.equal(f.state.row.C6_PRCVEN,'0.085123');assert.equal(f.state.row.C6_PRUNIT,'0.085123');assert.equal(f.state.row.C6_VALOR,'85.12');assert.equal(f.state.row.C6_QTDVEN,'1000');

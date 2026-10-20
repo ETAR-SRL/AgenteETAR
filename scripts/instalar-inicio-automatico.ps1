@@ -31,17 +31,19 @@ while ($null -ne $ancestor) {
     $ancestor = $ancestor.Parent
 }
 foreach ($file in @('.env', 'package.json')) { Grant-ServiceAccess (Join-Path $root $file) '(R)' }
-foreach ($directory in @('src', 'public', 'scripts', 'config', 'node_modules', '.venv-voice')) {
+foreach ($directory in @('src', 'public', 'scripts', 'config', 'node_modules', '.venv-voice', '.venv-documents')) {
     Grant-ServiceAccess (Join-Path $root $directory) '(OI)(CI)(RX)'
 }
 Grant-ServiceAccess $data '(OI)(CI)(M)'
 # La carpeta TLS tiene herencia desactivada: sólo requiere lectura.
 Grant-ServiceAccess (Join-Path $data 'tls') '(OI)(CI)(RX)'
-$venvConfig = Join-Path $root '.venv-voice/pyvenv.cfg'
+foreach ($venvName in @('.venv-voice','.venv-documents')) {
+$venvConfig = Join-Path $root "$venvName/pyvenv.cfg"
 if (Test-Path -LiteralPath $venvConfig) {
     $pythonHome = (Get-Content -LiteralPath $venvConfig | Where-Object { $_ -match '^home\s*=' } | Select-Object -First 1) -replace '^home\s*=\s*', ''
-    if (-not $pythonHome -or -not (Test-Path -LiteralPath (Join-Path $pythonHome 'python.exe'))) { throw 'No se pudo localizar Python para la voz.' }
+    if (-not $pythonHome -or -not (Test-Path -LiteralPath (Join-Path $pythonHome 'python.exe'))) { throw 'No se pudo localizar Python para el lector local.' }
     Grant-ServiceAccess $pythonHome '(OI)(CI)(RX)'
+}
 }
 
 $action = New-ScheduledTaskAction -Execute $node -Argument ('"' + (Join-Path $root 'scripts/auto-start.mjs') + '"') -WorkingDirectory $root

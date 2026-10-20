@@ -94,11 +94,11 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
  function snapshot(c){return {policyVersion:3,row:c.row,product:c.product,header:c.header,triggers:c.activeTriggers,scope:c.scope,releases:c.releases,documents:c.documents,parameters:c.parameters,releaseTriggers:c.releaseTriggers};}
  function calculate(action,input,c){
   if(input.expectedPrice!==undefined||input.expectedIdentity!==undefined){
-   assert(action==='precioLista'&&input.expectedPrice!==undefined&&input.expectedIdentity,400,'PRECONDICION_INVALIDA','Las precondiciones corresponden a un precio DA1 identificado');
+   assert(['precioLista','precioListaProveedor'].includes(action)&&input.expectedPrice!==undefined&&input.expectedIdentity,400,'PRECONDICION_INVALIDA','Las precondiciones corresponden a un precio DA1/AIB identificado');
    const scale=numericSpec(c.p.price,catalog,c.p.alias).scale;
    assert(sourceNumber(c.row[c.p.price],c.p.price).toDecimalPlaces(scale).eq(sourceNumber(input.expectedPrice,'precio esperado').toDecimalPlaces(scale)),409,'CONFLICTO_CONCURRENCIA','El precio cambió durante la preparación; volvé a solicitar el ajuste.');
    const expected=input.expectedIdentity;
-   assert(clean(c.row.DA1_CODPRO)===expected.producto&&clean(c.row.DA1_CODTAB)===expected.lista&&sourceNumber(c.row.DA1_MOEDA,'DA1_MOEDA').eq(sourceNumber(expected.moneda,'moneda esperada')),409,'CONFLICTO_CONCURRENCIA','La identidad o moneda del precio cambió durante la preparación.');
+   assert(clean(c.row[c.p.product])===expected.producto&&clean(c.row[c.p.alias+'_CODTAB'])===expected.lista&&sourceNumber(c.row[c.p.alias+'_MOEDA'],'moneda').eq(sourceNumber(expected.moneda,'moneda esperada'))&&(c.p.alias!=='AIB'||clean(c.row.AIB_CODFOR)===expected.proveedor&&clean(c.row.AIB_LOJFOR)===expected.tienda),409,'CONFLICTO_CONCURRENCIA','La identidad o moneda del precio cambió durante la preparación.');
   }
   return planSalesBalance(calculateUpdate(action,input,c.row,c.product,catalog,{salesBalance:c.balance?.advanced}),c,catalog);}
  function verifyAfter(before,after,updates,p){
