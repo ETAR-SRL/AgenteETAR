@@ -1,6 +1,6 @@
-import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { assert } from './errors.js';
+import {createNetworkAccess} from './network-access.js';
 
 const files=new Map([
   ['/','index.html'],['/access-ui.js','access-ui.js'],['/app.js','app.js'],['/style.css','style.css'],
@@ -8,22 +8,16 @@ const files=new Map([
   ['/icon.svg','icon.svg'],['/icon-192.png','icon-192.png'],['/icon-512.png','icon-512.png']
 ]);
 const mime={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',webmanifest:'application/manifest+json',svg:'image/svg+xml',png:'image/png'};
-export function createUi({operator=false,access}={}){
-  const role=operator?'writer':'reader';
-  const sessions=new Map();
-  function local(req){
-    const host=req.headers.host||'';
-    assert(/^(127\.0\.0\.1|localhost)(:\d{1,5})?$/.test(host) && ['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress),403,'SOLO_LOCAL','La PWA requiere acceso local');
-    return `http://${host}`;
-  }
+export function createUi({access,network=createNetworkAccess()}={}){
+  const local=req=>network.origin(req);
   function sameOrigin(req){
     const origin=local(req);
-    assert(req.headers.origin===origin && (!req.headers['sec-fetch-site'] || req.headers['sec-fetch-site']==='same-origin'),403,'ORIGEN_INVALIDO','Abrí la aplicación desde este equipo');
+    assert(req.headers.origin===origin && (!req.headers['sec-fetch-site'] || req.headers['sec-fetch-site']==='same-origin'),403,'ORIGEN_INVALIDO','La solicitud debe provenir de la misma dirección de Central.');
   }
-  const token=req=>/(?:^|;\s*)central_auth=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie||'')?.[1];
+  const token=req=>new RegExp(`(?:^|;\\s*)${req.socket.encrypted?'__Secure-central_auth':'central_auth'}=([a-f0-9]{64})(?:;|$)`).exec(req.headers.cookie||'')?.[1];
   return {
     local,sameOrigin,token,
-    authCookie(value){return `central_auth=${value}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=${value?28800:0}`;},
+    authCookie(value,req){return `${req?.socket.encrypted?'__Secure-central_auth':'central_auth'}=${value}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=${value?28800:0}${req?.socket.encrypted?'; Secure':''}`;},
     principal(req){
       const authToken=token(req);if(!access||!authToken)return null;
       local(req);

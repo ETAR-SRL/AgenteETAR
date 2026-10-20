@@ -66,7 +66,7 @@ LOCAL_WRITE_ENABLED=true
 API_WRITE_KEY=<secreto distinto de READ y PLAN, mínimo 32 caracteres>
 ```
 
-Los defaults de `.env.example` están deshabilitados. El usuario SQL debe poder SELECT, consultar metadatos/definiciones y UPDATE las tablas habilitadas (incluida SC9 para casos elegibles); el agente no otorga permisos. El pool de escritura se abre sólo al ejecutar. La PWA requiere ambos flags, usuario personal y permisos de lectura, preparación y ejecución para la acción. Usa loopback y mismo origen, con cookie HttpOnly/SameSite=Strict. Los usuarios y roles se administran en Central; este despliegue no publica acceso por red. Ver accesos.md.
+Los defaults de `.env.example` están deshabilitados. El usuario SQL debe poder SELECT, consultar metadatos/definiciones y UPDATE las tablas habilitadas (incluida SC9 para casos elegibles); el agente no otorga permisos. El pool de escritura se abre sólo al ejecutar. La PWA requiere ambos flags, usuario personal y permisos de lectura, preparación y ejecución para la acción. Usa mismo origen, con cookie HttpOnly/SameSite=Strict (también Secure en HTTPS). Los usuarios y roles se administran en Central y mantienen sus permisos al ingresar por la LAN autorizada. Ver accesos.md y red-local.md.
 
 En **Actualizaciones**, ingresar un RECNO existente obtenido en Explorar ERP, seleccionar la base de precio/cantidad, preparar y revisar. En el chat puede pedirse por texto o dictado: el modelo busca el registro y prepara una tarjeta; ante identidad/base ambiguas debe solicitar aclaración. El ejecutor no está disponible como herramienta del modelo. La confirmación final es un botón explícito de la tarjeta.
 

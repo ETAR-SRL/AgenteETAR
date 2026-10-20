@@ -1,6 +1,7 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {Access,assertRead,assertAction,canRead,denied} from './access.js';
 import {scopeKaiqen} from './kaiqen-access.js';
+import {createNetworkAccess} from './network-access.js';
 import http from 'node:http';
 import { timingSafeEqual, createHash } from 'node:crypto';
 import { assert, HttpError } from './errors.js';
@@ -19,7 +20,7 @@ async function body(req){
   for await(const chunk of req){bytes+=chunk.length;assert(bytes<=16384,413,'CUERPO_GRANDE','Máximo 16 KiB');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new HttpError(400,'JSON_INVALIDO','JSON inválido');}
 }
-export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),model}){
+export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),model,network=createNetworkAccess()}){
   assert(readKey?.length>=32 && planKey?.length>=32 && readKey!==planKey,500,'CLAVES_INVALIDAS','Configurar dos claves distintas de al menos 32 caracteres');
   assert(!writeKey || (writeKey.length>=32 && writeKey!==readKey && writeKey!==planKey),500,'CLAVES_INVALIDAS','La clave de escritura debe ser distinta y de al menos 32 caracteres');
   const access=new Access(store,branches),context=new AsyncLocalStorage();
@@ -35,7 +36,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     return rawErp.writes[method](...args);
   };}
   kaiqen={...rawKaiqen};for(const [method,resource] of Object.entries({projects:'proyectos',project:'proyectos',quality:'calidad',projectLink:'proyectos',product:'productos'}))if(rawKaiqen[method])kaiqen[method]=async(...args)=>{guard(resource);const value=await rawKaiqen[method](...args);const p=principalNow();return p.admin||p.unrestricted?value:scopeKaiqen(method,value);};
-  const rate=new Map(),ui=createUi({access});
+  const rate=new Map(),ui=createUi({access,network});
   function auth(req){
     const token=/^Bearer ([^\s]+)$/.exec(req.headers.authorization||'')?.[1]||'';
     const session=token?null:ui.principal(req);
@@ -84,17 +85,19 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
   const server=http.createServer(async(req,res)=>{
     try{
+      network.origin(req);
       assert(req.url.length<=4096,414,'URL_LARGA','URL demasiado larga');
       const url=new URL(req.url,'http://localhost');
       if(url.pathname.startsWith('/api/auth/')){
         ui.local(req);
-        if(req.method==='GET'&&url.pathname==='/api/auth/state')return rawSend(res,200,{setupRequired:!access.hasUsers(),user:access.fromToken(ui.token(req))});
+        if(req.method==='GET'&&url.pathname==='/api/auth/state')return rawSend(res,200,{setupRequired:!access.hasUsers(),setupAllowed:network.isLocal(req),user:access.fromToken(ui.token(req))});
         if(req.method==='POST'){
           ui.sameOrigin(req);
-          if(url.pathname==='/api/auth/logout'){access.logout(ui.token(req));res.setHeader('set-cookie',ui.authCookie(''));return rawSend(res,200,{ok:true});}
+          if(url.pathname==='/api/auth/logout'){access.logout(ui.token(req));res.setHeader('set-cookie',ui.authCookie('',req));return rawSend(res,200,{ok:true});}
           if(['/api/auth/setup','/api/auth/login'].includes(url.pathname)){
+            if(url.pathname.endsWith('/setup'))assert(network.isLocal(req),403,'ALTA_INICIAL_LOCAL','Creá el primer administrador desde la PC que ejecuta Central.');
             const input=await body(req),result=url.pathname.endsWith('/setup')?await access.setup(input):await access.login(input,req.socket.remoteAddress);
-            res.setHeader('set-cookie',ui.authCookie(result.token));return rawSend(res,200,{user:result.principal});
+            res.setHeader('set-cookie',ui.authCookie(result.token,req));return rawSend(res,200,{user:result.principal});
           }
         }
         throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');

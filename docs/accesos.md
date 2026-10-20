@@ -41,7 +41,7 @@ Un cambio de usuario revoca sus sesiones. Los cambios de rol se aplican en la si
 
 Las contraseñas se almacenan con scrypt (N=32768, r=8, p=3, sal aleatoria de 16 bytes), nunca en texto plano. Las sesiones duran ocho horas, tienen tokens aleatorios de 32 bytes y sólo su hash SHA-256 queda en SQLite. La cookie usa HttpOnly y SameSite=Strict. Hay límite de intentos de ingreso por dirección y comprobación de origen para acciones desde el navegador.
 
-La PWA sigue limitada a **loopback en este equipo**, por HTTP local. No se publica a la red con este cambio. Para acceso desde otros equipos se necesita un despliegue HTTPS y adaptar explícitamente los orígenes y la cookie Secure; no basta con cambiar `HOST`. La cuenta de Windows con acceso a `.env` o a `data/agent.sqlite` continúa siendo una identidad administradora de infraestructura.
+La PWA admite **HTTP en loopback** y una entrada adicional **HTTPS para la LAN**, con orígenes y subredes privados explícitos. La cookie de red es Secure y el alta inicial del administrador permanece limitada a loopback. Ver [configuración de red local](red-local.md). No basta con cambiar `HOST`. La cuenta de Windows con acceso a `.env` o a `data/agent.sqlite` continúa siendo una identidad administradora de infraestructura.
 
 Las claves `API_READ_KEY`, `API_PLAN_KEY` y `API_WRITE_KEY` se conservan para las integraciones existentes. Son credenciales de servicio con el alcance global de lectura/planificación/escritura de la instalación, no usuarios restringidos. **No entregarlas al equipo ni incorporarlas al frontal**. No permiten administrar usuarios y roles. La PWA utiliza exclusivamente el ingreso personal; la antigua sesión anónima no da acceso, tampoco antes del alta inicial.
 

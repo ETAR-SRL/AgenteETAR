@@ -16,3 +16,6 @@ reports/
 *.db
 *.db-wal
 *.db-shm
+*.pfx
+*.p12
+*.key

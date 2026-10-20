@@ -27,6 +27,12 @@ export async function accessReady(){
  $('#login-password').minLength=state.setupRequired?12:1;
  $('#login-dialog').showModal();
  $('#login-dialog').addEventListener('cancel',event=>event.preventDefault());
+ if(state.setupRequired&&state.setupAllowed===false){
+  $('#login-heading').textContent='Falta configurar el administrador';
+  $('#login-copy').textContent='El responsable debe crear el primer administrador desde la PC que ejecuta Central. Después podrá crear tu usuario.';
+  $('#login-form').classList.add('hidden');
+  return new Promise(()=>{});
+ }
  $('#login-form').onsubmit=async event=>{
   event.preventDefault();$('#login-error').textContent='';$('#login-submit').disabled=true;
   try{await request(state.setupRequired?'/api/auth/setup':'/api/auth/login',{username:$('#login-user').value,name:$('#login-name').value,password:$('#login-password').value});clearLocal();location.reload();}
