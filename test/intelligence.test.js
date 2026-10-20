@@ -5,10 +5,54 @@ import {Memory} from '../src/intelligence/memory.js';
 import {createBusinessTools} from '../src/intelligence/tools.js';
 import {createIntelligence,compact} from '../src/intelligence/agent.js';
 import {createModel} from '../src/intelligence/model.js';
+import {previousPrice} from '../src/intelligence/references.js';
 const source={system:'protheus',mode:'test',fetchedAt:new Date().toISOString()};
 const product={codigo:'ABC/1',nombre:'Resorte prueba',unidadMedida:'UN'};
 const price={productoCodigo:'ABC/1',listaCodigo:'001',precio:'125.50',moneda:{codigo:'2',descripcion:'DOLAR'},vigenteDesde:'2025-01-01',activo:{descripcion:'Si'},registro:'1'};
 const header={codigo:'001',nombre:'Lista prueba',estado:{descripcion:'Si'},vigenteDesde:'2024-01-01',vigenteHasta:'2050-01-01'};
+test('DA0/DA1 are source tables, never invented named price lists',async()=>{
+ for(const lista of ['DA1','DA0','por millar','por unidad']){
+  const s=setup(),r=await s.tools.prices({producto:product.codigo,lista});
+  assert.equal(r.kind,'prices');assert.equal(r.data[0].registro,'1');
+  assert.ok(!s.calls.some(c=>c.filters.codigo===lista));
+ }
+});
+test('a follow-up price change re-reads the prior product and prepares the current record',async t=>{
+ const s=setup(),store=new Store(':memory:');t.after(()=>store.close());let prepared;
+ const decisions=[{action:'precio_venta',args:{producto:product.codigo}},{action:'preparar_cambio',args:{accion:'precioLista',registro:'1',precio:'60',basePrecio:'millar'}}];
+ const agent=createIntelligence({...s,store,model:{name:'test',complete:async()=>decisions.shift()},prepareChange:async(actor,input)=>{prepared=input;return {id:'p',diff:[],warnings:[]};}});
+ const first=await agent.query('writer',{text:'¿A cuánto vendemos ABC/1?'});
+ s.calls.length=0;
+ const second=await agent.query('writer',{text:'Cambiame el precio del producto a 60 dolares por millar',conversationId:first.conversationId},{canPlan:true});
+ assert.equal(prepared.target.registro,'1');assert.equal(prepared.changes.precio,'60');assert.equal(prepared.priceUnit,'millar');
+ assert.ok(s.calls.some(c=>c.resource==='preciosClientes'));assert.ok(s.calls.some(c=>c.resource==='productos'));
+ assert.equal(second.evidence.at(-1).result.kind,'proposal');assert.match(second.answer,/Producto verificado en SB1/);
+});
+test('follow-up prices reject changed identities, currency conflicts and new ambiguity',async t=>{
+ for(const scenario of ['deleted','currency','ambiguous']){
+  const s=setup(),store=new Store(':memory:');t.after(()=>store.close());let stage=0,prepared=0;
+  const originalRead=s.read;
+  const read=async(resource,p)=>{
+   const r=await originalRead(resource,p);
+   if(stage&&resource==='preciosClientes'){
+    if(scenario==='deleted')r.data=[];
+    if(scenario==='currency')r.data[0].moneda={codigo:'1',descripcion:'PESO'};
+    if(scenario==='ambiguous')r.data.push({...r.data[0],registro:'2'});
+   }return r;
+  };
+  const decisions=[{action:'precio_venta',args:{producto:product.codigo}},{action:'preparar_cambio',args:{accion:'precioLista',registro:'1',precio:'60',basePrecio:'millar'}},{action:'responder',answer:'¿Podés verificar la moneda?'}];
+  const agent=createIntelligence({...s,read,store,model:{name:'test',complete:async()=>decisions.shift()},prepareChange:async()=>{prepared++;}});
+  const first=await agent.query('writer',{text:'Precio ABC/1'});stage=1;
+  const second=await agent.query('writer',{text:'Cambiame el precio del producto a 60 dolares por millar',conversationId:first.conversationId},{canPlan:true});
+  assert.equal(prepared,0,scenario);assert.ok(!second.evidence.some(e=>e.result.kind==='proposal'));
+  if(scenario==='currency')assert.ok(second.trace.some(t=>t.code==='MONEDA_DISTINTA'));
+ }
+});
+test('historical identities never cross branches or unrelated document contexts',()=>{
+ const priceMessage={role:'assistant',content:JSON.stringify({sucursal:'0101',evidence:[{action:'precio_venta',args:{},identities:[{productoCodigo:'Z1',registro:'1'}]}]})};
+ assert.equal(previousPrice([priceMessage],'0201'),null);
+ assert.equal(previousPrice([priceMessage,{role:'assistant',content:JSON.stringify({sucursal:'0101',evidence:[{action:'consultar_erp',identities:[{numero:'123'}]}]})}],'0101'),null);
+});
 test('chat summaries use the aggregate tool and replace invented totals with verified evidence',async t=>{
  const store=new Store(':memory:');t.after(()=>store.close());const calls=[];
  const result={kind:'dashboard',data:[{importeNeto:'321.05'}],verifiedSummary:'NF + ND − NC: 321.05; moneda 1; período verificado.'};

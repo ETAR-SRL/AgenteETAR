@@ -2,7 +2,7 @@ import Decimal from 'decimal.js';
 import {assert} from '../errors.js';
 import {isFinishedProduct,pricePerThousand} from '../etar.js';
 const text=value=>typeof value==='string'?value.trim():'';
-const genericList=value=>/^(?:(?:la|una|las)\s+)?listas?(?:\s+de\s+(?:precios?|venta))?$/.test(text(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());
+const genericList=value=>/^(?:(?:la|una|las)\s+)?listas?(?:\s+de\s+(?:precios?|venta))?$|^(?:da0|da1|por (?:unidad|millar)|unidad|millar)$/.test(text(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());
 const state=value=>{const label=(value?.descripcion||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();return ['si','activo','activa','yes','sim'].includes(label)?'activo':['no','inactivo','inactiva','nao'].includes(label)?'inactivo':'sin_confirmar';};
 const amount=value=>{try{return new Decimal(value).toSignificantDigits(15).toFixed().replace('.',',');}catch{return 'sin importe';}};
 export function createBusinessTools({read,executeRead,kaiqen,branch,metadata,reportCurrencyRequested=true}){

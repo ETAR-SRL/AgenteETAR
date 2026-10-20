@@ -2,6 +2,8 @@
 
 Altas y cambios se solicitan por texto o voz en el Asistente. No hay una pantalla separada de Actualizaciones. La tarjeta del chat conserva identidad, diferencias, condiciones y confirmación. Antes de preparar un cambio se relee el producto en SB1; el ejecutor mantiene la validación transaccional del producto, documento y dependencias. Las altas SC1/SC7 se identifican como documentos nuevos desde cero, numerados al confirmar.
 
+El seguimiento de un precio consultado conserva sólo referencias de producto/lista/registro dentro de la conversación y sucursal. Si el modelo intenta preparar directamente un cambio sobre esa referencia, el servidor vuelve a leer SB1, DA1 y DA0 antes de proponerlo. No reutiliza importes históricos ni elige entre varios precios vigentes. La moneda solicitada debe coincidir con la leída. DA0 y DA1 se reconocen como tablas, no como nombres de listas. La interfaz avisa si sigue activo un backend anterior que requiere reinicio.
+
 Ejemplos: «Mostrame las notas de crédito de ventas de este mes», «Sacame un dashboard de compras por proveedor», «Resumí las ventas de octubre por producto», «Mostrame remitos pendientes de facturar», «Qué pedidos de venta quedan para el cliente 000001».
 
 La herramienta `resumir` agrega todo el alcance filtrado en SQL. La tarjeta muestra totales, gráfico por grupo, tabla completa y CSV. El resumen textual usa cifras verificadas por el servidor. Sin período explícito se usa el mes corriente de Argentina hasta hoy.
