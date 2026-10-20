@@ -3,7 +3,7 @@ import {assert} from '../errors.js';
 import {assertPriceCurrency} from './references.js';
 const normalized=value=>String(value||'').trim().toUpperCase();
 export const importAction=kind=>kind==='proveedor'?'precioListaProveedor':kind==='cliente'?'precioLista':null;
-export function createPriceImports({store,read,prepare}){
+export function createPriceImports({store,read,prepare,createBatch}){
  const db=store.db,busy=new Set();
  db.exec('CREATE TABLE IF NOT EXISTS price_imports(id TEXT PRIMARY KEY,actor TEXT NOT NULL,expires TEXT NOT NULL,body TEXT NOT NULL)');
  function save(actor,kind,branch,document){
@@ -75,7 +75,8 @@ export function createPriceImports({store,read,prepare}){
      proposals.push({...proposal,origin});resolved.push({fila:inputRow.id,producto:product.codigo,descripcion:product.nombre,registro:row.registro,lista:row.listaCodigo,precio:value,base:priceUnit,moneda:currency});
     }catch(error){if(['LECTURA_DENEGADA','ACCION_DENEGADA','ACCESO_CAMBIO'].includes(error.code))throw error;issues.push({fila:inputRow.id,producto:inputRow.product,ubicacion:origin.ubicacion,motivo:error.message,codigo:error.code||'ERROR_VERIFICACION'});}
    }
-   const result={proposals,issues,resolved,message:`Preparé ${proposals.length} propuestas y ${issues.length} filas requieren revisión. No se modificó el ERP. Cada tarjeta confirma un registro existente.`};
+   const result={proposals,issues,resolved,message:`Cambios preparados: ${proposals.length}. Filas para revisar: ${issues.length}. No se modificó el ERP.`};
+   if(createBatch)result.batch=createBatch(actor,draft,result);
    db.prepare('UPDATE price_imports SET body=? WHERE id=? AND actor=?').run(JSON.stringify({...draft,lastResult:result}),id,actor);store.audit(actor,'price-import.prepared',id);return result;
   }finally{busy.delete(actor);}
  }

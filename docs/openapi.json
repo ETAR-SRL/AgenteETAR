@@ -2099,13 +2099,93 @@
         },
         "responses": {
           "200": {
-            "description": "Propuestas, incidencias por fila y candidatos para resolver ambigüedades; no ejecuta cambios"
+            "description": "Resumen de lote inmutable con huella, propuestas, errores por fila y candidatos; no ejecuta cambios"
           },
           "403": {
             "description": "Permiso o sucursal denegada"
           },
           "404": {
             "description": "Borrador inexistente para este actor"
+          }
+        }
+      }
+    },
+    "/api/price-imports/batches/{id}": {
+      "get": {
+        "summary": "Consultar resumen y resultados durables de un lote propio",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resumen, errores excluidos, cantidades y resultados por precio. Disponible aunque venza el adjunto."
+          },
+          "404": {
+            "description": "Lote inexistente para este actor"
+          }
+        }
+      }
+    },
+    "/api/price-imports/batches/{id}/execute": {
+      "post": {
+        "summary": "Confirmar todos los precios válidos del resumen de un adjunto",
+        "description": "Exige permiso writer de la acción, lectura de catálogo/tercero/precios y alcance de sucursal. Revalida todo antes de escribir. Cada precio usa su propia transacción; ante error detiene los restantes. Repetir consulta el estado, nunca reanuda el lote. GET permite consultar progreso durante esta solicitud.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "confirm",
+                  "fingerprint"
+                ],
+                "properties": {
+                  "confirm": {
+                    "const": true
+                  },
+                  "fingerprint": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Estado del lote y recibos individuales; comprobar completed, blocked, stopped o interrupted y sus cantidades, no sólo HTTP 200"
+          },
+          "400": {
+            "description": "Confirmación incorrecta"
+          },
+          "403": {
+            "description": "No autorizado a ejecutar"
+          },
+          "404": {
+            "description": "Lote inexistente para el actor"
+          },
+          "409": {
+            "description": "Lote vacío, vencido o reemplazado"
           }
         }
       }

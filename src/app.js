@@ -12,6 +12,7 @@ import { createUi } from './ui.js';
 import { createVoice } from './voice.js';
 import {createDocumentReader} from './intelligence/document-reader.js';
 import {createPriceImports,importAction} from './intelligence/price-imports.js';
+import {createPriceBatches} from './intelligence/price-batches.js';
 import { createIntelligence } from './intelligence/agent.js';
 
 const safeEqual=(a,b)=>{const x=Buffer.from(a),y=Buffer.from(b||'');return x.length===y.length && timingSafeEqual(x,y);};
@@ -60,7 +61,13 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     return {...result,source:{system:'protheus',mode,fetchedAt:new Date().toISOString(),companyScope:'configured_database'},limitations:result.limitations||['Consulta paginada; no representa un total global','Saldo técnico no prueba entrega física']};
   }
   const changes=new Changes({erp,store,read});
-  const priceImports=createPriceImports({store,read,prepare:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
+  const importGuard=kind=>{guard('productos');guard(kind==='proveedor'?'proveedores':'clientes');guard(kind==='proveedor'?'preciosProveedores':'preciosClientes');};
+  const priceBatches=createPriceBatches({store,check:(actor,id)=>changes.check(actor,id),execute:(actor,id,confirmation)=>changes.execute(actor,id,confirmation),authorize:batch=>{
+    const p=principalNow();assert(p.role==='writer',403,'ROL_INSUFICIENTE','Se requiere permiso para ejecutar precios.');assertAction(p,batch.action,true);importGuard(batch.kind);branchGuard(batch.branch);
+    assert(erp.writes?.enabled,503,'ESCRITURA_DESHABILITADA','El ejecutor no está habilitado.');
+    if(p.userId)assert(localWrites,403,'ESCRITURA_LOCAL_DESHABILITADA','La ejecución está deshabilitada para usuarios en esta instalación.');
+  }});
+  const priceImports=createPriceImports({store,read,prepare:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);},createBatch:priceBatches.create});
   async function executeRead(command){
     guard(command.resource);
     const params=new URLSearchParams(command.filters);
@@ -121,8 +128,13 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       }
       if(req.method==='GET'&&url.pathname==='/api/approvals/automation'){guard('aprobacionesCompras');assert(principal.role==='writer',403,'ROL_REQUERIDO','Requiere operador de escritura');return send(res,200,{status:approvalScheduler?.status()||{enabled:false},...store.escalationHistory()});}
       if(url.pathname.startsWith('/api/price-imports')){
-        const importGuard=kind=>{guard('productos');guard(kind==='proveedor'?'proveedores':'clientes');guard(kind==='proveedor'?'preciosProveedores':'preciosClientes');};
         assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere permiso para preparar precios.');
+        const batchMatch=/^\/api\/price-imports\/batches\/([a-f0-9-]{36})(\/execute)?$/.exec(url.pathname);
+        if(batchMatch){
+          const batch=priceBatches.get(principal.actor,batchMatch[1]);assertAction(principalNow(),batch.action);importGuard(batch.kind);branchGuard(batch.branch);
+          if(req.method==='GET'&&!batchMatch[2])return send(res,200,batch);
+          if(req.method==='POST'&&batchMatch[2])return send(res,200,await priceBatches.run(principal.actor,batch.id,await body(req)));
+        }
         if(req.method==='POST'&&url.pathname==='/api/price-imports'){
           const kind=url.searchParams.get('kind'),branch=url.searchParams.get('sucursal'),action=importAction(kind);
           assert(action,400,'DESTINO_INVALIDO','Elegí proveedor o cliente.');assertAction(principalNow(),action);branchGuard(branch);assert(branches.includes(branch),403,'SUCURSAL_NO_AUTORIZADA','Sucursal no autorizada.');

@@ -247,8 +247,8 @@ async function start(){
     $('#voice-status').textContent=capabilities.voice.available?'Dictado en español · transcripción local · hasta 45 segundos':'Transcripción local no instalada. Las consultas por texto están disponibles.';
     api('/api/agent/status').then(status=>{if(status.priceContextVersion<3||!status.priceContextVersion)notice('Está activo el servicio anterior. Reiniciá Central para aplicar las correcciones del chat y del contexto de precios.');$('#ai-status').textContent=status.available?'IA local activa · '+status.model:'Motor de IA no disponible';}).catch(()=>{$('#ai-status').textContent='No se pudo verificar el modelo';});
     if(conversationId){try{const history=await api('/api/agent/conversations/'+conversationId);const conversation=$('#conversation');for(const message of history.messages){if(message.role==='user'){const q=node('div','question');q.append(node('span','',message.content));conversation.append(q);}else{let saved;try{saved=JSON.parse(message.content);}catch{continue;}const a=node('article','answer-card');a.append(node('div','result-meta','Conversación anterior · valores históricos, consultá nuevamente para actualizarlos'),node('div','answer-text',saved.answer));conversation.append(a);}}}catch{conversationId=undefined;localStorage.removeItem('central-conversation-id');}}
-    await restoreProposal();
     installPriceImports({api,capabilities,renderProposal});
+    await restoreProposal();
   }catch(error){$('#connection').textContent='Sin servicio';$('#connection').classList.add('warn');notice(error.message);$('#send').disabled=true;$('#mic').disabled=true;}
   if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>notice('El navegador no permitió el modo instalable. Las consultas siguen disponibles.'));
 }
@@ -298,7 +298,7 @@ function renderProposal(where,proposal,{append=true}={}){
 }
 async function restoreProposal(){
   const id=localStorage.getItem('central-last-proposal');if(!id||!Object.keys(capabilities?.proposalActions||{}).length)return;
-  try{const saved=await api('/api/changes/'+id);const where=$('#conversation');where.append(node('h2','','Última propuesta'));renderProposal(where,saved.proposal).status(saved.execution);}catch{/* La sesión anterior puede haber vencido. No reenviar escrituras. */}
+  try{const saved=await api('/api/changes/'+id);if(saved.proposal.origin?.importacion)return;const where=$('#conversation');where.append(node('h2','','Última propuesta'));renderProposal(where,saved.proposal).status(saved.execution);}catch{/* La sesión anterior puede haber vencido. No reenviar escrituras. */}
 }
 function renderAutomationStatus(status){
   $('#automation-status').textContent=status?.enabled?`Activo · revisa vencimientos cada ${Math.round(status.intervalMs/1000)} segundos mientras el servicio local está funcionando. Última revisión: ${status.lastRun?stamp(status.lastRun):'iniciando'}. Transferencias: ${status.receipts?.executed||0}. ${status.lastError?'Error: '+status.lastError+'. ':''}${(status.receipts?.unknown||status.receipts?.executing)?'Hay resultados pendientes de conciliación. ':''}Usa el plazo y la transferencia habilitada en Protheus; no aprueba documentos.`:'Escalamiento automático desactivado en esta instalación.';
