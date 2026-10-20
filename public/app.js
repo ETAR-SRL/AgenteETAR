@@ -1,10 +1,11 @@
 import {accessReady,loadAccessPanel} from './access-ui.js';
 import {installPriceImports} from './import-ui.js';
+import {renderImportBatch} from './import-batch-ui.js';
 const $=s=>document.querySelector(s);
 const labels={comprobantesVentas:'Ventas facturadas · NF/NC/ND',comprobantesCompras:'Compras facturadas · NF/NC/ND',remitosEmitidos:'Remitos emitidos',remitosPendientes:'Remitos pendientes de facturar',pedidosVentaPendientes:'Pedidos de venta pendientes',pedidosCompraPendientes:'Pedidos de compra pendientes',resumenVentas:'Resumen de ventas facturadas',resumenCompras:'Resumen de compras',resumenRemitosPendientes:'Resumen de remitos pendientes',resumenPedidosVenta:'Resumen de pedidos de venta',resumenPedidosCompra:'Resumen de pedidos de compra',condicionesPago:'Condiciones de pago',depositos:'Depósitos',centrosCosto:'Centros de costo',solicitudesCompra:'Solicitudes de compra',costos:'Costos',compras:'Órdenes de compra',produccion:'Producción',ventas:'Pedidos de venta',itemsVentas:'Ítems de ventas / pendientes',documentosSalida:'Documentos de salida',itemsDocumentosSalida:'Ítems de documentos de salida',remitos:'Remitos',entregas:'Entregas físicas',clientes:'Clientes',proveedores:'Proveedores',productos:'Productos',listasPreciosClientes:'Listas de precios de clientes',preciosClientes:'Precios de clientes · DA1',listasPreciosProveedores:'Listas de precios de proveedores',preciosProveedores:'Precios de proveedores',productoProveedor:'Productos por proveedor',productoCliente:'Productos por cliente',entradasCompras:'Entradas de compras',estructuras:'Estructuras',cotizaciones:'Cotizaciones',itemsCotizaciones:'Ítems de cotizaciones',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN'};
 const fieldLabels={precioPorMillar:'Precio por millar',cantidadMillares:'Cantidad en millares',registro:'Registro',codigo:'Código',descripcion:'Descripción',sucursal:'Sucursal',producto:'Producto',cliente:'Cliente',proveedor:'Proveedor',nombre:'Nombre',tienda:'Tienda',numero:'Número',lista:'Lista',precio:'Precio',desde:'Desde',hasta:'Hasta',pendiente:'Pendientes',status_name:'Estado registrado',phase_no:'Fase',name:'Nombre',code:'Código',customer:'Cliente',current_phase_name:'Fase actual',planned_start:'Inicio previsto',planned_end:'Fin previsto',actual_start:'Inicio real',actual_end:'Fin real',updated_at:'Actualizado',part_number:'N.º de pieza',part_name:'Pieza',sin_ia_externa:'Restricción IA externa',sin_ia_externa_por_cliente:'Restricción IA del cliente'};
 let capabilities,selectedProject=null,projectOffset=0,projectQuery='',page=1,activeParams=null,activeResource=null,deferredInstall;
-let conversationId=localStorage.getItem('central-conversation-id')||undefined;
+let conversationId=localStorage.getItem('central-conversation-id')||undefined,attachments;
 const node=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
 function notice(text){$('#notice').textContent=text;$('#notice').classList.toggle('hidden',!text);}
 function busy(where,text='Consultando la fuente…'){where.replaceChildren(node('div','loading',text));}
@@ -117,15 +118,22 @@ function switchView(view){
 document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>switchView(el.dataset.view));
 async function query(text){
   if(!text.trim()||$('#send').disabled)return;
+  if(attachments?.busy){notice('Esperá a que termine la lectura del archivo.');return;}
+  if(attachments?.id)document.dispatchEvent(new CustomEvent('attachment-revised',{detail:attachments.id}));
+  attachments?.setChatBusy(true);
   switchView('assistant');const conversation=$('#conversation'),q=node('div','question');q.append(node('span','',text));conversation.append(q);const result=node('div');conversation.append(result);busy(result);
   $('#send').disabled=true;$('#new-chat').disabled=true;const started=Date.now();const timer=setInterval(()=>{const loading=result.querySelector('.loading');if(loading)loading.textContent=`Interpretando y consultando las fuentes · ${Math.round((Date.now()-started)/1000)} s`;},1000);
-  try{const response=await api('/api/agent/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,conversationId,topic:$('#topic').value,context:{sucursal:$('#branch').value,...(selectedProject?{proyecto:selectedProject.id}:{})}})});
+  try{const response=await api('/api/agent/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,conversationId,attachmentId:attachments?.id,topic:$('#topic').value,context:{sucursal:$('#branch').value,...(selectedProject?{proyecto:selectedProject.id}:{})}})});
+    attachments?.receive(response.attachment);
     conversationId=response.conversationId;localStorage.setItem('central-conversation-id',conversationId);renderAnswer(result,response);
     $('#query').value='';
-  }catch(error){if(error.code==='CONVERSACION_NO_EXISTE'){conversationId=undefined;localStorage.removeItem('central-conversation-id');}showError(result,error);}finally{clearInterval(timer);$('#send').disabled=false;$('#new-chat').disabled=false;result.scrollIntoView({behavior:'smooth',block:'nearest'});}
+  }catch(error){if(error.code==='CONVERSACION_NO_EXISTE'){conversationId=undefined;localStorage.removeItem('central-conversation-id');}showError(result,error);}finally{attachments?.setChatBusy(false);clearInterval(timer);$('#send').disabled=false;$('#new-chat').disabled=false;result.scrollIntoView({behavior:'smooth',block:'nearest'});}
 }
 function renderAnswer(where,response){
-  const card=node('article','answer-card');card.append(node('div','eyebrow','CENTRAL · INTELIGENCIA LOCAL'),node('div','answer-text',response.answer),node('div','result-meta',`${response.model||'Modelo local'} · ${response.evidence?.length||0} fuentes consultadas en este turno`));where.replaceChildren(card);
+  const metadata=response.attachment?`${response.attachment.name} · ${response.batch?'Comparación con registros de Protheus':'Lectura local del adjunto'}`:`${response.model||'Modelo local'} · ${response.evidence?.length||0} fuentes consultadas en este turno`;
+  const card=node('article','answer-card');card.append(node('div','eyebrow','CENTRAL · INTELIGENCIA LOCAL'),node('div','answer-text',response.answer),node('div','result-meta',metadata));where.replaceChildren(card);
+  if(response.batch)renderImportBatch(where,response.batch,{api,capabilities});
+  if(response.choices?.length){const choices=node('div','choice-list');for(const choice of response.choices){const button=node('button','secondary',choice.label);button.type='button';button.onclick=()=>query(choice.text);choices.append(button);}card.append(choices);}
   for(const evidence of response.evidence||[]){
     const result=evidence.result,heading=evidence.id+' · '+(evidence.action==='precio_venta'?(result.kind==='prices'?'Precios de lista verificados':'Consulta de precios'):labels[evidence.args.recurso]||evidence.action);
     const details=node('details','evidence');details.append(node('summary','',heading));
@@ -141,7 +149,7 @@ function renderAnswer(where,response){
   }
   if(response.trace?.some(t=>t.status==='error'))card.append(node('p','metrics-note','Alguna fuente no estuvo disponible: '+response.trace.filter(t=>t.status==='error').map(t=>t.code).join(', ')));
 }
-$('#new-chat').onclick=()=>{conversationId=undefined;localStorage.removeItem('central-conversation-id');$('#conversation').replaceChildren();notice('Nueva conversación. Las clasificaciones guardadas siguen disponibles.');};
+$('#new-chat').onclick=()=>{attachments?.clear();conversationId=undefined;localStorage.removeItem('central-conversation-id');$('#conversation').replaceChildren();notice('Nueva conversación. Las clasificaciones guardadas siguen disponibles.');};
 async function loadKnowledge(){const content=$('#knowledge-list');busy(content);try{const result=await api('/api/agent/knowledge');content.replaceChildren();if(!result.data.length)content.append(node('p','metrics-note','Todavía no guardaste clasificaciones.'));for(const item of result.data){const row=node('div','knowledge-row');row.append(node('strong','',item.term),node('p','',item.meaning),node('small','',item.topic));const remove=node('button','text-button','Olvidar');remove.onclick=async()=>{await api('/api/agent/knowledge/'+item.id,{method:'DELETE'});loadKnowledge();};row.append(remove);content.append(row);}}catch(error){showError(content,error);}}
 $('#teach').onclick=()=>{$('#knowledge-dialog').showModal();loadKnowledge();};$('#close-knowledge').onclick=()=>$('#knowledge-dialog').close();
 $('#knowledge-form').onsubmit=async event=>{event.preventDefault();const status=$('#knowledge-status');try{await api('/api/agent/knowledge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:$('#topic').value,term:$('#knowledge-term').value,meaning:$('#knowledge-meaning').value})});status.textContent='Guardado. Se usará para interpretar las próximas consultas; los valores se leerán nuevamente en las fuentes.';$('#knowledge-form').reset();loadKnowledge();}catch(error){status.textContent=error.message;}};
@@ -247,7 +255,8 @@ async function start(){
     $('#voice-status').textContent=capabilities.voice.available?'Dictado en español · transcripción local · hasta 45 segundos':'Transcripción local no instalada. Las consultas por texto están disponibles.';
     api('/api/agent/status').then(status=>{if(status.priceContextVersion<3||!status.priceContextVersion)notice('Está activo el servicio anterior. Reiniciá Central para aplicar las correcciones del chat y del contexto de precios.');$('#ai-status').textContent=status.available?'IA local activa · '+status.model:'Motor de IA no disponible';}).catch(()=>{$('#ai-status').textContent='No se pudo verificar el modelo';});
     if(conversationId){try{const history=await api('/api/agent/conversations/'+conversationId);const conversation=$('#conversation');for(const message of history.messages){if(message.role==='user'){const q=node('div','question');q.append(node('span','',message.content));conversation.append(q);}else{let saved;try{saved=JSON.parse(message.content);}catch{continue;}const a=node('article','answer-card');a.append(node('div','result-meta','Conversación anterior · valores históricos, consultá nuevamente para actualizarlos'),node('div','answer-text',saved.answer));conversation.append(a);}}}catch{conversationId=undefined;localStorage.removeItem('central-conversation-id');}}
-    installPriceImports({api,capabilities,renderProposal});
+    attachments=installPriceImports({api,capabilities});
+    $('#branch').addEventListener('change',()=>attachments?.clear());
     await restoreProposal();
   }catch(error){$('#connection').textContent='Sin servicio';$('#connection').classList.add('warn');notice(error.message);$('#send').disabled=true;$('#mic').disabled=true;}
   if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>notice('El navegador no permitió el modo instalable. Las consultas siguen disponibles.'));

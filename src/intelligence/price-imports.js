@@ -2,8 +2,15 @@ import {randomUUID} from 'node:crypto';
 import {assert} from '../errors.js';
 import {assertPriceCurrency} from './references.js';
 const normalized=value=>String(value||'').trim().toUpperCase();
-export const importAction=kind=>kind==='proveedor'?'precioListaProveedor':kind==='cliente'?'precioLista':null;
-export function createPriceImports({store,read,prepare,createBatch}){
+export const importProfiles=Object.freeze({
+ proveedor:{action:'precioListaProveedor',resource:'preciosProveedores',party:'proveedores',price:'AIB_PRCCOM'},
+ cliente:{action:'precioLista',resource:'preciosClientes',party:'clientes',price:'DA1_PRCVEN'},
+ pedidoVenta:{action:'pedidoVenta',resource:'itemsVentas',party:'clientes',price:'C6_PRCVEN',order:true},
+ pedidoCompra:{action:'pedidoCompra',resource:'compras',party:'proveedores',price:'C7_PRECO',order:true},
+ solicitudCompra:{action:'solicitudCompra',resource:'solicitudesCompra',price:'C1_VUNIT',order:true}
+});
+export const importAction=kind=>Object.hasOwn(importProfiles,kind)?importProfiles[kind].action:null;
+export function createPriceImports({store,read,prepare,createBatch,metadata=()=>({})}){
  const db=store.db,busy=new Set();
  db.exec('CREATE TABLE IF NOT EXISTS price_imports(id TEXT PRIMARY KEY,actor TEXT NOT NULL,expires TEXT NOT NULL,body TEXT NOT NULL)');
  function save(actor,kind,branch,document){
@@ -13,12 +20,31 @@ export function createPriceImports({store,read,prepare,createBatch}){
   db.prepare('INSERT INTO price_imports VALUES(?,?,?,?)').run(result.id,actor,result.expiresAt,JSON.stringify(result));store.audit(actor,'price-import.extracted',result.id);return result;
  }
  function get(actor,id){const r=db.prepare('SELECT body FROM price_imports WHERE id=? AND actor=? AND expires>?').get(id,actor,new Date().toISOString());assert(r,404,'ADJUNTO_NO_EXISTE','Adjunto inexistente o vencido para este usuario.');return JSON.parse(r.body);}
+ function classify(actor,id,kind){
+  assert(!busy.has(actor),409,'IMPORTACION_EN_CURSO','Esperá a que termine la revisión actual del adjunto.');
+  assert(importAction(kind),400,'DESTINO_INVALIDO','Indicá lista de proveedor/cliente, pedido de venta/compra o solicitud.');
+  const draft=get(actor,id);
+  db.prepare('UPDATE price_imports SET body=? WHERE id=? AND actor=?').run(JSON.stringify({...draft,kind}),id,actor);
+  return {...draft,kind};
+ }
+ function invalidate(actor,id){
+  assert(!busy.has(actor),409,'IMPORTACION_EN_CURSO','Esperá a que termine la revisión actual del adjunto.');
+  if(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='price_batches'").get()){
+   assert(!db.prepare("SELECT 1 FROM price_batches WHERE actor=? AND import_id=? AND status IN ('checking','running')").get(actor,id),409,'LOTE_EN_CURSO','Esperá el resultado del lote en curso antes de modificar su revisión.');
+   db.prepare("UPDATE price_batches SET status='superseded' WHERE actor=? AND import_id=? AND status='ready'").run(actor,id);
+  }
+ }
  const query=(resource,branch,filters={})=>read(resource,new URLSearchParams({sucursal:branch,limit:'100',...filters}));
+ const canonical=(resource,field,value)=>{
+  const text=String(value||'').trim(),spec=metadata().entities?.[resource]?.fields?.find(f=>f.salida===field)?.diccionario,width=Number(spec?.X3_TAMANHO);
+  return /^\d+$/.test(text)&&Number.isInteger(width)&&width>text.length&&width<=20?text.padStart(width,'0'):text;
+ };
  async function lookup(resource,branch,term){let r=await query(resource,branch,{codigo:term});if(!r.data.length)r=await query(resource,branch,{q:term});return r;}
  async function preview(actor,id,input){
   const draft=get(actor,id);
+  const profile=importProfiles[draft.kind];assert(profile,400,'DESTINO_INVALIDO','Falta indicar qué actualizar.');
   assert(input&&input.reviewed===true,400,'REVISION_REQUERIDA','Revisá la lectura del archivo y marcá la confirmación antes de preparar.');
-  assert(typeof input.party==='string'&&input.party.trim()&&input.party.length<=120,400,'TERCERO_REQUERIDO','Indicá el proveedor o cliente.');
+  assert(profile.order||typeof input.party==='string'&&input.party.trim()&&input.party.length<=120,400,'TERCERO_REQUERIDO','Indicá el proveedor o cliente.');
   assert(Array.isArray(input.rows)&&input.rows.length>0&&input.rows.length<=500,400,'FILAS_REQUERIDAS','Seleccioná entre 1 y 500 filas.');
   const sourceIds=new Set();
   for(const row of input.rows){
@@ -27,13 +53,17 @@ export function createPriceImports({store,read,prepare,createBatch}){
   }
   assert(!busy.has(actor),429,'IMPORTACION_EN_CURSO','Ya hay una importación de este usuario en preparación.');busy.add(actor);
   try{
-   const supplier=draft.kind==='proveedor',partyResource=supplier?'proveedores':'clientes';
-   const match=await lookup(partyResource,draft.branch,input.party.trim()),parties=match.data.filter(r=>!input.shop||r.tienda===input.shop);
-   if(parties.length!==1||match.meta?.hasMore)return {proposals:[],issues:[],choices:parties.map(r=>({codigo:r.codigo,tienda:r.tienda,nombre:r.nombre})),message:'Elegí un único proveedor/cliente y tienda; no preparé cambios.'};
-   const party=parties[0],list=String(input.list||(!supplier?party.listaPreciosCodigo:'')||'').trim();
-   if(!supplier)assert(party.listaPreciosCodigo&&list===party.listaPreciosCodigo,409,'LISTA_CLIENTE_INVALIDA','La lista debe ser la asignada al cliente en A1_TABELA.');
+   const supplier=profile.party==='proveedores';
+   let party;
+   if(profile.party&&input.party){
+    const match=await lookup(profile.party,draft.branch,input.party.trim()),parties=match.data.filter(r=>!input.shop||r.tienda===input.shop);
+    if(parties.length!==1||match.meta?.hasMore)return {proposals:[],issues:[],choices:parties.map(r=>({codigo:r.codigo,tienda:r.tienda,nombre:r.nombre})),message:'No identifiqué un único proveedor/cliente y tienda. Indicá su código y tienda.',question:'party'};
+    party=parties[0];
+   }
+   const list=String(input.list||(draft.kind==='cliente'?party.listaPreciosCodigo:'')||'').trim();
+   if(draft.kind==='cliente')assert(party.listaPreciosCodigo&&list===party.listaPreciosCodigo,409,'LISTA_CLIENTE_INVALIDA','La lista debe ser la asignada al cliente en A1_TABELA.');
    const links=[];
-   if(supplier){
+   if(supplier&&party){
     for(let page=1;;page++){
      assert(page<=100,409,'RELACIONES_EXCEDIDAS','Demasiadas relaciones SA5 para este proveedor.');
      const r=await query('productoProveedor',draft.branch,{proveedor:party.codigo,tienda:party.tienda,page:String(page)});links.push(...r.data);
@@ -62,17 +92,31 @@ export function createPriceImports({store,read,prepare,createBatch}){
      else assert(false,400,'BASE_PRECIO_REQUERIDA',`Falta base compatible: unidad ERP (${product.unidadMedida}) o millar para UN.`);
      const value=String(inputRow.price||'').trim().replace(',','.');assert(/^\d{1,16}(?:\.\d{1,12})?$/.test(value)&&Number(value)>0,400,'PRECIO_INVALIDO','Precio positivo en decimal sin separadores de miles.');
      if(inputRow.record)assert(typeof inputRow.record==='string'&&/^[1-9]\d{0,18}$/.test(inputRow.record),400,'REGISTRO_INVALIDO','Registro de precio inválido.');
-     const resource=supplier?'preciosProveedores':'preciosClientes',filters={producto:product.codigo,...(supplier?{proveedor:party.codigo,tienda:party.tienda}:{}),...(list?{lista:list}:{}),...(inputRow.record?{registro:inputRow.record}:{})};
+     const number=canonical(profile.resource,'numero',inputRow.number||input.number),item=canonical(profile.resource,'item',inputRow.item);
+     if(profile.order&&input.number&&inputRow.number)assert(canonical(profile.resource,'numero',input.number)===number,409,'DOCUMENTO_CONTRADICTORIO','El documento del archivo no coincide con el indicado en el chat. Corregí el número de esta fila.');
+     if(profile.order)assert(number&&number.length<=30,400,'DOCUMENTO_REQUERIDO','Indicá el número del documento existente.');
+     const resource=profile.resource,filters={producto:product.codigo,
+      ...(party&&(supplier||profile.order)?{[supplier?'proveedor':'cliente']:party.codigo,tienda:party.tienda}:{}),
+      ...(!profile.order&&list?{lista:list}:{}),...(profile.order?{numero:number,...(item?{item}: {})}:{}),
+      ...(inputRow.record?{registro:inputRow.record}:{})};
      const prices=await query(resource,draft.branch,filters);
      if(prices.data.length!==1||prices.meta?.hasMore){
-      issues.push({fila:inputRow.id,producto:product.codigo,ubicacion:origin.ubicacion,codigo:'PRECIO_NO_UNICO',motivo:prices.data.length?'Hay varias listas, fechas o tramos. Elegí el registro ERP de esta fila y volvé a preparar.':'No existe un precio en AIB/DA1 para este alcance. No se crean registros.',hasMore:!!prices.meta?.hasMore,candidates:prices.data.map(r=>({registro:r.registro,lista:r.listaCodigo,item:r.item,precio:r.precio,moneda:r.moneda?.descripcion,desde:r.vigenteDesde,rango:r.rangoCompra}))});continue;
+      issues.push({fila:inputRow.id,producto:product.codigo,ubicacion:origin.ubicacion,codigo:'PRECIO_NO_UNICO',motivo:prices.data.length?'Hay varios registros. Indicá el ítem o registro ERP de esta fila.':'No existe un registro para este producto y alcance. No se crean registros.',hasMore:!!prices.meta?.hasMore,candidates:prices.data.map(r=>({registro:r.registro,numero:r.numero,lista:r.listaCodigo,item:r.item,precio:r.precio??r.precioUnitario,moneda:r.moneda?.descripcion,desde:r.vigenteDesde,rango:r.rangoCompra}))});continue;
      }
-     const row=prices.data[0];assert(row.productoCodigo===product.codigo&&(!supplier||row.proveedorCodigo===party.codigo&&row.proveedorTienda===party.tienda),409,'REGISTRO_INCORRECTO','El registro no corresponde al proveedor y producto.');
+     const row=prices.data[0];assert(row.productoCodigo===product.codigo&&(!supplier||!party||row.proveedorCodigo===party.codigo&&row.proveedorTienda===party.tienda)&&(!profile.order||row.numero===number&&(!item||row.item===item)),409,'REGISTRO_INCORRECTO','El registro no corresponde al documento, tercero y producto.');
+     if(profile.order&&draft.kind==='pedidoVenta'){
+      const headers=await query('ventas',draft.branch,{numero:number});
+      assert(headers.data.length===1&&!headers.meta?.hasMore,409,'CABECERA_NO_UNICA','No identifiqué una cabecera única del pedido.');
+      const header=headers.data[0];assert(!party||header.clienteCodigo===party.codigo&&header.clienteTienda===party.tienda,409,'REGISTRO_INCORRECTO','El pedido pertenece a otro cliente.');
+      row.moneda=header.moneda;
+      row.clienteCodigo=header.clienteCodigo;row.clienteTienda=header.clienteTienda;
+     }
      const currencyText=/^\d+$/.test(currency)?'moneda '+currency:currency;
      assert(/^(USD|ARS|EUR|D[OÓ]LAR(?:ES)?|PESOS?|EUROS?|\d+)$/i.test(currency),400,'MONEDA_INVALIDA','Usá ARS, USD, EUR o código ERP.');assertPriceCurrency(currencyText,row,assert);
      assert(!seen.has(String(row.registro)),409,'DESTINO_DUPLICADO','Otro renglón del adjunto apunta al mismo registro. Prepará una sola fila por precio.');seen.add(String(row.registro));
-     const proposal=await prepare(actor,{action:importAction(draft.kind),target:{sucursal:draft.branch,registro:String(row.registro)},changes:{precio:value},priceUnit,expectedPrice:row.precio,expectedIdentity:{producto:product.codigo,lista:row.listaCodigo,moneda:String(row.moneda?.codigo||''),...(supplier?{proveedor:party.codigo,tienda:party.tienda}:{})},origin});
-     proposals.push({...proposal,origin});resolved.push({fila:inputRow.id,producto:product.codigo,descripcion:product.nombre,registro:row.registro,lista:row.listaCodigo,precio:value,base:priceUnit,moneda:currency});
+     const expectedIdentity=profile.order?{producto:product.codigo,numero:row.numero,item:row.item,moneda:String(row.moneda?.codigo||''),...(draft.kind==='pedidoCompra'?{proveedor:row.proveedorCodigo,tienda:row.proveedorTienda}:draft.kind==='pedidoVenta'?{cliente:row.clienteCodigo,tienda:row.clienteTienda}:{})}:{producto:product.codigo,lista:row.listaCodigo,moneda:String(row.moneda?.codigo||''),...(supplier?{proveedor:party.codigo,tienda:party.tienda}:{})};
+     const proposal=await prepare(actor,{action:profile.action,target:{sucursal:draft.branch,registro:String(row.registro)},changes:{[profile.order?'precioUnitario':'precio']:value},priceUnit,expectedPrice:profile.order?row.precioUnitario:row.precio,expectedIdentity,origin});
+     proposals.push({...proposal,origin});resolved.push({fila:inputRow.id,producto:product.codigo,descripcion:product.nombre,registro:row.registro,lista:row.listaCodigo,numero:row.numero,item:row.item,tercero:party?.nombre||row.proveedor?.nombre||row.proveedorCodigo||row.clienteCodigo,tienda:party?.tienda||row.proveedorTienda||row.clienteTienda,precio:value,base:priceUnit,moneda:currency,cantidad:row.cantidadPedida});
     }catch(error){if(['LECTURA_DENEGADA','ACCION_DENEGADA','ACCESO_CAMBIO'].includes(error.code))throw error;issues.push({fila:inputRow.id,producto:inputRow.product,ubicacion:origin.ubicacion,motivo:error.message,codigo:error.code||'ERROR_VERIFICACION'});}
    }
    const result={proposals,issues,resolved,message:`Cambios preparados: ${proposals.length}. Filas para revisar: ${issues.length}. No se modificó el ERP.`};
@@ -80,5 +124,5 @@ export function createPriceImports({store,read,prepare,createBatch}){
    db.prepare('UPDATE price_imports SET body=? WHERE id=? AND actor=?').run(JSON.stringify({...draft,lastResult:result}),id,actor);store.audit(actor,'price-import.prepared',id);return result;
   }finally{busy.delete(actor);}
  }
- return {save,get,preview};
+ return {save,get,preview,classify,invalidate};
 }

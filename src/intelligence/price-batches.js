@@ -1,7 +1,7 @@
 import {randomUUID,createHash} from 'node:crypto';
 import Decimal from 'decimal.js';
 import {assert} from '../errors.js';
-import {importAction} from './price-imports.js';
+import {importAction,importProfiles} from './price-imports.js';
 
 // A batch records the exact reviewed set. Individual Changes receipts remain
 // authoritative, including when a response or the process is lost.
@@ -33,13 +33,14 @@ export function createPriceBatches({store,check,execute,authorize=()=>{}}){
    if(!proposal.executionEnabled||proposal.blockers?.length){
     issues.push({fila:resolved.fila,producto:resolved.producto,ubicacion:proposal.origin?.ubicacion,codigo:'PRECIO_NO_EJECUTABLE',motivo:proposal.blockers?.map(b=>b.message).join(' · ')||'La ejecución de este precio no está habilitada.'});continue;
    }
-   const field=action==='precioLista'?'DA1_PRCVEN':'AIB_PRCCOM',diff=proposal.diff.find(d=>d.field===field);
+   const field=importProfiles[draft.kind].price,diff=proposal.diff.find(d=>d.field===field);
    assert(diff&&proposal.action===action&&proposal.target.sucursal===draft.branch,409,'LOTE_INVALIDO','La propuesta no corresponde al adjunto.');
    const factor=resolved.base==='millar'?1000:1,scale=String(diff.after).split('.')[1]?.length||0;
+   const totalField={pedidoVenta:'C6_VALOR',pedidoCompra:'C7_TOTAL',solicitudCompra:'C1_TOTAL'}[action],total=proposal.diff.find(d=>d.field===totalField);
    rows.push({...resolved,proposalId:proposal.id,fingerprint:proposal.fingerprint,expiresAt:proposal.expiresAt,
     anterior:new Decimal(diff.before).toDecimalPlaces(scale).times(factor).toFixed(),
     nuevo:new Decimal(diff.after).times(factor).toFixed(),
-    unidadMedida:proposal.calculation?.unidadMedida||proposal.identity?.unidadMedida,
+    unidadMedida:proposal.calculation?.unidadMedida||proposal.identity?.unidadMedida,totalAnterior:total?.before,totalNuevo:total?.after,
     origen:proposal.origin?.ubicacion,warnings:proposal.warnings||[],diff:proposal.diff});
   }
   const data={id:randomUUID(),importId:draft.id,kind:draft.kind,action,branch:draft.branch,name:draft.name,rows,issues,

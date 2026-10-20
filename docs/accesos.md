@@ -1,6 +1,6 @@
 # Usuarios, roles y acceso a los datos
 
-Los [adjuntos de precios](precios-desde-archivos.md) requieren preparar DA1/AIB y leer catálogo, tercero y precios. Sus borradores y resultados se aíslan por actor y sucursal. Subir un archivo no concede permisos ni ejecuta cambios; la ejecución conserva los permisos y confirmación existentes.
+Los [adjuntos de precios](precios-desde-archivos.md) admiten DA1/AIB, SC6, SC7 y SC1. La carga pendiente de clasificación exige al menos un permiso de preparación de esas acciones. Antes de consultar se exige preparar la acción concreta y leer catálogo, tercero y precios/ventas/compras que correspondan; SC1 no necesita proveedores. Sus borradores, conversaciones y resultados se aíslan por actor y sucursal. Subir un archivo no concede permisos ni ejecuta cambios; la ejecución conserva los permisos y confirmación existentes.
 
 La confirmación conjunta exige además el permiso de ejecutar la acción de precios, `LOCAL_WRITE_ENABLED` para usuarios y el ejecutor habilitado. Revalida autorización antes de cada precio; no convierte un permiso de preparación en escritura. El lote pertenece a la identidad y revisión de permisos que lo preparó. Consultar o reenviar un lote de otra identidad no permite leerlo ni ejecutarlo.
 

@@ -28,3 +28,5 @@
 .answer-card td input[aria-label^="description"]{min-width:180px}
 .answer-card td input[type="checkbox"]{min-width:20px}
 .answer-card details pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto}
+
+.chat-attachment{display:flex;align-items:center;gap:12px;width:fit-content;max-width:100%;margin:8px 0;padding:6px 12px;border:1px solid var(--line,#ddd);border-radius:14px;background:var(--paper,#fff);font-size:13px}.chat-attachment[hidden]{display:none}.chat-attachment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chat-attachment button{border:0;background:transparent;font-size:22px;cursor:pointer;min-width:32px;min-height:32px}

@@ -135,6 +135,17 @@ export class Service {
     const lookups = await this.lookups(entity,params.get('sucursal'));
     const selected = rows.slice(0,query.limit);
     const data = selected.map(row=>normalize(row,entity,this.catalog.dictionary,lookups));
+    // SC1 estimates are in the company's local currency; the label still comes
+    // from SX6 rather than assuming ARS from the UI language.
+    if(name==='solicitudesCompra'&&data.length){
+      let description=null;
+      if(this.catalog.tables.has('SX6')&&['X6_VAR','X6_CONTEUD','X6_FIL','D_E_L_E_T_'].every(f=>this.catalog.table('SX6').columns.has(f))){
+        const currencies=await this.db.query(`SELECT [X6_CONTEUD] FROM ${this.catalog.name('SX6')} WHERE [X6_FIL]=@branch AND [X6_VAR]='MV_MOEDA1'${this.catalog.deleted('SX6',true)}`,{branch:this.catalog.branch('SX6',params.get('sucursal'))});
+        if(currencies.length>1)throw new ApiError(503,'TRADUCCION_AMBIGUA','Moneda local duplicada');
+        description=clean(currencies[0]?.X6_CONTEUD)||null;
+      }
+      for(const row of data)row.moneda={codigo:'1',descripcion:description,origen:'SC1: precio estimado en moneda local; MV_MOEDA1'};
+    }
     await this.enrich(entity, selected, data, params.get('sucursal'));
     return { data, meta: {
       recurso: name, tabla: entity.alias, sucursalEfectiva: query.bindings.branch,

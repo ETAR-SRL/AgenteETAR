@@ -18,9 +18,15 @@ export function renderImportBatch(where,initial,{api,capabilities}){
  localStorage.setItem('central-last-price-batch',batch.id);
  function draw(){
   clearTimeout(timer);
-  summary.replaceChildren(el('p',`${batch.name} · sucursal ${batch.branch} · Precios válidos: ${batch.counts.valid} · Filas con errores: ${batch.counts.excluded}.`),
+  const kindLabel={proveedor:'Lista de proveedor',cliente:'Lista de cliente',pedidoVenta:'Pedido de venta',pedidoCompra:'Pedido de compra',solicitudCompra:'Solicitud de compra · precio estimado'}[batch.kind]||batch.kind;
+  summary.replaceChildren(el('p',`${kindLabel} · ${batch.name} · sucursal ${batch.branch} · Precios válidos: ${batch.counts.valid} · Filas con errores: ${batch.counts.excluded}.`),
    el('p','Se aplica una transacción por precio. Si hay un fallo, se detiene el resto; los cambios ya aplicados se conservan. No se crean registros ni se cambia la moneda.'),
-   grid(['Producto','Descripción','Lista','Antes','Nuevo','Moneda','Base del precio','Unidad ERP','Origen'],batch.rows.map(r=>[r.producto,r.descripcion,r.lista,r.anterior,r.nuevo,r.moneda,r.base,r.unidadMedida,r.origen])));
+   grid(['Producto','Descripción','Tercero / tienda','Lista / documento','Ítem','Antes','Nuevo','Moneda','Base del precio','Unidad ERP','Origen'],batch.rows.map(r=>[r.producto,r.descripcion,[r.tercero,r.tienda].filter(Boolean).join(' / '),r.numero||r.lista,r.item,r.anterior,r.nuevo,r.moneda,r.base,r.unidadMedida,r.origen])));
+  if(batch.rows.some(r=>r.numero)){
+   summary.append(grid(['Producto','Documento','Ítem','Cantidad conservada (ERP)','Total anterior','Total nuevo'],batch.rows.map(r=>[r.producto,r.numero,r.item,r.cantidad,r.totalAnterior,r.totalNuevo])));
+   const details=el('details');details.append(el('summary','Ver campos y totales recalculados'));
+   details.append(grid(['Producto','Documento','Campo','Antes','Después'],batch.rows.flatMap(r=>r.diff.map(d=>[r.producto,r.numero,d.field,d.before,d.after]))));summary.append(details);
+  }
   for(const row of batch.rows)for(const warning of row.warnings||[])summary.append(el('p',`${row.producto}: ${warning.message}`,'notice'));
   if(batch.issues.length)summary.append(el('h4','Filas con errores · no se actualizarán'),grid(['Fila / origen','Producto','Motivo'],batch.issues.map(r=>[r.ubicacion||r.fila,r.producto,r.motivo])));
   else summary.append(el('p','No hay filas con errores.'));
@@ -52,5 +58,6 @@ export function renderImportBatch(where,initial,{api,capabilities}){
   }catch(error){clearTimeout(timer);status.textContent=error.message+' Usá Consultar resultado del lote; no vuelvas a enviar la confirmación.';}
  };
  draw();
+ document.addEventListener('attachment-revised',event=>{if(event.detail===batch.importId){invalidated=true;check.checked=false;draw();}});
  return ()=>{invalidated=true;check.checked=false;draw();};
 }

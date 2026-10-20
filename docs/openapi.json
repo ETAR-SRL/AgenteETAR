@@ -1320,6 +1320,14 @@
                         "type": "string"
                       }
                     }
+                  },
+                  "attachmentId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "uuid",
+                    "description": "Adjunto propio. Omitir conserva el de la conversación; null lo retira."
                   }
                 }
               }
@@ -1328,7 +1336,7 @@
         },
         "responses": {
           "200": {
-            "description": "Resultado JSON con respuesta, fuentes, trazas e identificador de conversación cuando corresponda"
+            "description": "Resultado JSON con respuesta, fuentes, trazas e identificador de conversación cuando corresponda; adjuntos: attachment, choices y batch para confirmar, sin ejecución desde el modelo"
           },
           "429": {
             "description": "Otra consulta del mismo usuario sigue en curso"
@@ -1929,17 +1937,21 @@
     "/api/price-imports": {
       "post": {
         "summary": "Extraer lista de precios local para revisión, sin modificar ERP",
-        "description": "Requiere preparar DA1/AIB y leer catálogo, tercero y precios. Máximo 20 MB; XLSX, XLS, PDF, PNG, JPG, WebP. El binario temporal se elimina al finalizar.",
+        "description": "Carga local de hasta 20 MB (XLSX, XLS, PDF, PNG, JPG, WebP). Requiere al menos un permiso de preparación. Sin kind queda pendiente de la instrucción del chat; el destino concreto exige todos sus permisos antes de leer ERP.",
         "parameters": [
           {
             "name": "kind",
             "in": "query",
-            "required": true,
+            "required": false,
             "schema": {
               "type": "string",
               "enum": [
+                "pendiente",
                 "proveedor",
-                "cliente"
+                "cliente",
+                "pedidoVenta",
+                "pedidoCompra",
+                "solicitudCompra"
               ]
             }
           },
@@ -2014,7 +2026,7 @@
     },
     "/api/price-imports/{id}/preview": {
       "post": {
-        "summary": "Verificar filas revisadas contra ERP y preparar propuestas DA1/AIB",
+        "summary": "Verificar precios revisados contra DA1/AIB/SC6/SC7/SC1 y preparar resumen",
         "parameters": [
           {
             "name": "id",
@@ -2034,7 +2046,6 @@
                 "type": "object",
                 "required": [
                   "reviewed",
-                  "party",
                   "rows"
                 ],
                 "properties": {
@@ -2042,7 +2053,8 @@
                     "const": true
                   },
                   "party": {
-                    "type": "string"
+                    "type": "string",
+                    "description": "Obligatorio en listas; opcional para limitar terceros en pedidos."
                   },
                   "shop": {
                     "type": "string"
@@ -2088,9 +2100,19 @@
                         "record": {
                           "type": "string",
                           "description": "Registro elegido entre candidatos; se verifica con producto/tercero/lista"
+                        },
+                        "number": {
+                          "type": "string"
+                        },
+                        "item": {
+                          "type": "string"
                         }
                       }
                     }
+                  },
+                  "number": {
+                    "type": "string",
+                    "description": "Documento existente; se puede indicar por fila."
                   }
                 }
               }
@@ -2186,6 +2208,36 @@
           },
           "409": {
             "description": "Lote vacío, vencido o reemplazado"
+          }
+        }
+      }
+    },
+    "/api/price-imports/{id}/invalidate": {
+      "post": {
+        "summary": "Invalidar resúmenes pendientes propios al corregir o retirar el adjunto",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resúmenes pendientes invalidados"
+          },
+          "403": {
+            "description": "Acción o sucursal denegada"
+          },
+          "404": {
+            "description": "Adjunto no disponible para el actor"
+          },
+          "409": {
+            "description": "Revisión o ejecución en curso"
           }
         }
       }

@@ -79,6 +79,17 @@ test('AIB import revalidates current price, product, list, currency, supplier an
  const f=fixture('precioListaProveedor');f.state.row.AIB_MOEDA='2';f.input.expectedPrice='0.09';f.input.expectedIdentity=good;
  await assert.rejects(f.proposal(),{code:'CONFLICTO_CONCURRENCIA'});
 });
+for(const action of ['pedidoVenta','pedidoCompra','solicitudCompra'])test(action+': attachment preconditions reject changed order, item, product, currency and price',async()=>{
+ const good={producto:'ZTEST',numero:'001',item:'001',moneda:action==='solicitudCompra'?'1':'2',...(action==='pedidoVenta'?{cliente:'CLI001',tienda:'01'}:action==='pedidoCompra'?{proveedor:'001',tienda:'001'}:{})};
+ for(const patch of [{},{producto:'OTHER'},{numero:'002'},{item:'002'},{moneda:'3'},...(action==='pedidoVenta'?[{cliente:'OTHER'},{tienda:'02'}]:action==='pedidoCompra'?[{proveedor:'OTHER'},{tienda:'02'}]:[])]){
+  const f=fixture(action);f.state.header.C5_MOEDA='2';f.state.row.C7_MOEDA='2';
+  f.input.expectedPrice='0.08';f.input.expectedIdentity={...good,...patch};
+  if(Object.keys(patch).length)await assert.rejects(f.proposal(),{code:'CONFLICTO_CONCURRENCIA'});else assert.ok(await f.proposal());
+  assert.equal(f.state.writes,0);
+ }
+ const f=fixture(action);f.state.header.C5_MOEDA='2';f.state.row.C7_MOEDA='2';f.input.expectedIdentity=good;f.input.expectedPrice='0.09';
+ await assert.rejects(f.proposal(),{code:'CONFLICTO_CONCURRENCIA'});
+});
 test('price change updates net, base list price and total atomically',async()=>{
  const f=fixture();f.input.changes={precioUnitario:'85.123'};const p=await f.proposal();await f.writes.execute(p);
  assert.equal(f.state.row.C6_PRCVEN,'0.085123');assert.equal(f.state.row.C6_PRUNIT,'0.085123');assert.equal(f.state.row.C6_VALOR,'85.12');assert.equal(f.state.row.C6_QTDVEN,'1000');

@@ -24,7 +24,11 @@ export function parsePriceTables(extracted){
  const rows=[],notices=[...(extracted.notices||[])],allText=[extracted.context||'',...extracted.tables.flatMap(t=>t.rows.map(r=>r.join(' ')))].join('\n');
  const currencies=[...new Set((allText.match(/\b(?:USD|ARS|EUR)\b/gi)||[]).map(s=>s.toUpperCase()))];
  const defaults={party:/(?:proveedor|cliente)\s*:\s*([^\n]+)/i.exec(allText)?.[1]?.trim()||'',currency:currencies.length===1?currencies[0]:'',unit:/por millar|cada mil|por 1000/i.test(allText)?'millar':/por unidad|precio unitario/i.test(allText)?'unidad':''};
- const aliases={product:/^(?:codigo|cod\.?|producto|articulo|sku|codigo (?:del |de )?(?:producto|proveedor)|cod\.? (?:art|prov)\.?|referencia|part number)$/,description:/^(?:descripcion|detalle|denominacion)$/,price:/^(?:precio(?: (?:nuevo|neto|unitario|lista|por unidad|por millar))?|importe|valor(?: unitario)?|costo|price|p\.? unit\.?)$/,currency:/^(?:moneda|divisa|currency)$/,unit:/^(?:unidad|u\.?m\.?|unidad de medida|base|presentacion)$/};
+ const destinations=[[/\bproveedor\s*:/i,'proveedor'],[/\bcliente\s*:/i,'cliente'],[/\bpedido de venta\s*:/i,'pedidoVenta'],[/\b(?:pedido|orden) de compra\s*:/i,'pedidoCompra'],[/\bsolicitud(?: de compra)?\s*:/i,'solicitudCompra']].filter(([re])=>re.test(allText)).map(([,kind])=>kind);
+ const orderKinds=destinations.filter(k=>!['proveedor','cliente'].includes(k));
+ if(orderKinds.length===1)defaults.kind=orderKinds[0];else if(destinations.length===1)defaults.kind=destinations[0];
+ defaults.number=/(?:pedido de (?:venta|compra)|orden de compra|solicitud(?: de compra)?)\s*:\s*([a-z0-9-]+)/i.exec(allText)?.[1]||'';
+ const aliases={product:/^(?:codigo|cod\.?|producto|articulo|sku|codigo (?:del |de )?(?:producto|proveedor)|cod\.? (?:art|prov)\.?|referencia|part number)$/,description:/^(?:descripcion|detalle|denominacion)$/,price:/^(?:precio(?: (?:nuevo|neto|unitario|lista|por unidad|por millar))?|importe|valor(?: unitario)?|costo|price|p\.? unit\.?)$/,currency:/^(?:moneda|divisa|currency)$/,unit:/^(?:unidad|u\.?m\.?|unidad de medida|base|presentacion)$/,number:/^(?:(?:nro\.?|numero|n[uú]m\.?) (?:de )?)?(?:pedido(?: de (?:venta|compra))?|solicitud|documento|orden de compra)$/,item:/^(?:item|renglon|linea|posicion)$/};
  for(const table of extracted.tables){
   let header=-1,columns={};
   for(let i=0;i<Math.min(30,table.rows.length);i++){
@@ -44,7 +48,7 @@ export function parsePriceTables(extracted){
    }
    if(!String(product).trim()&&!String(description).trim())continue;
    if(!String(rawPrice).trim())continue;
-   rows.push({id:String(rows.length+1),product:String(product).trim(),description:String(description).trim(),price:importedNumber(rawPrice),rawPrice:String(rawPrice),currency:String(currency).trim()||defaults.currency,unit:String(unit).trim()||defaults.unit,source:source.slice(0,2000),location:`${table.name} · fila ${i+1}`,ocr:!!table.ocr,confidence:table.scores?.[i]??null,warning:!importedNumber(rawPrice)?'Importe no reconocido o separador ambiguo: completalo en decimal sin miles.':header<0?'Columnas inferidas; verificá contra el original.':''});
+   rows.push({id:String(rows.length+1),product:String(product).trim(),description:String(description).trim(),price:importedNumber(rawPrice),rawPrice:String(rawPrice),currency:String(currency).trim()||defaults.currency,unit:String(unit).trim()||defaults.unit,number:String(cells[columns.number]??'').trim(),item:String(cells[columns.item]??'').trim(),source:source.slice(0,2000),location:`${table.name} · fila ${i+1}`,ocr:!!table.ocr,confidence:table.scores?.[i]??null,warning:!importedNumber(rawPrice)?'Importe no reconocido o separador ambiguo: completalo en decimal sin miles.':header<0?'Columnas inferidas; verificá contra el original.':''});
   }
   if(rows.length===before)notices.push(`${table.name}: no se identificaron filas de precios. Podés agregar filas manualmente a partir del texto extraído.`);
  }

@@ -94,11 +94,16 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
  function snapshot(c){return {policyVersion:3,row:c.row,product:c.product,header:c.header,triggers:c.activeTriggers,scope:c.scope,releases:c.releases,documents:c.documents,parameters:c.parameters,releaseTriggers:c.releaseTriggers};}
  function calculate(action,input,c){
   if(input.expectedPrice!==undefined||input.expectedIdentity!==undefined){
-   assert(['precioLista','precioListaProveedor'].includes(action)&&input.expectedPrice!==undefined&&input.expectedIdentity,400,'PRECONDICION_INVALIDA','Las precondiciones corresponden a un precio DA1/AIB identificado');
+   assert(input.expectedPrice!==undefined&&input.expectedIdentity,400,'PRECONDICION_INVALIDA','Falta precio o identidad esperada.');
    const scale=numericSpec(c.p.price,catalog,c.p.alias).scale;
    assert(sourceNumber(c.row[c.p.price],c.p.price).toDecimalPlaces(scale).eq(sourceNumber(input.expectedPrice,'precio esperado').toDecimalPlaces(scale)),409,'CONFLICTO_CONCURRENCIA','El precio cambió durante la preparación; volvé a solicitar el ajuste.');
    const expected=input.expectedIdentity;
-   assert(clean(c.row[c.p.product])===expected.producto&&clean(c.row[c.p.alias+'_CODTAB'])===expected.lista&&sourceNumber(c.row[c.p.alias+'_MOEDA'],'moneda').eq(sourceNumber(expected.moneda,'moneda esperada'))&&(c.p.alias!=='AIB'||clean(c.row.AIB_CODFOR)===expected.proveedor&&clean(c.row.AIB_LOJFOR)===expected.tienda),409,'CONFLICTO_CONCURRENCIA','La identidad o moneda del precio cambió durante la preparación.');
+   if(c.p.quantity){
+    const prefix={SC6:'C6',SC7:'C7',SC1:'C1'}[c.p.alias];
+    const currency=c.p.alias==='SC6'?c.header.C5_MOEDA:c.p.alias==='SC7'?c.row.C7_MOEDA:'1';
+    if(c.p.alias==='SC6')assert(clean(c.header.C5_CLIENTE)===expected.cliente&&clean(c.header.C5_LOJACLI)===expected.tienda,409,'CONFLICTO_CONCURRENCIA','El cliente del pedido cambió durante la preparación.');
+    assert(clean(c.row[c.p.product])===expected.producto&&clean(c.row[prefix+'_NUM'])===expected.numero&&clean(c.row[prefix+'_ITEM'])===expected.item&&sourceNumber(currency,'moneda').eq(sourceNumber(expected.moneda,'moneda esperada'))&&(c.p.alias!=='SC7'||clean(c.row.C7_FORNECE)===expected.proveedor&&clean(c.row.C7_LOJA)===expected.tienda),409,'CONFLICTO_CONCURRENCIA','El documento, ítem, producto o moneda cambió durante la preparación.');
+   }else assert(clean(c.row[c.p.product])===expected.producto&&clean(c.row[c.p.alias+'_CODTAB'])===expected.lista&&sourceNumber(c.row[c.p.alias+'_MOEDA'],'moneda').eq(sourceNumber(expected.moneda,'moneda esperada'))&&(c.p.alias!=='AIB'||clean(c.row.AIB_CODFOR)===expected.proveedor&&clean(c.row.AIB_LOJFOR)===expected.tienda),409,'CONFLICTO_CONCURRENCIA','La identidad o moneda del precio cambió durante la preparación.');
   }
   return planSalesBalance(calculateUpdate(action,input,c.row,c.product,catalog,{salesBalance:c.balance?.advanced}),c,catalog);}
  function verifyAfter(before,after,updates,p){

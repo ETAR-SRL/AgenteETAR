@@ -11,7 +11,9 @@ import { readFileSync } from 'node:fs';
 import { createUi } from './ui.js';
 import { createVoice } from './voice.js';
 import {createDocumentReader} from './intelligence/document-reader.js';
-import {createPriceImports,importAction} from './intelligence/price-imports.js';
+import {createPriceImports,importAction,importProfiles} from './intelligence/price-imports.js';
+import {createAttachmentChat} from './intelligence/attachment-chat.js';
+import {createModel} from './intelligence/model.js';
 import {createPriceBatches} from './intelligence/price-batches.js';
 import { createIntelligence } from './intelligence/agent.js';
 
@@ -61,13 +63,21 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     return {...result,source:{system:'protheus',mode,fetchedAt:new Date().toISOString(),companyScope:'configured_database'},limitations:result.limitations||['Consulta paginada; no representa un total global','Saldo técnico no prueba entrega física']};
   }
   const changes=new Changes({erp,store,read});
-  const importGuard=kind=>{guard('productos');guard(kind==='proveedor'?'proveedores':'clientes');guard(kind==='proveedor'?'preciosProveedores':'preciosClientes');};
+  const importGuard=kind=>{
+    const profile=importProfiles[kind];assert(profile,400,'DESTINO_INVALIDO','Destino de adjunto inválido.');
+    guard('productos');guard(profile.resource);if(profile.party)guard(profile.party);
+  };
+  const authorizeImport=(kind,branch)=>{assertAction(principalNow(),importAction(kind));importGuard(kind);branchGuard(branch);};
+  const canUpload=()=>{
+    const p=principalNow();
+    assert(['planner','writer'].includes(p.role)&&Object.values(importProfiles).some(profile=>canRead(p,profile.resource)&&(p.admin||p.unrestricted||p.permissions?.includes('plan:'+profile.action))),403,'ACCION_DENEGADA','Tu rol no permite preparar actualizaciones desde archivos.');
+  };
   const priceBatches=createPriceBatches({store,check:(actor,id)=>changes.check(actor,id),execute:(actor,id,confirmation)=>changes.execute(actor,id,confirmation),authorize:batch=>{
     const p=principalNow();assert(p.role==='writer',403,'ROL_INSUFICIENTE','Se requiere permiso para ejecutar precios.');assertAction(p,batch.action,true);importGuard(batch.kind);branchGuard(batch.branch);
     assert(erp.writes?.enabled,503,'ESCRITURA_DESHABILITADA','El ejecutor no está habilitado.');
     if(p.userId)assert(localWrites,403,'ESCRITURA_LOCAL_DESHABILITADA','La ejecución está deshabilitada para usuarios en esta instalación.');
   }});
-  const priceImports=createPriceImports({store,read,prepare:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);},createBatch:priceBatches.create});
+  const priceImports=createPriceImports({store,read,metadata:()=>erp.metadata(),prepare:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);},createBatch:priceBatches.create});
   async function executeRead(command){
     guard(command.resource);
     const params=new URLSearchParams(command.filters);
@@ -92,7 +102,8 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     }
     return read(command.resource,params);
   }
-  const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
+  const attachmentChat=createAttachmentChat({imports:priceImports,authorize:authorizeImport,model:model||createModel()});
+  const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,attachmentChat,prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
   const server=http.createServer(async(req,res)=>{
     try{
       network.origin(req);
@@ -136,15 +147,16 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
           if(req.method==='POST'&&batchMatch[2])return send(res,200,await priceBatches.run(principal.actor,batch.id,await body(req)));
         }
         if(req.method==='POST'&&url.pathname==='/api/price-imports'){
-          const kind=url.searchParams.get('kind'),branch=url.searchParams.get('sucursal'),action=importAction(kind);
-          assert(action,400,'DESTINO_INVALIDO','Elegí proveedor o cliente.');assertAction(principalNow(),action);branchGuard(branch);assert(branches.includes(branch),403,'SUCURSAL_NO_AUTORIZADA','Sucursal no autorizada.');
-          importGuard(kind);const document=await documents.extract(req);assertAction(principalNow(),action);branchGuard(branch);importGuard(kind);
+          const kind=url.searchParams.get('kind')||'pendiente',branch=url.searchParams.get('sucursal');
+          canUpload();if(kind!=='pendiente')authorizeImport(kind,branch);branchGuard(branch);assert(branches.includes(branch),403,'SUCURSAL_NO_AUTORIZADA','Sucursal no autorizada.');
+          const document=await documents.extract(req);canUpload();branchGuard(branch);if(kind!=='pendiente')authorizeImport(kind,branch);
           return send(res,201,priceImports.save(principal.actor,kind,branch,document));
         }
-        const match=/^\/api\/price-imports\/([a-f0-9-]{36})(\/preview)?$/.exec(url.pathname);
-        if(match){const draft=priceImports.get(principal.actor,match[1]);assertAction(principalNow(),importAction(draft.kind));branchGuard(draft.branch);importGuard(draft.kind);
+        const match=/^\/api\/price-imports\/([a-f0-9-]{36})(\/preview|\/invalidate)?$/.exec(url.pathname);
+        if(match){const draft=priceImports.get(principal.actor,match[1]);canUpload();branchGuard(draft.branch);if(draft.kind!=='pendiente')authorizeImport(draft.kind,draft.branch);
           if(req.method==='GET'&&!match[2])return send(res,200,draft);
-          if(req.method==='POST'&&match[2])return send(res,200,await priceImports.preview(principal.actor,match[1],await body(req,512000)));
+          if(req.method==='POST'&&match[2]==='/invalidate'){priceImports.invalidate(principal.actor,match[1]);return send(res,200,{invalidated:true});}
+          if(req.method==='POST'&&match[2]==='/preview')return send(res,200,await priceImports.preview(principal.actor,match[1],await body(req,512000)));
         }
         throw new HttpError(404,'RUTA_NO_EXISTE','Ruta de adjuntos inexistente.');
       }
