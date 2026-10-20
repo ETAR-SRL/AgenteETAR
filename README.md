@@ -8,7 +8,7 @@ Los informes, capturas y datos de pruebas locales mencionados en esta documentac
 
 Primera versión funcional de un servicio Node.js para consultar Protheus y reunir información de proyectos y calidad de KAIQEN. Incluye una API autenticada, diagnóstico del esquema real, consultas de lenguaje natural con inteligencia local y propuestas auditadas de actualización de registros existentes.
 
-Ahora incluye **Central**, una PWA local en `http://127.0.0.1:4310/`: asistente de texto y dictado en español, explorador ERP con filtros/paginación/CSV, proyectos KAIQEN con fases y calidad, y estado de conexiones. Para abrirla e iniciar el servidor si hace falta, ejecutar `abrir-central.ps1`. Microsoft Edge ofrece **Instalar Central**. La PWA no inicia por sí misma el servidor después de reiniciar Windows.
+Ahora incluye **Central**, una PWA local en `http://127.0.0.1:4310/`: asistente de texto y dictado en español, explorador ERP con filtros/paginación/CSV, proyectos KAIQEN con fases y calidad, y estado de conexiones. Para abrirla e iniciar el servidor si hace falta, ejecutar `abrir-central.ps1`. Microsoft Edge ofrece **Instalar Central**. Para iniciar servidor e IA al encender Windows, sin iniciar sesión, ejecutar como administrador `scripts/instalar-inicio-automatico.ps1`. Ver [inicio automático y mantenimiento](docs/inicio-automatico.md).
 
 El ingreso es personal. En el primer acceso se crea el administrador; desde **Usuarios y roles** se asignan permisos por área, acción y sucursal. API y chat aplican los mismos controles: una lectura denegada responde «Esto no podés leerlo». Ver [configuración y alcance de los accesos](docs/accesos.md), incluyendo recursos que requieren varias áreas y credenciales de servicio existentes.
 
@@ -39,7 +39,7 @@ npm start
 
 Escucha en `http://127.0.0.1:4310`. `GET /health` comprueba el proceso. Para consultas usar `Authorization: Bearer <API_READ_KEY>`; para guardar propuestas, `API_PLAN_KEY`. Ambas están en `.env`; no pegarlas en chats ni incluirlas en un frontend distribuido.
 
-El proceso quedó iniciado en segundo plano durante esta sesión. Para volver a iniciarlo luego de cerrar/reiniciar el equipo, `iniciar.ps1` lo abre sin ventana y guarda el PID y logs en `data/`. Rechaza arrancar otro proceso si el puerto 4310 ya está ocupado. La `.env` contiene la configuración local de ambas bases; no forma parte del ZIP.
+`iniciar.ps1` permite el arranque manual sin ventana y guarda el PID y logs en `data/`. Rechaza arrancar otro proceso si un puerto configurado ya está ocupado. La tarea de [inicio automático](docs/inicio-automatico.md) mantiene servidor e IA en segundo plano y reintenta cuando un proceso termina. La `.env` contiene la configuración local de ambas bases; no forma parte del ZIP.
 
 En otra instalación:
 

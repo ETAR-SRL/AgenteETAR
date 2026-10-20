@@ -27,6 +27,8 @@ La regla de Windows se limita a `node.exe`, TCP 4311 y esa subred; no abre SQL S
 
 Reiniciar Central con `iniciar.ps1` después de detener su proceso de forma controlada y comprobar que no haya ejecuciones en curso. El script de inicio comprueba ambos puertos, espera a que la app responda y muestra las direcciones disponibles.
 
+Para que la red tenga acceso después de encender la PC, sin iniciar sesión en Windows, instalar la [tarea de inicio automático](inicio-automatico.md). Mantiene el mismo HTTPS y los permisos personales, e inicia también la IA local.
+
 ## Incorporar cada PC
 
 1. Copiar **sólo** la carpeta `data/lan-client` al equipo.
