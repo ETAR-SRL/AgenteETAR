@@ -28,6 +28,14 @@ test('update proposal fails when the row product is not uniquely verified in SB1
   assert.match(reply.answer,/No se preparó ninguna propuesta/);
  }
 });
+test('summary tool accepts grouping by supplier or customer and preserves explicit currency',async()=>{
+ for(const group of ['proveedor','proveedores','cliente','clientes']){
+  let command;
+  const tools=createBusinessTools({branch:'0101',metadata:{entities:{resumenCompras:{aggregate:true}}},reportCurrencyRequested:true,executeRead:async c=>{command=c;return {data:[]};}});
+  await tools.run('resumir',{recurso:'compras',filtros:{agrupar:group,moneda:'2',proveedor:''}});
+  assert.equal(command.filters.agrupar,'tercero');assert.equal(command.filters.moneda,'2');assert.equal(command.filters.proveedor,undefined);
+ }
+});
 test('a price lookup during a modification request continues into proposal preparation',async t=>{
  const context=setup(),store=new Store(':memory:');t.after(()=>store.close());let prepared;
  const decisions=[{action:'precio_venta',args:{producto:'ABC/1'}},{action:'preparar_cambio',args:{accion:'precioLista',registro:'1',precio:'90',basePrecio:'millar'}}];

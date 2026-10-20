@@ -80,6 +80,11 @@ export function createBusinessTools({read,executeRead,kaiqen,branch,metadata,rep
        // El modelo suele copiar moneda 1 de las reglas de ALTAS al resumir.
        // Una consulta general conserva todas las monedas salvo petición del usuario.
        if(metadata.entities[args.recurso]?.aggregate&&!reportCurrencyRequested)delete nonempty.moneda;
+       if(metadata.entities[args.recurso]?.aggregate&&nonempty.agrupar){
+         const groups={proveedor:'tercero',proveedores:'tercero',cliente:'tercero',clientes:'tercero',productos:'producto',mensual:'mes'};
+         const group=nonempty.agrupar.trim().toLowerCase();
+         nonempty.agrupar=Object.hasOwn(groups,group)?groups[group]:group;
+       }
        return executeRead({resource:args.recurso,filters:{...nonempty,sucursal:branch,limit:filters.limit||'25'}});
      }
      if(action==='proyectos'){
