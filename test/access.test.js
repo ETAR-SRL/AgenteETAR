@@ -146,3 +146,13 @@ test('all mapped ERP resources and mutation actions have an explicit access poli
  for(const resource of Object.keys(mapping.entities))assert.ok(resourceDomains[resource],resource);
  for(const [action,policy] of Object.entries(changePolicies))assert.equal(actionResources[action],policy.resource);
 });
+
+test('chat preferences use the authenticated account, reject branch spoofing and respect role revocation',async t=>{
+ const f=await fixture(t,{name:'unused',complete:()=>{throw Error('No model call expected');}});
+ const saved=await f.request('/api/agent/chat',{body:{text:'Prefiero respuestas breves',actor:f.admin.principal.actor}});assert.equal(saved.status,200);assert.match(saved.data.answer,/Guardé/);
+ const other=await f.request('/api/agent/chat',{token:f.admin.token,body:{text:'Mostrame mis preferencias'}});assert.match(other.data.answer,/Todavía no/);
+ const mine=await f.request('/api/agent/chat',{body:{text:'Mostrame mis preferencias'}});assert.match(mine.data.answer,/breves/);
+ const denied=await f.request('/api/agent/chat',{body:{text:'Usá el depósito 16 por defecto',context:{sucursal:'0201'}}});assert.equal(denied.status,403);assert.equal(f.calls.length,0);
+ f.access.saveRole(f.admin.principal,{name:'Reducido',permissions:['read:catalogo'],branches:['0101']},f.role.id);
+ const revised=await f.request('/api/agent/chat',{body:{text:'Mostrame mis preferencias'}});assert.match(revised.data.answer,/Todavía no/);
+});

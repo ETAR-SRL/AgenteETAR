@@ -23,3 +23,18 @@ La selección local busca referencias en todo el historial de la conversación y
 Los datos de una solicitud o pedido de compra de un ítem quedan pausados cuando se consulta otro tema. «Retomemos la solicitud» o «Continuemos el pedido de compra» recupera el borrador de la misma sucursal y vuelve a validar los catálogos. Iniciar otro documento reemplaza ese borrador; cancelarlo lo descarta. Nunca recupera un precio de lista almacenado como precio vigente ni ejecuta una propuesta por recordar su historial.
 
 La memoria sigue aislada por usuario/revisión de permisos y conversación. Los valores actuales requieren lectura autorizada en este turno; los cambios conservan resumen y confirmación. Los mensajes que versiones anteriores ya descartaron no pueden recuperarse. El historial completo se borra al eliminar la conversación, sin eliminar auditoría ni propuestas.
+
+## Preferencias personales entre conversaciones
+
+Las preferencias se gestionan por texto o voz en el chat, sin otra pantalla ni llamada a la IA:
+
+- «Recordá que prefiero respuestas breves» (o «detalladas»).
+- «Prefiero respuestas en tabla» (o «texto»): orientación para las respuestas redactadas por el modelo; no cambia las tarjetas de fuentes o confirmaciones.
+- «Prefiero ver cantidades en millares» (o «unidades»): presentación del modelo, sólo compatible con UN; nunca completa la base de una operación de escritura.
+- «Usá el depósito 16 por defecto»: verifica que exista y que el usuario pueda leerlo, y lo guarda para esta sucursal.
+- «Mi solicitante por defecto es Ana»: dato aportado por el usuario para nuevas solicitudes.
+- «Mostrame mis preferencias», «Olvidá mis preferencias» o «Olvidá mis preferencias de depósito» (también respuestas, formato, cantidades o solicitante).
+
+Repetir una preferencia reemplaza la anterior. Borrar todas elimina las generales y las de la sucursal seleccionada. Los valores explícitos del documento y del turno tienen prioridad. Los depósitos y solicitantes habituales se aplican al recorrido directo de altas SC1/SC7 de un ítem; se revalidan los catálogos y las condiciones del documento y siempre se muestra la propuesta antes de confirmar. No se trasladan automáticamente a adjuntos ni a otras operaciones.
+
+SQLite guarda estas preferencias por identidad personal y revisión de permisos, separadas de las conversaciones. Las cuentas de servicio no comparten ni guardan preferencias de usuarios. Un cambio de rol o permisos deja de recuperar las preferencias de la revisión anterior. No se copian automáticamente mensajes, archivos, registros ERP, precios, saldos, productos ni cantidades a la memoria entre conversaciones. Los permisos y las confirmaciones se verifican como antes. Eliminar una conversación no borra las preferencias; se borran explícitamente desde el chat.

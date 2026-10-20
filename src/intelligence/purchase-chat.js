@@ -33,7 +33,7 @@ export function purchaseValues(text){
 
 // A bounded, single-item intake avoids repeated inference for explicit references.
 // Values remain user input, never executed SQL or instructions from an ERP row.
-export async function purchaseChat({text,conversation,branch,canPlan,authorizePlan,read,prepare,actor}){
+export async function purchaseChat({text,conversation,branch,canPlan,authorizePlan,read,prepare,actor,preferences={}}){
  const n=norm(text),purchaseOrder=/\bpedido(?: de)? compra\b/.test(n),start=/\b(crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?)\b/.test(n)&&/\b(?:solicitud(?: de)? (?:compra|importacion)|pedido(?: de)? compra)\b/.test(n);
  const resume=/\b(retoma(?:r|me)?|retomemos|continu(?:a(?:r|mos)?|emos)|segui(?:r|mos)?)\b/.test(n)&&/\b(solicitud|pedido de compra)\b/.test(n);
  if(resume&&conversation.pausedPurchase?.branch===branch&&conversation.pausedPurchase.action===(purchaseOrder?'crearPedidoCompra':'crearSolicitudCompra')){conversation.purchaseDraft=conversation.pausedPurchase;delete conversation.pausedPurchase;}
@@ -54,7 +54,7 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
  assert(canPlan&&prepare,403,'ROL_INSUFICIENTE','Tu rol no permite preparar solicitudes de compra.');
  const action=start&&purchaseOrder?'crearPedidoCompra':start?'crearSolicitudCompra':state.action||'crearSolicitudCompra',pc=action==='crearPedidoCompra';
  await authorizePlan?.(action);
- if(start)state={branch,action,values:{}};
+ if(start)state={branch,action,values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{})}};
  if(values.list&&!values.price){delete state.values.price;delete state.values.priceUnit;}
  state.values={...state.values,...values};
  const v=state.values,evidence=[],trace=[];
