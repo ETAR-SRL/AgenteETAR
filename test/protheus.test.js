@@ -138,3 +138,11 @@ test('ambiguous physical tables are unavailable without an explicit mapping',asy
   assert.throws(()=>c.table('SC7'),{code:'TABLA_NO_DISPONIBLE'});
   assert.ok(c.warnings.includes('SC7:tabla_ambigua_configurar_tables'));
 });
+test('SC1 consultation selects foreign SI price and keeps ordinary estimates in local currency',async()=>{
+ const c=fakeCatalog();c.config.branches.SX6={'0101':''};c.tables.set('SX6',{schema:'dbo',name:'SX6010',columns:new Map(['X6_VAR','X6_CONTEUD','X6_FIL','D_E_L_E_T_'].map(f=>[f,{}]))});
+ const records=[{R_E_C_N_O_:'1',C1_FILIAL:'01',C1_NUM:'000001',C1_ITEM:'0001',C1_PRODUTO:'IMP',C1_TIPO:'2',C1_MOEDA:'2',C1_PRECO:'0.0801',C1_VUNIT:'0',C1_TOTAL:'200.25'},{R_E_C_N_O_:'2',C1_FILIAL:'01',C1_NUM:'000002',C1_ITEM:'0001',C1_PRODUTO:'LOC',C1_TIPO:'1',C1_MOEDA:'0',C1_PRECO:'0',C1_VUNIT:'80',C1_TOTAL:'200'}];
+ const db={query:async sql=>sql.includes('[SX6010]')?[{X6_VAR:'MV_MOEDA1',X6_CONTEUD:'PESO'},{X6_VAR:'MV_MOEDA2',X6_CONTEUD:'DOLAR'}]:sql.includes('[SC1010]')?records:[]};
+ const result=await new Service(db,c,config).list('solicitudesCompra',new URLSearchParams({sucursal:'0101'}));assert.equal(result.data[0].precioUnitario,'0.0801');assert.equal(result.data[0].moneda.codigo,'2');assert.equal(result.data[0].moneda.descripcion,'DOLAR');assert.equal(result.data[0].campoPrecio,'C1_PRECO');assert.equal(result.data[1].precioUnitario,'80');assert.equal(result.data[1].moneda.codigo,'1');
+ for(const currency of ['0','6']){records[0].C1_MOEDA=currency;await assert.rejects(new Service(db,c,config).list('solicitudesCompra',new URLSearchParams({sucursal:'0101'})),{code:'MONEDA_NO_VERIFICABLE'});}records[0].C1_MOEDA='2';
+ records[1].C1_MOEDA='2';await assert.rejects(new Service(db,c,config).list('solicitudesCompra',new URLSearchParams({sucursal:'0101'})),{code:'MONEDA_NO_VERIFICABLE'});
+});

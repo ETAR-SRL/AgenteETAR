@@ -135,16 +135,16 @@ export class Service {
     const lookups = await this.lookups(entity,params.get('sucursal'));
     const selected = rows.slice(0,query.limit);
     const data = selected.map(row=>normalize(row,entity,this.catalog.dictionary,lookups));
-    // SC1 estimates are in the company's local currency; the label still comes
-    // from SX6 rather than assuming ARS from the UI language.
     if(name==='solicitudesCompra'&&data.length){
-      let description=null;
-      if(this.catalog.tables.has('SX6')&&['X6_VAR','X6_CONTEUD','X6_FIL','D_E_L_E_T_'].every(f=>this.catalog.table('SX6').columns.has(f))){
-        const currencies=await this.db.query(`SELECT [X6_CONTEUD] FROM ${this.catalog.name('SX6')} WHERE [X6_FIL]=@branch AND [X6_VAR]='MV_MOEDA1'${this.catalog.deleted('SX6',true)}`,{branch:this.catalog.branch('SX6',params.get('sucursal'))});
-        if(currencies.length>1)throw new ApiError(503,'TRADUCCION_AMBIGUA','Moneda local duplicada');
-        description=clean(currencies[0]?.X6_CONTEUD)||null;
+      for(let i=0;i<data.length;i++){
+        const row=data[i],raw=selected[i],si=Number(raw.C1_TIPO)===2;
+        if(![0,1,2].includes(Number(raw.C1_TIPO))||!si&&![0,1].includes(Number(raw.C1_MOEDA)))throw new ApiError(503,'MONEDA_NO_VERIFICABLE','Tipo o moneda SC1 incompatible con el circuito conocido.');
+        row.tipoSolicitud=si?'Solicitud de importación (MATA113)':'Solicitud de compra (MATA110)';
+        row.moneda=si?row.monedaDocumento:{codigo:'1',descripcion:lookups.C1_MOEDA?.['1']||null,origen:'Precio estimado local C1_VUNIT'};
+        row.campoPrecio=si?'C1_PRECO':'C1_VUNIT';
+        if(si){row.precioUnitario=row.precioImportacion;delete row.precioImportacion;}
+        if(si&&(!['1','2','3','4','5'].includes(row.moneda?.codigo)||!row.moneda?.descripcion))throw new ApiError(503,'MONEDA_NO_VERIFICABLE','Falta moneda válida de la solicitud de importación.');
       }
-      for(const row of data)row.moneda={codigo:'1',descripcion:description,origen:'SC1: precio estimado en moneda local; MV_MOEDA1'};
     }
     await this.enrich(entity, selected, data, params.get('sucursal'));
     return { data, meta: {

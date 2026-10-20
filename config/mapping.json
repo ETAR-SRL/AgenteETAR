@@ -2,6 +2,7 @@
   "schema": "dbo",
   "tables": {
     "SM2": "dbo.SM2010",
+    "SX7": "dbo.SX7010",
     "SF1": "dbo.SF1010",
     "SX2": "dbo.SX2010",
     "SX3": "dbo.SX3010",
@@ -284,6 +285,7 @@
           }
         },
         "B1_UM": "unidadMedida",
+        "B1_IMPORT": "importadoCodigo",
         "B1_SEGUM": "segundaUnidadMedida",
         "B1_GRUPO": "grupoCodigo",
         "B1_ORIGEM": {
@@ -1376,10 +1378,16 @@
         "C1_QUANT",
         "C1_QUJE",
         "C1_VUNIT",
+        "C1_PRECO",
+        "C1_MOEDA",
+        "C1_TIPO",
         "C1_TOTAL"
       ],
       "fields": {
         "C1_NUM": "numero",
+        "C1_PRECO": {"output":"precioImportacion","type":"decimal"},
+        "C1_MOEDA": {"output":"monedaDocumento","currencyParameters":true},
+        "C1_TIPO": "tipoCodigo",
         "C1_ITEM": "item",
         "C1_PRODUTO": "productoCodigo",
         "C1_DESCRI": "descripcion",

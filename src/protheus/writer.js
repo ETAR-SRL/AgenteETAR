@@ -80,6 +80,7 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
    else for(const f of ['C5_NOTA','C5_LIBEROK'])assert(!clean(header[f]),409,'PEDIDO_CON_DEPENDENCIAS',`${f} requiere Protheus`);
   }
   if(p.alias==='SC1'){
+   assert(Number(row.C1_TIPO)!==2&&(!Object.hasOwn(row,'C1_MOEDA')||[0,1].includes(Number(row.C1_MOEDA))),409,'SOLICITUD_IMPORTACION','Esta acción modifica estimaciones de SC comunes. No altera C1_PRECO de una solicitud de importación.');
    assert((await rows(connection,'SC7',{C7_NUMSC:clean(row.C1_NUM),C7_ITEMSC:clean(row.C1_ITEM)},target.sucursal,lock)).length===0,409,'SOLICITUD_CON_PEDIDO','Hay un pedido de compra vinculado a esta solicitud');
   }
   if(p.alias==='SC7'){

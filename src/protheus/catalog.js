@@ -12,7 +12,7 @@ export class Catalog {
       if (!all.has(key)) all.set(key, { schema: r.schemaName, name: r.tableName, columns: new Map() });
       all.get(key).columns.set(r.columnName.toUpperCase(), { name: r.columnName, type: r.typeName, precision: r.precision, scale: r.scale, computed: r.computed, identity:r.identityColumn===undefined?null:Boolean(r.identityColumn) });
     }
-    const aliases = new Set(['SM2','SX2','SX3','SX5','SX6','SF1','SC9','SY1','SAL','SAK','DHL','DHM','DBL','DBM','SCR','SAI', ...Object.values(this.config.entities).map(e => e.alias)]);
+    const aliases = new Set(['SX7','SM2','SX2','SX3','SX5','SX6','SF1','SC9','SY1','SAL','SAK','DHL','DHM','DBL','DBM','SCR','SAI', ...Object.values(this.config.entities).map(e => e.alias)]);
     for (const alias of aliases) {
       const override = this.config.tables?.[alias];
       const candidates = [...all.values()].filter(t => override ? `${t.schema}.${t.name}` === override : t.schema === (this.config.schema || 'dbo') && new RegExp(`^${alias}(?:[0-9]+)?$`, 'i').test(t.name));

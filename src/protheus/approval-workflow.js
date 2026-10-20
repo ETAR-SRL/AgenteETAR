@@ -55,6 +55,7 @@ export function createApprovalWorkflow({db,catalog,getWriteDb,enabled,allowedBra
   const source=input.source;assert(['crearSolicitudCompra','crearPedidoCompra'].includes(source.action)&&source.input.target.sucursal===input.target.sucursal,400,'CIRCUITO_OBJETIVO','Origen de otra sucursal o tipo');
   const current=await creationPlan(connection,source.action,source.input,lock);
   assert(current.executionEnabled,409,'CIRCUITO_CAMBIO',current.blockers.map(b=>b.message).join(' '));
+  assert(current.approval.circuit.type!=='SI',409,'CIRCUITO_OBJETIVO','La solicitud de importación se aprueba en MATA113; no usa el circuito SC de SCR/DBM.');
   const live=await snapshot(connection,input,lock);verifyDocument(input,current,live);
   for(const r of live.scr)assert(sourceNumber(r.CR_MOEDA,'CR_MOEDA').eq(current.rows[0][current.p+'_MOEDA'])&&sourceNumber(r.CR_TXMOEDA,'CR_TXMOEDA').eq(current.alias==='SC7'?current.rows[0].C7_TXMOEDA:'1'),409,'CIRCUITO_CAMBIO','Cambió la moneda o cotización del circuito');
   const circuit=current.approval.circuit,entries=[...circuit.entries,...(circuit.deferred||[])];

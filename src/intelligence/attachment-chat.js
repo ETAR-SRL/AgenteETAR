@@ -3,7 +3,7 @@ import {importAction,importProfiles} from './price-imports.js';
 import {importedNumber} from './document-reader.js';
 
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
-const fields=['party','shop','list','number','currency','unit','quantityUnit','updateFields','emission','due','warehouse','payment','requester','requesterCode','buyer','costCenter'];
+const fields=['party','shop','list','number','currency','unit','quantityUnit','updateFields','emission','due','warehouse','payment','requester','requesterCode','buyer','costCenter','requestType'];
 const properties=Object.fromEntries(fields.map(k=>[k,{type:'string'}]));
 const schema={type:'object',properties:{kind:{type:'string',enum:['','proveedor','cliente','pedidoVenta','pedidoCompra','solicitudCompra']},update:{type:'boolean'},...properties,
  edits:{type:'array',maxItems:30,items:{type:'object',properties:{row:{type:'string'},product:{type:'string'},price:{type:'string'},quantity:{type:'string'},quantityUnit:{type:'string'},currency:{type:'string'},unit:{type:'string'},number:{type:'string'},item:{type:'string'},record:{type:'string'},exclude:{type:'boolean'}},required:['row'],additionalProperties:false}}},
@@ -16,6 +16,8 @@ export function literalAttachmentIntent(text,state={}){
  else if(/\bpedido(?:s)? (?:\d+ )?(?:de )?compra|\borden(?:es)?(?: \d+)? de compra|\bsc7\b/.test(n))out.kind='pedidoCompra';
  else if(/\bproveedor(?:es)?\b|\baib\b/.test(n))out.kind='proveedor';
  else if(/\bcliente(?:s)?\b|\bda1\b/.test(n))out.kind='cliente';
+ if(/\bsolicitud(?: de)? importacion\b|^importacion[.!]?$/.test(n)&&! /\bno\b/.test(n))out.requestType='importacion';
+ if(/\bsolicitud(?: de)? compra (?:comun|nacional)\b/.test(n))out.requestType='compra';
  const creating=/\b(crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?)\b|\bdesde cero\b|\b(?:nuevo|nueva)\s+(?:pedido|solicitud)\b/.test(n);
  if(creating){
   out.create=true;
@@ -101,7 +103,7 @@ export async function attachmentIntent(text,state,model){
  const safe={...literal};
  if(importAction(result.kind))safe.kind=result.kind;
  safe.update=literal.update||result.update===true;
- for(const k of fields.filter(k=>!['updateFields','quantityUnit'].includes(k)))if(typeof result[k]==='string'&&result[k].length<=120&&norm(text).includes(norm(result[k]))&&result[k].trim()){
+ for(const k of fields.filter(k=>!['updateFields','quantityUnit','requestType'].includes(k)))if(typeof result[k]==='string'&&result[k].length<=120&&norm(text).includes(norm(result[k]))&&result[k].trim()){
   if(k==='party'&&state.kind&&importProfiles[state.kind]?.order&&!/\b(cliente|proveedor)\b/.test(norm(text)))continue;
   if(['list','shop','number'].includes(k)&&!/^[a-z0-9_-]{1,30}$/i.test(result[k]))continue;
   if(k==='list'&&['lista','precios'].includes(norm(result[k])))continue;

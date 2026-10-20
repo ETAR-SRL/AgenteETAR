@@ -24,6 +24,10 @@ export async function prepareAttachmentCreation({actor,draft,input,read,prepare}
  if(!emission)ask('emission','¿Qué fecha de emisión usamos? Indicá DD/MM/AAAA.');
  const currencies=[...new Set(input.rows.map(r=>importCurrency(r.currency||input.currency)).filter(Boolean))];
  const header={fechaEmision:emission,moneda:importCurrency(input.currency)||currencies[0]};
+ if(!pc){
+  if(input.requestType)header.tipoSolicitud=input.requestType;
+  else if(header.moneda&&!['ARS','1'].includes(header.moneda))ask('requestType','Para conservar dólares en SC1, Protheus utiliza Solicitud de importación (MATA113), para productos importados. Indicá «solicitud de importación» si ése es el documento que necesitás.');
+ }
  if(!header.moneda)ask('currency','¿En qué moneda están los precios: pesos o dólares?');
  if(pc){
   if(!input.party)ask('party','¿Cuál es el proveedor del pedido nuevo?');
@@ -65,6 +69,7 @@ export async function prepareAttachmentCreation({actor,draft,input,read,prepare}
    const unique=[...new Map(products.map(p=>[p.codigo,p])).values()];
    assert(unique.length===1,409,'PRODUCTO_AMBIGUO','Producto inexistente o ambiguo en SB1/SA5; indicá su código.');
    const product=unique[0],unit=norm(product.unidadMedida);
+   if(!pc&&header.tipoSolicitud==='importacion')assert(norm(product.importadoCodigo?.codigo??product.importadoCodigo)==='S',400,'PRODUCTO_NO_IMPORTADO','El producto no está marcado como importado en SB1. No se modifica su clasificación.');
    const basis=(value,quantity)=>{
     const n=norm(value);
     if(['MILLAR','MILLARES','1000'].includes(n)){assert(unit==='UN',400,'MILLARES_NO_APLICAN','Millares sólo para productos UN.');return quantity?'millares':'millar';}
@@ -90,7 +95,7 @@ export async function prepareAttachmentCreation({actor,draft,input,read,prepare}
    references.push({fila:r.id,producto:product.codigo,descripcion:product.nombre,origen:r.location});
   }catch(e){if(['LECTURA_DENEGADA','ACCION_DENEGADA'].includes(e.code))throw e;issues.push({fila:r.id,producto:r.product,motivo:e.message});}
  }
- if(missing.length||issues.length)return {missing,issues,message:['El documento se creará desde cero. Falta completar la revisión:',...questions,...issues.map(i=>`Fila ${i.fila}: ${i.motivo}`),'No preparé un documento incompleto. Corregí las filas o excluilas expresamente.'].join('\n')};
+ if(missing.length||issues.length)return {missing,issues,...(missing.includes('requestType')?{choices:[{label:'Solicitud de importación en dólares',text:'Crear solicitud de importación'}]}:{}),message:['El documento se creará desde cero. Falta completar la revisión:',...questions,...issues.map(i=>`Fila ${i.fila}: ${i.motivo}`),'No preparé un documento incompleto. Corregí las filas o excluilas expresamente.'].join('\n')};
  const excluded=draft.rows.filter(r=>!ids.has(r.id)).map(r=>r.id);
  const selection=`${items.length} de ${draft.rows.length} filas seleccionadas${excluded.length?`; filas excluidas: ${excluded.join(', ')}`:''}`;
  let proposal;

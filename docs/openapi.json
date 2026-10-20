@@ -877,7 +877,7 @@
                           "fechaEmision",
                           "moneda"
                         ],
-                        "description": "SC1 requiere solicitante. SC7 requiere proveedor, tienda y condicionPago. SC7 admite moneda local o USD configurado en SX6, con cotizacion SM2 de la fecha de emision. SC1 convierte el estimado USD a moneda local. Comprador SY1 opcional, obligatorio si hay grupos por comprador. El estado y el circuito pendiente SCR/DBM se calculan según configuración. No ejecuta aprobaciones nativas. solicitanteCodigo identifica el usuario ERP si MV_RESTSOL exige validar restricciones.",
+                        "description": "SC1 requiere solicitante. SC7 requiere proveedor, tienda y condicionPago. SC7 admite moneda local o USD configurado en SX6, con cotizacion SM2 de la fecha de emision. SC1 en USD requiere tipoSolicitud=importacion (SI/MATA113) y B1_IMPORT=S; conserva C1_PRECO y C1_MOEDA, aplica MV_APROVSI y no genera SCR/DBM de SC. Comprador SY1 opcional, obligatorio si hay grupos por comprador. El estado y el circuito pendiente SCR/DBM se calculan según configuración. No ejecuta aprobaciones nativas. solicitanteCodigo identifica el usuario ERP si MV_RESTSOL exige validar restricciones.",
                         "properties": {
                           "fechaEmision": {
                             "type": "string"
@@ -907,6 +907,7 @@
                             "type": "string",
                             "description": "Código SY1; se verifica su grupo de aprobación y restricción de pedido sin solicitud."
                           },
+                          "tipoSolicitud": {"type":"string", "enum":["compra","importacion"], "description":"Elección explícita. La moneda extranjera no reclasifica una compra nacional automáticamente."},
                           "contacto": {
                             "type": "string"
                           }

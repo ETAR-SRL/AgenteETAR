@@ -1,9 +1,10 @@
+import {importRequestPolicy} from './import-request.js';
 import {resolvePurchaseCurrency} from './purchase-currency.js';
 import {createApprovalEscalation} from './approval-escalation.js';
 import {createHash} from 'node:crypto';
 import {assert} from '../errors.js';
 import {identifier as q} from './config.js';
-import {D,clean,plain,inputNumber,sourceNumber,fit} from './write-policy.js';
+import {D,clean,plain,inputNumber,sourceNumber,fit,numericSpec} from './write-policy.js';
 import {createApprovalWorkflow} from './approval-workflow.js';
 import {purchaseApproval} from './purchase-approval.js';
 export const purchaseCreationActions=Object.freeze({crearSolicitudCompra:'SC1',crearPedidoCompra:'SC7'});
@@ -47,7 +48,7 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
   const parsed=new Date(value+'T00:00:00Z');assert(Number.isFinite(parsed.getTime())&&parsed.toISOString().slice(0,10)===value,400,'FECHA_INVALIDA',field);return text(value.replaceAll('-',''),field,alias);
  }
  async function lookup(connection,alias,keys,branch,lock){
-  const table=catalog.table(alias),bf=({SB1:'B1_FILIAL',SA2:'A2_FILIAL',SE4:'E4_FILIAL',NNR:'NNR_FILIAL',CTT:'CTT_FILIAL'})[alias];
+  const table=catalog.table(alias),bf=({SB1:'B1_FILIAL',SA2:'A2_FILIAL',SE4:'E4_FILIAL',NNR:'NNR_FILIAL',CTT:'CTT_FILIAL',SX5:'X5_FILIAL'})[alias];
   assert(bf&&table.columns.has(bf)&&table.columns.has('D_E_L_E_T_'),409,'ESQUEMA_INCOMPATIBLE',alias);
   const params={branch:catalog.branch(alias,branch)},where=[];
   for(const [field,value] of Object.entries(keys)){assert(table.columns.has(field),409,'ESQUEMA_INCOMPATIBLE',field);const param='k'+where.length;params[param]=value;where.push(`${q(field)}=@${param}`);}
@@ -85,14 +86,18 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
   const alias=purchaseCreationActions[action];assert(alias,400,'ACCION_NO_HABILITADA','Alta inválida');
   assert(plain(input)&&Object.keys(input).every(k=>['action','target','header','items'].includes(k))&&plain(input.target)&&Object.keys(input.target).every(k=>k==='sucursal')&&allowedBranches.includes(input.target.sucursal),400,'CLAVE_INVALIDA','Sólo sucursal autorizada; RECNO y número son automáticos');
   const branch=input.target.sucursal,p=alias==='SC1'?'C1':'C7',h=input.header;
-  assert(plain(h)&&Object.keys(h).every(k=>['fechaEmision','solicitante','proveedor','tienda','condicionPago','contacto','moneda','comprador','solicitanteCodigo'].includes(k)),400,'CABECERA_INVALIDA','Cabecera inválida');
+  assert(plain(h)&&Object.keys(h).every(k=>['fechaEmision','solicitante','proveedor','tienda','condicionPago','contacto','moneda','comprador','solicitanteCodigo','tipoSolicitud'].includes(k)),400,'CABECERA_INVALIDA','Cabecera inválida');
 
   assert(Array.isArray(input.items)&&input.items.length>0&&input.items.length<=50,400,'ITEMS_INVALIDOS','Indicar de 1 a 50 ítems');
   const metadata=await schema(connection,alias),refs=[],rows=[],initials=[],summary=[],approvalItems=[];
   const emission=date(h.fechaEmision,p+'_EMISSAO',alias),filial=catalog.branch(alias,branch);let vendor,payment;
   const currency=await resolvePurchaseCurrency({connection,catalog,branch,date:h.fechaEmision,currency:h.moneda,lock});
-  const documentCurrency=alias==='SC1'?'1':currency.codigo,documentRate=alias==='SC1'?'1':currency.tipoCambio;
-  const conversion=alias==='SC1'?new D(currency.tipoCambio):new D(1);
+  const isImport=alias==='SC1'&&h.tipoSolicitud==='importacion';
+  assert(h.tipoSolicitud===undefined||alias==='SC1'&&['compra','importacion'].includes(h.tipoSolicitud),400,'TIPO_SOLICITUD_INVALIDO','Tipo de solicitud inválido.');
+  assert(alias!=='SC1'||currency.codigo==='1'||isImport,400,'TIPO_SOLICITUD_REQUERIDO','SC1 en dólares requiere elegir explícitamente la solicitud de importación (MATA113). No se convierte a pesos ni se reclasifica una compra común automáticamente.');
+  const documentCurrency=currency.codigo,documentRate=currency.tipoCambio;
+  const priceField=alias==='SC7'?'C7_PRECO':isImport?'C1_PRECO':'C1_VUNIT';
+  if(isImport)refs.push(await lookup(connection,'SX5',{X5_TABELA:'Y1',X5_CHAVE:'1'},branch,lock));
   if(alias==='SC7'){
    vendor=await lookup(connection,'SA2',{A2_COD:text(h.proveedor,'C7_FORNECE',alias),A2_LOJA:text(h.tienda,'C7_LOJA',alias)},branch,lock);
    assert(Object.hasOwn(vendor,'A2_MSBLQL'),409,'ESTADO_NO_VERIFICABLE','Falta estado de bloqueo SA2');
@@ -105,24 +110,26 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    for(const field of ['B1_DESC','B1_UM','B1_MSBLQL','B1_GRADE','B1_SEGUM','B1_CONV','B1_TIPCONV','B1_CC'])assert(Object.hasOwn(product,field),409,'ESTADO_NO_VERIFICABLE',`Falta ${field}`);
    assert(['','2'].includes(clean(product.B1_MSBLQL)),409,'PRODUCTO_BLOQUEADO','Producto bloqueado');
    assert(['','N'].includes(clean(product.B1_GRADE)),409,'GRADE_NO_SOPORTADA','Producto con grilla requiere otro circuito');
+   if(isImport)assert(clean(product.B1_IMPORT)==='S',409,'PRODUCTO_NO_IMPORTADO',`${clean(product.B1_COD)} no está marcado como importado en SB1. No se modifica su clasificación.`);
    const unit=text(clean(product.B1_UM),p+'_UM',alias),second=clean(product.B1_SEGUM);
    assert(['unidades','millares'].includes(item.baseCantidad)&&['unidad','millar'].includes(item.basePrecio),400,'BASE_REQUERIDA','Indicar bases de cantidad y precio');
    assert(unit==='UN'||(item.baseCantidad==='unidades'&&item.basePrecio==='unidad'),400,'MILLARES_NO_APLICAN','Millares sólo para UN');
-   const qty=inputNumber(item.cantidad,'cantidad').mul(item.baseCantidad==='millares'?1000:1),price=inputNumber(item.precio,'precio').div(item.basePrecio==='millar'?1000:1).mul(conversion);
-   const quantity=fit(qty,p+'_QUANT',catalog,alias),unitPrice=fit(price,alias==='SC1'?'C1_VUNIT':'C7_PRECO',catalog,alias,{round:!conversion.eq(1)}),total=fit(qty.mul(unitPrice),p+'_TOTAL',catalog,alias,{round:true});
-   assert(new D(unitPrice).gt(0),400,'PRECISION_INVALIDA','El precio convertido se redondea a cero; revisar la precisión SX3.');
+   const qty=inputNumber(item.cantidad,'cantidad').mul(item.baseCantidad==='millares'?1000:1),price=inputNumber(item.precio,'precio').div(item.basePrecio==='millar'?1000:1);
+   const quantity=fit(qty,p+'_QUANT',catalog,alias),unitPrice=fit(price,priceField,catalog,alias),total=fit(isImport?qty.mul(unitPrice).toDecimalPlaces(numericSpec('C1_TOTAL',catalog,'SC1').scale,D.ROUND_DOWN):qty.mul(unitPrice),p+'_TOTAL',catalog,alias,{round:!isImport});
+   assert(new D(unitPrice).gt(0),400,'PRECISION_INVALIDA','El precio debe ser positivo y representable en SX3.');
    const warehouse=text(item.deposito,p+'_LOCAL',alias);refs.push(await lookup(connection,'NNR',{NNR_CODIGO:warehouse},branch,lock));
    const due=date(item.fechaNecesidad,p+'_DATPRF',alias);assert(due>=emission,400,'FECHA_INVALIDA','Necesidad anterior a emisión');
    const cost=text(item.centroCosto??clean(product.B1_CC),p+'_CC',alias,true);if(cost)refs.push(await lookup(connection,'CTT',{CTT_CUSTO:cost},branch,lock));
    const itemWidth=Number(catalog.dictionary.get(p+'_ITEM')?.X3_TAMANHO);assert(Number.isInteger(itemWidth)&&itemWidth>0&&itemWidth<=6,409,'ESQUEMA_INCOMPATIBLE','Longitud de ítem');
-   const row={R_E_C_N_O_:'@asignar',D_E_L_E_T_:' ',R_E_C_D_E_L_:'0',[p+'_FILIAL']:filial,[p+'_NUM']:'@asignar',[p+'_ITEM']:text(String(i+1).padStart(itemWidth,'0'),p+'_ITEM',alias),[p+'_PRODUTO']:clean(product.B1_COD),[p+'_DESCRI']:text(clean(product.B1_DESC),p+'_DESCRI',alias),[p+'_UM']:unit,[p+'_LOCAL']:warehouse,[p+'_EMISSAO']:emission,[p+'_DATPRF']:due,[p+'_QUANT']:quantity,[alias==='SC1'?'C1_VUNIT':'C7_PRECO']:unitPrice,[p+'_TOTAL']:total,[p+'_QUJE']:'0',[p+'_MOEDA']:documentCurrency,[p+'_TIPO']:'1',[p+'_FILENT']:filial,[p+'_CC']:cost,[p+'_OBS']:text(item.observacion??'',p+'_OBS',alias,true)};
+   const row={R_E_C_N_O_:'@asignar',D_E_L_E_T_:' ',R_E_C_D_E_L_:'0',[p+'_FILIAL']:filial,[p+'_NUM']:'@asignar',[p+'_ITEM']:text(String(i+1).padStart(itemWidth,'0'),p+'_ITEM',alias),[p+'_PRODUTO']:clean(product.B1_COD),[p+'_DESCRI']:text(clean(product.B1_DESC),p+'_DESCRI',alias),[p+'_UM']:unit,[p+'_LOCAL']:warehouse,[p+'_EMISSAO']:emission,[p+'_DATPRF']:due,[p+'_QUANT']:quantity,[priceField]:unitPrice,[p+'_TOTAL']:total,[p+'_QUJE']:'0',[p+'_MOEDA']:documentCurrency,[p+'_TIPO']:isImport?'2':'1',[p+'_FILENT']:filial,[p+'_CC']:cost,[p+'_OBS']:text(item.observacion??'',p+'_OBS',alias,true)};
    if(second){const factor=sourceNumber(product.B1_CONV,'B1_CONV'),method=clean(product.B1_TIPCONV);assert(factor.gt(0)&&['M','D'].includes(method),409,'CONVERSION_NO_VERIFICABLE','Revisar factor SB1');row[p+'_SEGUM']=text(second,p+'_SEGUM',alias);row[p+'_QTSEGUM']=fit(method==='M'?qty.mul(factor):qty.div(factor),p+'_QTSEGUM',catalog,alias);}
    if(alias==='SC1')Object.assign(row,{C1_SOLICIT:text(h.solicitante,'C1_SOLICIT',alias),C1_QTDORIG:fit(qty,'C1_QTDORIG',catalog,alias),C1_APROV:' '});
    else Object.assign(row,{C7_FORNECE:clean(vendor.A2_COD),C7_LOJA:clean(vendor.A2_LOJA),C7_COND:clean(payment.E4_CODIGO),C7_CONTATO:text(h.contacto??'','C7_CONTATO',alias,true),C7_TXMOEDA:fit(documentRate,'C7_TXMOEDA',catalog,alias),C7_CONAPRO:' ',C7_COMPRA:text(h.comprador??'','C7_COMPRA',alias,true)});
+   if(isImport)Object.assign(row,{C1_IMPORT:text('S','C1_IMPORT',alias),C1_COTACAO:text('IMPORT','C1_COTACAO',alias),C1_CLASS:text('1','C1_CLASS',alias)});
    for(const field of Object.keys(row))assert(metadata.columns.some(c=>c.field===field&&!c.computed&&!c.identityColumn),409,'ESQUEMA_INCOMPATIBLE',field);
-   rows.push(row);approvalItems.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],cantidad:quantity,total,centroCosto:cost,grupoProducto:clean(product.B1_GRUPO),restriccionProducto:clean(product.B1_SOLICIT)});summary.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],descripcion:row[p+'_DESCRI'],deposito:warehouse,unidad:unit,cantidad:quantity,precioUnitario:unitPrice,total,moneda:documentCurrency,monedaOriginal:currency.descripcion,totalOriginal:qty.mul(inputNumber(item.precio,'precio').div(item.basePrecio==='millar'?1000:1)).toFixed(2),ajusteRedondeoLocal:new D(total).minus(qty.mul(price)).toFixed(6),segundaUnidad:second||null,cantidadSegundaUnidad:row[p+'_QTSEGUM']||null,aprobacion:null});
+   rows.push(row);approvalItems.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],cantidad:quantity,total,centroCosto:cost,grupoProducto:clean(product.B1_GRUPO),restriccionProducto:clean(product.B1_SOLICIT)});summary.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],descripcion:row[p+'_DESCRI'],deposito:warehouse,unidad:unit,cantidad:quantity,precioUnitario:unitPrice,total,moneda:documentCurrency,monedaOriginal:currency.descripcion,totalOriginal:qty.mul(inputNumber(item.precio,'precio').div(item.basePrecio==='millar'?1000:1)).toFixed(2),ajusteTotal:new D(total).minus(qty.mul(price)).toFixed(6),segundaUnidad:second||null,cantidadSegundaUnidad:row[p+'_QTSEGUM']||null,aprobacion:null});
   }
-  const approval=await purchaseApproval({connection,catalog,alias,branch,buyerCode:alias==='SC7'?text(h.comprador??'','C7_COMPRA',alias,true):'',requester:h.solicitanteCodigo,items:approvalItems,exchangeRate:documentRate,lock});
+  const approval=isImport?await importRequestPolicy({connection,catalog,branch,items:approvalItems,lock}):await purchaseApproval({connection,catalog,alias,branch,buyerCode:alias==='SC7'?text(h.comprador??'','C7_COMPRA',alias,true):'',requester:h.solicitanteCodigo,items:approvalItems,exchangeRate:documentRate,lock});
   for(let i=0;i<rows.length;i++){
    rows[i][approval.field]=approval.status?approval.circuit.itemStates[summary[i].item]:' ';
    if(alias==='SC7'&&approval.group)rows[i].C7_APROV=text(approval.group,'C7_APROV',alias);
@@ -151,8 +158,8 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    }
   }
   const {evidence,...approvalView}=approval;
-  const snapshot={version:5,action,branch,currency,metadata,refs,rows,initials,approval,circuits};
-  return {kind:'purchase-create',version:5,resource:alias==='SC1'?'solicitudesCompra':'compras',snapshotHash:hash(snapshot),snapshot,rows,initials,circuits,alias,p,identity:{tabla:alias,sucursal:branch,numero:'Automático al confirmar',moneda:documentCurrency,monedaOrigen:currency.descripcion,tipoCambio:currency.tipoCambio,fechaCotizacion:currency.fecha,proveedor:h.proveedor||null,solicitante:h.solicitante||null,aprobacion:approval.status},diff:summary.map(r=>({field:`Ítem ${r.item}`,before:null,after:JSON.stringify(r)})),items:summary,calculation:{total:rows.reduce((acc,r)=>acc.plus(r[p+'_TOTAL']),new D(0)).toFixed(2),moneda:documentCurrency,monedaOrigen:currency.descripcion,tipoCambio:currency.tipoCambio,fechaCotizacion:currency.fecha,fuenteCotizacion:currency.origen,totalMonedaLocal:rows.reduce((acc,r)=>acc.plus(new D(r[p+'_TOTAL']).mul(documentRate)),new D(0)).toFixed(2),monedaLocal:currency.monedaLocal,...(alias==='SC1'&&currency.codigo!=='1'?{tratamiento:'SC1: estimación convertida a moneda local. No fija la moneda de un futuro pedido de compra.'}:{}),aprobacion:approval.status},approval:approvalView,warnings,blockers:approval.blockers,executionEnabled:enabled&&!approval.blockers.length};
+  const snapshot={version:6,action,branch,currency,metadata,refs,rows,initials,approval,circuits};
+  return {kind:'purchase-create',version:6,resource:alias==='SC1'?'solicitudesCompra':'compras',snapshotHash:hash(snapshot),snapshot,rows,initials,circuits,alias,p,identity:{tabla:alias,sucursal:branch,numero:'Automático al confirmar',...(alias==='SC1'?{tipoSolicitud:isImport?'Solicitud de importación (MATA113)':'Solicitud de compra (MATA110)'}:{}),moneda:documentCurrency,monedaOrigen:currency.descripcion,tipoCambio:currency.tipoCambio,fechaCotizacion:currency.fecha,proveedor:h.proveedor||null,solicitante:h.solicitante||null,aprobacion:approval.status},diff:summary.map(r=>({field:`Ítem ${r.item}`,before:null,after:JSON.stringify(r)})),items:summary,calculation:{total:rows.reduce((acc,r)=>acc.plus(r[p+'_TOTAL']),new D(0)).toFixed(2),moneda:documentCurrency,monedaOrigen:currency.descripcion,tipoCambio:currency.tipoCambio,fechaCotizacion:currency.fecha,fuenteCotizacion:currency.origen,totalMonedaLocal:rows.reduce((acc,r)=>acc.plus(new D(r[p+'_TOTAL']).mul(documentRate)),new D(0)).toFixed(2),monedaLocal:currency.monedaLocal,...(isImport?{tratamiento:'Solicitud de importación SC1: precio C1_PRECO y total C1_TOTAL en la moneda indicada. Equivalente local sólo informativo; no se graba en SC1. La cotización se conserva en la auditoría de esta propuesta, no fija el cambio de un futuro pedido.',reglaTotal:'NoRound según SX7 (truncamiento a precisión C1_TOTAL)'}:{}),aprobacion:approval.status},approval:approvalView,warnings:isImport?[{code:'ALTA_SQL',message:'Alta SQL de solicitud de importación, visible en MATA113. Conserva importes en la moneda indicada y respeta MV_APROVSI; no genera el circuito SC de SCR/DBM ni aprueba la solicitud.'},...warnings.filter(w=>w.code!=='ALTA_SQL')]:warnings,blockers:approval.blockers,executionEnabled:enabled&&!approval.blockers.length};
  }
  async function verifyInput(connection,proposal,lock){const current=await plan(connection,proposal.action,proposal.input,lock);assert(current.snapshotHash===proposal.writePlan.snapshotHash,409,'CONFLICTO_CONCURRENCIA','Cambió un catálogo, esquema o dato de la propuesta; preparar otra');return current;}
  const workflow=createApprovalWorkflow({db,catalog,getWriteDb,enabled,allowedBranches,selection,creationPlan:plan,schema,defaults,text,fit,allocate:allocateCircuitRecords});
@@ -203,7 +210,7 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
      if(batch.alias!==alias)circuitReceipt.push({table:batch.alias,affected:saved.length,records:batch.records});
     }
     await verifyInput(tx,proposal,true);
-    return {affected:current.rows.length,circuits:circuitReceipt,operation:'insert',table:alias,number:allocated.number,records:allocated.records,items:current.items,fields:{numero:allocated.number,aprobacion:current.approval.status},approval:current.approval,warnings,allocation:'MAX+1 bajo TABLOCKX/HOLDLOCK',nativeValidation:false};
+    return {affected:current.rows.length,circuits:circuitReceipt,operation:'insert',table:alias,number:allocated.number,records:allocated.records,items:current.items,fields:{numero:allocated.number,aprobacion:current.approval.status},approval:current.approval,warnings:current.warnings,allocation:'MAX+1 bajo TABLOCKX/HOLDLOCK',nativeValidation:false};
    });
   }
  };
