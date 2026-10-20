@@ -1,3 +1,4 @@
+import {createModelSettings} from './intelligence/model-settings.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {Access,assertRead,assertAction,canRead,denied} from './access.js';
 import {scopeKaiqen} from './kaiqen-access.js';
@@ -25,7 +26,7 @@ async function body(req,maxBytes=16384){
   for await(const chunk of req){bytes+=chunk.length;assert(bytes<=maxBytes,413,'CUERPO_GRANDE','Solicitud demasiado grande');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new HttpError(400,'JSON_INVALIDO','JSON inválido');}
 }
-export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),documents=createDocumentReader(),model,network=createNetworkAccess()}){
+export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),documents=createDocumentReader(),model,modelSettings,network=createNetworkAccess()}){
   assert(readKey?.length>=32 && planKey?.length>=32 && readKey!==planKey,500,'CLAVES_INVALIDAS','Configurar dos claves distintas de al menos 32 caracteres');
   assert(!writeKey || (writeKey.length>=32 && writeKey!==readKey && writeKey!==planKey),500,'CLAVES_INVALIDAS','La clave de escritura debe ser distinta y de al menos 32 caracteres');
   const access=new Access(store,branches),context=new AsyncLocalStorage();
@@ -103,6 +104,8 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     }
     return read(command.resource,params);
   }
+  const aiSettings=modelSettings||(model?null:createModelSettings());
+  model=model||aiSettings.model;
   const attachmentChat=createAttachmentChat({imports:priceImports,authorize:authorizeImport,model:model||createModel()});
   const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,attachmentChat,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
   const server=http.createServer(async(req,res)=>{
@@ -130,6 +133,11 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       return await context.run(principal,async()=>{
       if(url.pathname.startsWith('/api/admin/')){
         access.admin(principal);
+        if(url.pathname==='/api/admin/ai'&&aiSettings){
+          if(req.method==='GET')return send(res,200,aiSettings.view());
+          if(req.method==='PUT'){const result=aiSettings.save(await body(req));store.audit(principal.actor,'ai.configure');return send(res,200,result);}
+        }
+        if(url.pathname==='/api/admin/ai/test'&&req.method==='POST'&&aiSettings)return send(res,200,await aiSettings.test());
         if(req.method==='GET'&&url.pathname==='/api/admin/access')return send(res,200,access.list(principal));
         const target=/^\/api\/admin\/(roles|users)(?:\/([a-f0-9-]{36}|admin))?$/.exec(url.pathname);
         if(target&&['POST','PUT'].includes(req.method)){
@@ -167,11 +175,15 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         if(req.method==='GET')return send(res,200,{data:intelligence.memory.list(principal.actor)});
         if(req.method==='POST')return send(res,201,intelligence.memory.add(principal.actor,await body(req)));
       }
+      if(url.pathname==='/api/agent/conversations'&&req.method==='GET')return send(res,200,{data:intelligence.memory.conversations(principal.actor)});
       const memoryMatch=/^\/api\/agent\/(knowledge|conversations)\/([a-f0-9-]{36})$/.exec(url.pathname);
       if(memoryMatch?.[1]==='knowledge'&&req.method==='DELETE')return send(res,200,{deleted:intelligence.memory.remove(principal.actor,memoryMatch[2])});
+      if(memoryMatch?.[1]==='conversations'&&['PATCH','DELETE'].includes(req.method))assert(!intelligence.busy(principal.actor),409,'CONVERSACION_OCUPADA','Esperá a que termine la respuesta antes de cambiar conversaciones.');
+      if(memoryMatch?.[1]==='conversations'&&req.method==='PATCH')return send(res,200,intelligence.memory.rename(principal.actor,memoryMatch[2],(await body(req)).title));
+      if(memoryMatch?.[1]==='conversations'&&req.method==='DELETE')return send(res,200,{deleted:intelligence.memory.deleteConversation(principal.actor,memoryMatch[2])});
       if(memoryMatch?.[1]==='conversations'&&req.method==='GET')return send(res,200,intelligence.memory.conversation(memoryMatch[2],principal.actor));
       for(const key of url.searchParams.keys())assert(url.searchParams.getAll(key).length===1,400,'FILTRO_DUPLICADO','Filtro repetido');
-      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,user:principal,erp:{...erp.metadata(),entities:Object.fromEntries(Object.entries(erp.metadata().entities).filter(([name])=>canRead(principal,name)))},kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches:principal.branches||branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true&&(!principal.userId||localWrites),writePolicy:erp.writes?.policy||null,purchaseCreation:erp.writes?.creation||null,approvalAutomation:canRead(principal,'aprobacionesCompras')?(approvalScheduler?.status()||{enabled:false}):{enabled:false},proposalActions:Object.fromEntries(Object.entries(changePolicies).filter(([action,policy])=>canRead(principal,policy.resource)&&(principal.admin||principal.unrestricted||principal.permissions.includes('plan:'+action)))),voice:voice.status(),documents:documents.status(),externalAI:false});
+      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,user:principal,erp:{...erp.metadata(),entities:Object.fromEntries(Object.entries(erp.metadata().entities).filter(([name])=>canRead(principal,name)))},kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches:principal.branches||branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true&&(!principal.userId||localWrites),writePolicy:erp.writes?.policy||null,purchaseCreation:erp.writes?.creation||null,approvalAutomation:canRead(principal,'aprobacionesCompras')?(approvalScheduler?.status()||{enabled:false}):{enabled:false},proposalActions:Object.fromEntries(Object.entries(changePolicies).filter(([action,policy])=>canRead(principal,policy.resource)&&(principal.admin||principal.unrestricted||principal.permissions.includes('plan:'+action)))),voice:voice.status(),documents:documents.status(),externalAI:model.local===false});
       if(req.method==='GET' && url.pathname==='/api/voice/status')return send(res,200,voice.status());
       if(req.method==='POST' && url.pathname==='/api/voice/transcribe')return send(res,200,await voice.transcribe(req));
       if(req.method==='GET' && url.pathname==='/api/openapi.json')return send(res,200,JSON.parse(readFileSync(new URL('../docs/openapi.json',import.meta.url))));

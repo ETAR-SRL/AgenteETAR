@@ -1,3 +1,4 @@
+import {supplierPrice} from './order-list-price.js';
 import Decimal from 'decimal.js';
 import {assert} from '../errors.js';
 import {purchaseValues} from './purchase-chat.js';
@@ -52,9 +53,11 @@ function parse(text,state){
  const order=/\b(?:pedido|solicitud)(?: de (?:venta|compra))?\s*(?:n(?:ro|umero)?[°º.]?\s*)?(\d+)\b/.exec(n);
  if(order)refs.number=order[1];
  for(const [key,re] of [['shop',/\btienda\s+([a-z0-9_-]+)/i],['item',/\b[ií]tem\s+([a-z0-9_-]+)/i]]){const m=re.exec(text);if(m)refs[key]=m[1];}
- const write=priceWriteIntent(text)||/\b(subilo|bajalo|aumentalo|reducilo)\b/.test(n);
+ const listIntent=/\b(usa|usar|utiliza|utilizar|aplica|aplicar|toma|tomar|actualiza)\b/.test(n)&&/\blista\b/.test(n);
+ if(listIntent&&state&&kinds[state.kind]?.order&&!/pedido(?: de)? (compra|venta)/.test(n))kind=state.kind;
+ const write=listIntent||priceWriteIntent(text)||/\b(subilo|bajalo|aumentalo|reducilo)\b/.test(n);
  const percent=/(\d+(?:[.,]\d+)?)\s*(?:%|por ciento)/.exec(n);
- const edits={};
+ const edits={};if(listIntent)edits.useList=true;
  if(values.price!==undefined)edits.price=values.price;
  if(values.priceUnit)edits.priceUnit=values.priceUnit;
  if(values.quantity!==undefined)edits.quantity=values.quantity;
@@ -223,7 +226,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   result=await query(profile.resource,{...filters,page:String(page)},100);assert(result.data.length,409,'PAGINACION_INVALIDA','La paginación cambió.');rows.push(...result.data);
  }
  assert(new Set(rows.map(r=>String(r.registro))).size===rows.length,409,'REGISTROS_DUPLICADOS','La lectura contiene registros duplicados.');
- if(v.price===undefined&&v.percent===undefined&&v.quantity===undefined)return answer('Conservo el documento y sus referencias. ¿Qué precio o cantidad querés cambiar?');
+ if(v.price===undefined&&v.percent===undefined&&v.quantity===undefined&&!v.useList)return answer('Conservo el documento y sus referencias. ¿Qué precio o cantidad querés cambiar?');
  const plans=[];
  for(const row of rows){
   const p=await query('productos',{codigo:row.productoCodigo},2);
@@ -231,6 +234,23 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   const unit=p.data[0].unidadMedida,base=value=>/^millar(?:es)?$/.test(value||'')?(unit==='UN'?'millar':null):/^(unidad(?:es)?|un)$/i.test(value||'')||value?.toUpperCase()===unit?'unidad':null;
   let price=v.price,priceUnit=base(v.priceUnit||state.base),quantityUnit=base(v.quantityUnit);
   if(v.currency)assertPriceCurrency(v.currency,row,assert);
+  if(v.useList&&['sale','purchase'].includes(kind)){
+   let selected;
+   if(kind==='purchase'){
+    const found=await supplierPrice({query,product:row.productoCodigo,vendor:row.proveedorCodigo,shop:row.proveedorTienda,list:refs.list,at:new Date().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'})});
+    if(!found.row)return answer(found.message);selected=found.row;
+   }else{
+    const tools=createBusinessTools({read,executeRead,kaiqen,branch,metadata,allowExplicitList:true});
+    const args={producto:row.productoCodigo,cliente:row.clienteCodigo,tienda:row.clienteTienda,...(refs.list?{lista:refs.list}:{})};
+    const priced=await tools.prices(args);add('precio_venta',args,priced);
+    const eligible=priced.data?.filter(r=>r.aplicableSegunCampos)||[];
+    if(priced.kind!=='prices'||eligible.length!==1||priced.meta?.hasMore)return answer(priced.message||'No encontré un precio único vigente. Indicá una lista o el precio acordado.');
+    selected=eligible[0];
+   }
+   assert(String(selected.moneda?.codigo)===String(row.moneda?.codigo),409,'MONEDA_DISTINTA','La lista y el pedido tienen monedas distintas. No convertí el precio.');
+   price=selected.precio;priceUnit='unidad';
+  }
+
   if(v.percent!==undefined){
    assert(new D(v.percent).gt(0)&&!(v.direction===-1&&new D(v.percent).gte(100)),400,'PORCENTAJE_INVALIDO','Porcentaje fuera de rango.');
    const field=profile.order?'precioUnitario':'precio',scale=Number(metadata.entities?.[profile.resource]?.fields?.find(f=>f.salida===field)?.diccionario?.X3_DECIMAL);

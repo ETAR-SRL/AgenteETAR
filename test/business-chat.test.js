@@ -134,3 +134,14 @@ test('changed selected identities and SQL business restrictions do not produce f
  f.failRecord='9';const failed=await f.query('Cambiame el precio del pedido de compra 123 a 12 dólares por unidad');
  assert.equal(f.prepared.length,0);assert.match(failed.answer,/0 propuestas/);assert.ok(failed.evidence.some(e=>e.result.kind==='validation'));
 });
+
+test('SC7 takes the current supplier list price without asking the user to repeat it',async t=>{
+ const f=fixture(t);f.data.listasPreciosProveedores=[{codigo:'001',proveedorCodigo:'P1',proveedorTienda:'01',vigenteDesde:'2020-01-01',vigenteHasta:'2099-01-01'}];
+ const r=await f.query('Creame un pedido de compra con producto 1 para proveedor ACME; 10 unidades; depósito 16; emisión 20/10/2026; entrega 21/10/2026; condición de pago CONTADO');
+ assert.equal(f.prepared.length,1,r.answer);assert.equal(f.prepared[0].items[0].precio,'2');assert.equal(f.prepared[0].items[0].basePrecio,'unidad');assert.equal(f.prepared[0].header.moneda,'2');assert.match(r.answer,/lista 001/);
+});
+test('sales order can apply its customer price list with a preview',async t=>{
+ const f=fixture(t),r=await f.query('Mostrame el pedido de venta 123');
+ const next=await f.query('Usá la lista de precios',r.conversationId);
+ assert.equal(f.prepared.length,1,next.answer);assert.equal(f.prepared[0].changes.precioUnitario,'0.058');assert.equal(f.prepared[0].priceUnit,'unidad');
+});

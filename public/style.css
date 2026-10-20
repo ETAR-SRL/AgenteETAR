@@ -30,3 +30,5 @@
 .answer-card details pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:300px;overflow:auto}
 
 .chat-attachment{display:flex;align-items:center;gap:12px;width:fit-content;max-width:100%;margin:8px 0;padding:6px 12px;border:1px solid var(--line,#ddd);border-radius:14px;background:var(--paper,#fff);font-size:13px}.chat-attachment[hidden]{display:none}.chat-attachment span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.chat-attachment button{border:0;background:transparent;font-size:22px;cursor:pointer;min-width:32px;min-height:32px}
+
+#ai-settings-form{display:grid;gap:12px}#ai-settings-form .confirm-change{display:flex;align-items:center;gap:8px}#ai-settings-form .confirm-change input{width:auto;margin:0}.ai-actions{display:flex;gap:10px;flex-wrap:wrap}

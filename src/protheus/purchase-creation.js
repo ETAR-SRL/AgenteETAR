@@ -105,7 +105,7 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    payment=await lookup(connection,'SE4',{E4_CODIGO:text(h.condicionPago,'C7_COND',alias)},branch,lock);refs.push(vendor,payment);
   }else assert(!h.proveedor&&!h.tienda&&!h.condicionPago&&!h.contacto&&!h.comprador,400,'CABECERA_INVALIDA','SC1 no admite datos de pedido de compra');
   for(let i=0;i<input.items.length;i++){
-   const item=input.items[i];assert(plain(item)&&Object.keys(item).every(k=>['producto','deposito','fechaNecesidad','cantidad','precio','baseCantidad','basePrecio','centroCosto','observacion'].includes(k)),400,'ITEM_INVALIDO','Campos de ítem fuera del alcance');
+   const original=input.items[i];const item=alias==='SC1'&&plain(original)?{...original,precio:original.precio??'0',basePrecio:original.basePrecio||'unidad'}:original;assert(plain(item)&&Object.keys(item).every(k=>['producto','deposito','fechaNecesidad','cantidad','precio','baseCantidad','basePrecio','centroCosto','observacion'].includes(k)),400,'ITEM_INVALIDO','Campos de ítem fuera del alcance');
    const product=await lookup(connection,'SB1',{B1_COD:text(item.producto,p+'_PRODUTO',alias)},branch,lock);refs.push(product);
    for(const field of ['B1_DESC','B1_UM','B1_MSBLQL','B1_GRADE','B1_SEGUM','B1_CONV','B1_TIPCONV','B1_CC'])assert(Object.hasOwn(product,field),409,'ESTADO_NO_VERIFICABLE',`Falta ${field}`);
    assert(['','2'].includes(clean(product.B1_MSBLQL)),409,'PRODUCTO_BLOQUEADO','Producto bloqueado');
@@ -114,9 +114,9 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    const unit=text(clean(product.B1_UM),p+'_UM',alias),second=clean(product.B1_SEGUM);
    assert(['unidades','millares'].includes(item.baseCantidad)&&['unidad','millar'].includes(item.basePrecio),400,'BASE_REQUERIDA','Indicar bases de cantidad y precio');
    assert(unit==='UN'||(item.baseCantidad==='unidades'&&item.basePrecio==='unidad'),400,'MILLARES_NO_APLICAN','Millares sólo para UN');
-   const qty=inputNumber(item.cantidad,'cantidad').mul(item.baseCantidad==='millares'?1000:1),price=inputNumber(item.precio,'precio').div(item.basePrecio==='millar'?1000:1);
+   const qty=inputNumber(item.cantidad,'cantidad').mul(item.baseCantidad==='millares'?1000:1),price=(alias==='SC1'&&String(item.precio)==='0'?new D(0):inputNumber(item.precio,'precio')).div(item.basePrecio==='millar'?1000:1);
    const quantity=fit(qty,p+'_QUANT',catalog,alias),unitPrice=fit(price,priceField,catalog,alias),total=fit(isImport?qty.mul(unitPrice).toDecimalPlaces(numericSpec('C1_TOTAL',catalog,'SC1').scale,D.ROUND_DOWN):qty.mul(unitPrice),p+'_TOTAL',catalog,alias,{round:!isImport});
-   assert(new D(unitPrice).gt(0),400,'PRECISION_INVALIDA','El precio debe ser positivo y representable en SX3.');
+   assert(alias==='SC1'&&price.isZero()||new D(unitPrice).gt(0),400,'PRECISION_INVALIDA','El precio debe ser positivo y representable en SX3.');
    const warehouse=text(item.deposito,p+'_LOCAL',alias);refs.push(await lookup(connection,'NNR',{NNR_CODIGO:warehouse},branch,lock));
    const due=date(item.fechaNecesidad,p+'_DATPRF',alias);assert(due>=emission,400,'FECHA_INVALIDA','Necesidad anterior a emisión');
    const cost=text(item.centroCosto??clean(product.B1_CC),p+'_CC',alias,true);if(cost)refs.push(await lookup(connection,'CTT',{CTT_CUSTO:cost},branch,lock));
@@ -127,7 +127,7 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    else Object.assign(row,{C7_FORNECE:clean(vendor.A2_COD),C7_LOJA:clean(vendor.A2_LOJA),C7_COND:clean(payment.E4_CODIGO),C7_CONTATO:text(h.contacto??'','C7_CONTATO',alias,true),C7_TXMOEDA:fit(documentRate,'C7_TXMOEDA',catalog,alias),C7_CONAPRO:' ',C7_COMPRA:text(h.comprador??'','C7_COMPRA',alias,true)});
    if(isImport)Object.assign(row,{C1_IMPORT:text('S','C1_IMPORT',alias),C1_COTACAO:text('IMPORT','C1_COTACAO',alias),C1_CLASS:text('1','C1_CLASS',alias)});
    for(const field of Object.keys(row))assert(metadata.columns.some(c=>c.field===field&&!c.computed&&!c.identityColumn),409,'ESQUEMA_INCOMPATIBLE',field);
-   rows.push(row);approvalItems.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],cantidad:quantity,total,centroCosto:cost,grupoProducto:clean(product.B1_GRUPO),restriccionProducto:clean(product.B1_SOLICIT)});summary.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],descripcion:row[p+'_DESCRI'],deposito:warehouse,unidad:unit,cantidad:quantity,precioUnitario:unitPrice,total,moneda:documentCurrency,monedaOriginal:currency.descripcion,totalOriginal:qty.mul(inputNumber(item.precio,'precio').div(item.basePrecio==='millar'?1000:1)).toFixed(2),ajusteTotal:new D(total).minus(qty.mul(price)).toFixed(6),segundaUnidad:second||null,cantidadSegundaUnidad:row[p+'_QTSEGUM']||null,aprobacion:null});
+   rows.push(row);approvalItems.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],cantidad:quantity,total,centroCosto:cost,grupoProducto:clean(product.B1_GRUPO),restriccionProducto:clean(product.B1_SOLICIT)});summary.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],descripcion:row[p+'_DESCRI'],deposito:warehouse,unidad:unit,cantidad:quantity,precioUnitario:unitPrice,total,moneda:documentCurrency,monedaOriginal:currency.descripcion,totalOriginal:qty.mul((alias==='SC1'&&String(item.precio)==='0'?new D(0):inputNumber(item.precio,'precio')).div(item.basePrecio==='millar'?1000:1)).toFixed(2),ajusteTotal:new D(total).minus(qty.mul(price)).toFixed(6),segundaUnidad:second||null,cantidadSegundaUnidad:row[p+'_QTSEGUM']||null,aprobacion:null});
   }
   const approval=isImport?await importRequestPolicy({connection,catalog,branch,items:approvalItems,lock}):await purchaseApproval({connection,catalog,alias,branch,buyerCode:alias==='SC7'?text(h.comprador??'','C7_COMPRA',alias,true):'',requester:h.solicitanteCodigo,items:approvalItems,exchangeRate:documentRate,lock});
   for(let i=0;i<rows.length;i++){

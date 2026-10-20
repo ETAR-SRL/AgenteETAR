@@ -65,3 +65,10 @@ test('business search accepts one-character exact codes, without wildcard fallba
  const missing=await tools.run('buscar',{recurso:'productos',texto:'9'});assert.equal(missing.data.length,0);
  assert.equal(f.calls.length,2);assert.ok(f.calls.every(c=>!c.filters.q));
 });
+
+test('SC1 asks only for quantity/logistics and prepares without price or currency',async t=>{
+ const f=fixture(t),r=await f.query('Creame una solicitud de compra con producto 1');
+ assert.doesNotMatch(r.answer,/necesito.*precio|necesito.*moneda/);
+ const next=await f.query('10 unidades; depósito 16; emisión 20/10/2026; necesidad 21/10/2026; solicitante Ana',r.conversationId);
+ assert.equal(f.prepared.length,1,next.answer);assert.equal(f.prepared[0].items[0].precio,undefined);assert.equal(f.prepared[0].header.moneda,'ARS');
+});

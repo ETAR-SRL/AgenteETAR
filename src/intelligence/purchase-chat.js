@@ -1,3 +1,5 @@
+import {assertPriceCurrency} from './references.js';
+import {supplierPrice} from './order-list-price.js';
 import {assert} from '../errors.js';
 import {literalAttachmentIntent} from './attachment-chat.js';
 import {importDate} from './purchase-imports.js';
@@ -10,6 +12,7 @@ const price=new RegExp('(?:\\bprecio\\s*(?:es|de|a|:)?\\s*|\\ba\\s+)'+number+'(?
 const codePattern=/\b(?:producto|articulo|codigo)\s+(?:es\s+|codigo\s+)?([a-z0-9][a-z0-9_./-]*)(?=\s|[,;!?]|$)/i;
 export function purchaseValues(text){
  const n=norm(text),literal=literalAttachmentIntent(text),values={};
+ const list=/\blista(?: de precios)?\s+([a-z0-9_-]+)/i.exec(text);if(list)values.list=list[1];
  for(const key of ['currency','warehouse','requester','requesterCode','requestType','costCenter','party','shop','payment','buyer'])if(literal[key])values[key]=literal[key];
  for(const key of ['emission','due'])if(literal[key])values[key]=importDate(literal[key]);
  const today=new Date().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'});
@@ -33,11 +36,11 @@ export function purchaseValues(text){
 export async function purchaseChat({text,conversation,branch,canPlan,authorizePlan,read,prepare,actor}){
  const n=norm(text),purchaseOrder=/\bpedido(?: de)? compra\b/.test(n),start=/\b(crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?)\b/.test(n)&&/\b(?:solicitud(?: de)? (?:compra|importacion)|pedido(?: de)? compra)\b/.test(n);
  let state=conversation.purchaseDraft;
- const values=purchaseValues(text);
- if(/\bno\b|\b(?:solo|solamente)\s+consult/.test(n)){delete conversation.purchaseDraft;return null;}
+ const values=purchaseValues(text);if(/\b(?:sin precio|no tengo precio)\b/.test(n))values.withoutPrice=true;
+ if(/\bno\b/.test(n)&&!/\bno tengo precio\b/.test(n)||/\b(?:solo|solamente)\s+consult/.test(n)){delete conversation.purchaseDraft;return null;}
  if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&state){delete conversation.purchaseDraft;return {answer:'Descarté los datos de esta solicitud. No se creó ningún documento.',evidence:[],trace:[]};}
  // Do not turn a multi-item or another business operation into a single item.
- if(/\bproductos\b|\b(?:factura|venta|lista)\b/.test(n)||/\bpedido\b/.test(n)&&!purchaseOrder&&state?.action!=='crearPedidoCompra'||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n)){
+ if(/\bproductos\b|\b(?:factura|venta)\b/.test(n)||/\bpedido\b/.test(n)&&!purchaseOrder&&state?.action!=='crearPedidoCompra'||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n)){
   delete conversation.purchaseDraft;return null;
  }
  if(start&&!values.product)return null;
@@ -46,6 +49,7 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
  const action=start&&purchaseOrder?'crearPedidoCompra':start?'crearSolicitudCompra':state.action||'crearSolicitudCompra',pc=action==='crearPedidoCompra';
  await authorizePlan?.(action);
  if(start)state={branch,action,values:{}};
+ if(values.list&&!values.price){delete state.values.price;delete state.values.priceUnit;}
  state.values={...state.values,...values};
  const v=state.values,evidence=[],trace=[];
  const query=async(resource,filters)=>{
@@ -60,7 +64,7 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
   return {answer:matches.length?'El código no identifica un producto único en SB1. ¿Podés precisar el producto?':`No encontré el código exacto ${v.product} en SB1 de esta sucursal. ¿Cuál es el código o nombre del producto? No se creó ninguna solicitud.`,evidence,trace};
  }
  const product=matches[0],unit=String(product.unidadMedida||'').trim().toUpperCase();
- const description=`Encontré ${product.codigo} — ${product.nombre||'sin descripción'}. Tipo: ${product.tipo?.descripcion||product.tipo?.codigo||'no informado'}. Unidad: ${unit||'no informada'}.`;
+ const description=`Encontré ${product.codigo}: ${product.nombre||'sin descripción'} (${product.tipo?.descripcion||product.tipo?.codigo||'tipo no informado'}).`;
  const blocked=String(product.bloqueado?.codigo??product.bloqueado??'');
  if(blocked==='1'){delete conversation.purchaseDraft;return {answer:description+' Está bloqueado; no preparé el alta.',evidence,trace};}
  const basis=(value,isQuantity)=>{
@@ -69,13 +73,13 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
   if(/^(unidad(?:es)?|un)$/.test(value)&&unit==='UN'||value.toUpperCase()===unit)return isQuantity?'unidades':'unidad';
   return '';
  };
- const baseCantidad=basis(v.quantityUnit,true),basePrecio=basis(v.priceUnit,false);
+ const baseCantidad=basis(v.quantityUnit,true);let basePrecio=basis(v.priceUnit,false);
  const missing=[];
  if(!v.quantity)missing.push(`cantidad en ${unit||'la unidad de SB1'}${unit==='UN'?' o millares':''}`);
  else if(!baseCantidad)missing.push(`confirmar la base de cantidad: ${unit||'unidad de SB1'}${unit==='UN'?' o millares':''}`);
- if(!v.price)missing.push('precio');
- if(!v.currency)missing.push('moneda');
- if(!basePrecio)missing.push(`confirmar si el precio es por ${unit||'unidad'}${unit==='UN'?' o por millar':''}`);
+
+ if(!v.currency&&v.price)missing.push('moneda');
+ if(v.price&&!basePrecio)missing.push(`confirmar si el precio es por ${unit||'unidad'}${unit==='UN'?' o por millar':''}`);
  if(!v.warehouse)missing.push(`depósito${product.depositoPredeterminado?` (SB1 indica ${product.depositoPredeterminado}; podés elegirlo)` :''}`);
  if(!v.emission)missing.push('fecha de emisión');
  if(!v.due)missing.push('fecha de necesidad');
@@ -97,16 +101,25 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
   if(!v.payment)missing.push('condición de pago');
   else{const r=await resolve('condicionesPago',v.payment);if(r.data.length===1&&!r.meta?.hasMore){payment=r.data[0];v.payment=payment.codigo;}else missing.push('una condición de pago válida');}
  }
+ if(pc&&vendor&&!v.price){
+  delete v.resolvedPrice;
+  const found=await supplierPrice({query,product:product.codigo,vendor:vendor.codigo,shop:vendor.tienda,list:v.list,at:v.emission||new Date().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'})});
+  if(found.row){
+   try{if(v.currency)assertPriceCurrency(/^\d+$/.test(v.currency)?'moneda '+v.currency:v.currency,found.row,assert);v.resolvedPrice=found.row;}catch{missing.push('confirmar la moneda: la lista está en '+found.row.moneda.descripcion);}
+  }else missing.push(found.message);
+ }
+ if(pc&&!vendor&&!v.price)delete v.resolvedPrice;
  conversation.purchaseDraft=state;
  if(missing.length){
   const essentials=missing.filter(x=>/cantidad|precio|moneda|importación/.test(x));
   const questions=essentials.length?essentials:missing;
-  return {answer:description+`\n\nPara preparar ${pc?'el pedido':'la solicitud'}, necesito ${questions.join('; ')}.\n\nPodés pasarme los datos juntos o de a poco. Antes de crear el documento te mostraré el resumen para confirmar.`,evidence,trace};
+  return {answer:description+`\n\nPara preparar ${pc?'el pedido':'la solicitud'}, me falta:\n${questions.map(q=>'• '+q).join('\n')}\n\n${!pc&&!v.price?'La solicitud puede ir sin precio. ':''}Conservo lo que ya me pasaste. Antes de crear el documento te muestro el resumen para confirmar.`,evidence,trace};
  }
 
- const proposal=await prepare(actor,{action,target:{sucursal:branch},header:{fechaEmision:v.emission,moneda:v.currency,...(pc?{proveedor:vendor.codigo,tienda:vendor.tienda,condicionPago:payment.codigo,...(v.buyer?{comprador:v.buyer}:{})}:{solicitante:v.requester,...(v.requestType?{tipoSolicitud:v.requestType}:{}),...(v.requesterCode?{solicitanteCodigo:v.requesterCode}:{})})},items:[{producto:product.codigo,deposito:v.warehouse,fechaNecesidad:v.due,cantidad:v.quantity,precio:v.price,baseCantidad,basePrecio,...(v.costCenter?{centroCosto:v.costCenter}:{})}]});
+ const resolved=v.price?null:v.resolvedPrice;
+ const proposal=await prepare(actor,{action,target:{sucursal:branch},header:{fechaEmision:v.emission,moneda:v.currency||resolved?.moneda.codigo||'ARS',...(pc?{proveedor:vendor.codigo,tienda:vendor.tienda,condicionPago:payment.codigo,...(v.buyer?{comprador:v.buyer}:{})}:{solicitante:v.requester,...(v.requestType?{tipoSolicitud:v.requestType}:{}),...(v.requesterCode?{solicitanteCodigo:v.requesterCode}:{})})},items:[{producto:product.codigo,deposito:v.warehouse,fechaNecesidad:v.due,cantidad:v.quantity,...(v.price?{precio:v.price,basePrecio}:resolved?{precio:resolved.precio,basePrecio:'unidad'}:{}),baseCantidad,...(v.costCenter?{centroCosto:v.costCenter}:{})}]});
  delete conversation.purchaseDraft;
  evidence.push({id:'P1',action:'preparar_alta',args:{accion:action},result:{kind:'proposal',proposal}});
  trace.push({action:'preparar_alta',status:'ok'});
- return {answer:description+`\n\nPreparé ${pc?'un pedido de compra NUEVO':'una solicitud NUEVA'} desde cero. Revisá el resumen antes de confirmar. No se creó ningún documento. `+(proposal.approval?.label||''),evidence,trace};
+ return {answer:description+(resolved?`\nPrecio tomado de la lista ${resolved.listaCodigo}: ${resolved.precio} ${resolved.moneda.descripcion||resolved.moneda.codigo} por ${unit}.`:'')+`\n\nPreparé ${pc?'un pedido de compra NUEVO':'una solicitud NUEVA'} desde cero. Revisá el resumen antes de confirmar. No se creó ningún documento. `+(proposal.approval?.label||''),evidence,trace};
 }

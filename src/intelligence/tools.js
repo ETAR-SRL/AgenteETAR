@@ -5,7 +5,7 @@ const text=value=>typeof value==='string'?value.trim():'';
 const genericList=value=>/^(?:(?:la|una|las)\s+)?listas?(?:\s+de\s+(?:precios?|venta))?$|^(?:da0|da1|por (?:unidad|millar)|unidad|millar)$/.test(text(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());
 const state=value=>{const label=(value?.descripcion||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();return ['si','activo','activa','yes','sim'].includes(label)?'activo':['no','inactivo','inactiva','nao'].includes(label)?'inactivo':'sin_confirmar';};
 const amount=value=>{try{return new Decimal(value).toSignificantDigits(15).toFixed().replace('.',',');}catch{return 'sin importe';}};
-export function createBusinessTools({read,executeRead,kaiqen,branch,metadata,reportCurrencyRequested=true}){
+export function createBusinessTools({read,executeRead,kaiqen,branch,metadata,reportCurrencyRequested=true,allowExplicitList=false}){
  const query=(resource,filters={})=>read(resource,new URLSearchParams({...filters,sucursal:branch,limit:String(filters.limit||25)}));
  async function resolve(resource,term){
    assert(text(term).length>=1&&term.length<=120,400,'TERMINO_REQUERIDO','Indicar código o nombre');
@@ -24,11 +24,11 @@ export function createBusinessTools({read,executeRead,kaiqen,branch,metadata,rep
    if(text(args.cliente)){
      const customers=await resolve('clientes',args.cliente);const matches=args.tienda?customers.data.filter(c=>c.tienda===args.tienda):customers.data;
      if(matches.length!==1||customers.meta?.hasMore)return {kind:'clarification',message:'Necesito identificar un único cliente y tienda para usar su lista asignada.',candidates:matches,source:customers.source};
-     customer=matches[0];if(!customer.listaPreciosCodigo)return {kind:'clarification',message:'El cliente no tiene una lista de precios asignada en SA1. No elegí otra lista automáticamente.',customer};filters.lista=customer.listaPreciosCodigo;
+     customer=matches[0];if(!customer.listaPreciosCodigo&&!(allowExplicitList&&text(args.lista)))return {kind:'clarification',message:'El cliente no tiene una lista de precios asignada en SA1. No elegí otra lista automáticamente.',customer};filters.lista=customer.listaPreciosCodigo;
    }
    if(text(args.lista)&&!genericList(args.lista)){
      const lists=await resolve('listasPreciosClientes',args.lista);if(lists.data.length!==1||lists.meta?.hasMore)return {kind:'clarification',message:'La lista indicada no se identificó de forma única.',candidates:lists.data};
-     assert(!filters.lista||filters.lista===lists.data[0].codigo,409,'LISTA_DISTINTA','La lista indicada no coincide con la asignada al cliente');filters.lista=lists.data[0].codigo;
+     assert(allowExplicitList||!filters.lista||filters.lista===lists.data[0].codigo,409,'LISTA_DISTINTA','La lista indicada no coincide con la asignada al cliente');filters.lista=lists.data[0].codigo;
    }
    const items=await query('preciosClientes',filters),headers=new Map();
    for(const code of [...new Set(items.data.map(r=>r.listaCodigo))]){const h=await query('listasPreciosClientes',{codigo:code,limit:2});headers.set(code,h.data.length===1&&!h.meta?.hasMore?h.data[0]:null);}

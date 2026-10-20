@@ -587,3 +587,10 @@ test('SI later-item failure rolls back all dollar rows with no conversion',async
 test('SI attachment reports non-imported products per row before confirmation',async t=>{
  const f=attachmentFixture(t,'SC1');f.document.defaults.currency='USD';f.data.productos[0].importadoCodigo='N';const d=f.imports.save('u','pendiente','0101',f.document);const r=await f.chat('u',{text:'Creá una solicitud de importación',attachmentId:d.id},{},'0101');assert.equal(r.proposal,undefined);assert.equal(r.issues.length,1);assert.match(r.issues[0].motivo,/importado/);assert.equal(f.state.inserts,0);
 });
+
+test('SC1 can preview and execute with omitted price, but SC7 still requires a price',async()=>{
+ const f=fixture('SC1');delete f.input.items[0].precio;delete f.input.items[0].basePrecio;
+ const proposal=await f.proposal();assert.equal(Number(proposal.writePlan.rows[0].C1_VUNIT),0);assert.equal(Number(proposal.writePlan.rows[0].C1_TOTAL),0);assert.equal(f.state.inserts,0);
+ await f.writes.execute(proposal);assert.ok(f.state.inserts>0);
+ const pc=fixture('SC7');delete pc.input.items[0].precio;await assert.rejects(pc.proposal());assert.equal(pc.state.inserts,0);
+});
