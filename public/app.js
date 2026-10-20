@@ -133,6 +133,7 @@ function renderAnswer(where,response){
   const metadata=response.attachment?`${response.attachment.name} · ${response.batch?'Comparación con registros de Protheus':'Lectura local del adjunto'}`:`${response.model||'Modelo local'} · ${response.evidence?.length||0} fuentes consultadas en este turno`;
   const card=node('article','answer-card');card.append(node('div','eyebrow','CENTRAL · INTELIGENCIA LOCAL'),node('div','answer-text',response.answer),node('div','result-meta',metadata));where.replaceChildren(card);
   if(response.batch)renderImportBatch(where,response.batch,{api,capabilities});
+  if(response.proposal)renderProposal(where,response.proposal);
   if(response.choices?.length){const choices=node('div','choice-list');for(const choice of response.choices){const button=node('button','secondary',choice.label);button.type='button';button.onclick=()=>query(choice.text);choices.append(button);}card.append(choices);}
   for(const evidence of response.evidence||[]){
     const result=evidence.result,heading=evidence.id+' · '+(evidence.action==='precio_venta'?(result.kind==='prices'?'Precios de lista verificados':'Consulta de precios'):labels[evidence.args.recurso]||evidence.action);
@@ -267,7 +268,13 @@ function renderProposal(where,proposal,{append=true}={}){
   localStorage.setItem('central-last-proposal',proposal.id);
   const card=node('article','result-card'),result=node('div'),controls=node('div','filter-bottom');
   if(proposal.origin){const source=node('details');source.append(node('summary','',`Origen: ${proposal.origin.archivo} · ${proposal.origin.ubicacion}`),node('pre','',proposal.origin.lecturaOriginal));card.append(source);}
-  card.append(node('h3','','Revisar cambio · '+proposal.action),node('p','',`Sucursal ${proposal.target.sucursal} · ${proposal.operation==='insert'?'documento nuevo — numeración al confirmar':proposal.operation==='workflow'?'circuito del documento '+proposal.identity.numero:'registro '+proposal.target.registro} · vence ${stamp(proposal.expiresAt)}`),table([proposal.identity||{}]),proposal.operation==='insert'?table(proposal.items):table(proposal.diff.map(d=>({...d.table?{tabla:d.table,registro:d.record,secuencia:d.sequence||''}:{},campo:d.field,antes:d.before,despues:d.after}))));
+  card.append(node('h3','',proposal.operation==='insert'?'Revisar documento nuevo · '+(proposal.action==='crearPedidoCompra'?'Pedido de compra':'Solicitud de compra'):'Revisar cambio · '+proposal.action),node('p','',`Sucursal ${proposal.target.sucursal} · ${proposal.operation==='insert'?'documento nuevo — numeración al confirmar':proposal.operation==='workflow'?'circuito del documento '+proposal.identity.numero:'registro '+proposal.target.registro} · vence ${stamp(proposal.expiresAt)}`));
+  if(proposal.operation==='insert'){
+    card.append(table([{proveedor:proposal.identity.proveedor,tienda:proposal.identity.tienda,solicitante:proposal.identity.solicitante,fechaEmision:proposal.identity.fechaEmision,condicionPago:proposal.identity.condicionPago,moneda:proposal.identity.moneda}]),
+      table(proposal.items.map(r=>({producto:r.producto,descripcion:r.descripcion,cantidad:r.cantidadComercial,baseCantidad:r.baseCantidad,precio:r.precioComercial,basePrecio:r.basePrecio,total:r.total}))),
+      table(proposal.items.map(r=>({producto:r.producto,deposito:r.deposito,fechaNecesidad:r.fechaNecesidad,cantidadERP:r.cantidad,unidad:r.unidad,precioUnitario:r.precioUnitario}))));
+    const full=node('details');full.append(node('summary','','Ver todos los datos del documento'),table([proposal.identity]),table(proposal.items));card.append(full);
+  }else card.append(table([proposal.identity||{}]),table(proposal.diff.map(d=>({...d.table?{tabla:d.table,registro:d.record,secuencia:d.sequence||''}:{},campo:d.field,antes:d.before,despues:d.after}))));
   if(proposal.before?.moneda)card.append(node('p','',`Moneda conservada: ${visual(proposal.before.moneda)}`));
   if(proposal.calculation)card.append(table([proposal.calculation]));
   if(proposal.approval){card.append(node('h4','','Aprobación · '+proposal.approval.field),node('p','',proposal.approval.label));for(const reason of proposal.approval.reasons)card.append(node('p','',reason));card.append(table(proposal.approval.parameters.map(p=>({...p,filial:p.filial||'Global',valor:p.valor??'No disponible'}))));}
@@ -282,6 +289,9 @@ function renderProposal(where,proposal,{append=true}={}){
   const execute=node('button','primary',proposal.operation==='insert'?'Confirmar y crear documento':'Confirmar y actualizar ERP'),refresh=node('button','secondary','Consultar estado');execute.type=refresh.type='button';
   execute.disabled=true;check.onchange=()=>{execute.disabled=!check.checked||!canExecuteAction(proposal.action)||!proposal.executionEnabled;};
   controls.append(execute,refresh);card.append(label,controls,result);let terminal=false;
+  if(proposal.origin?.importacion)document.addEventListener('attachment-revised',event=>{
+   if(event.detail===proposal.origin.importacion){terminal=true;check.checked=false;check.disabled=true;execute.disabled=true;result.textContent='La revisión cambió. Confirmá el resumen más reciente.';}
+  });
   function status(execution){
     const names={executed:'Cambio SQL guardado y verificado. No implica aprobación nativa.',executing:'Ejecución en curso. No repitas el cambio.',failed:'No se confirmó el cambio. Revisá el error y generá una nueva propuesta.',unknown:'Resultado incierto. Verificá el registro en Protheus antes de preparar otro cambio.'};
     if(!execution){result.replaceChildren(node('p','',proposal.blockers?.length?'Propuesta sin ejecución habilitada: requiere revisión en Protheus.':'Propuesta pendiente de confirmación.'));return;}
@@ -307,7 +317,7 @@ function renderProposal(where,proposal,{append=true}={}){
 }
 async function restoreProposal(){
   const id=localStorage.getItem('central-last-proposal');if(!id||!Object.keys(capabilities?.proposalActions||{}).length)return;
-  try{const saved=await api('/api/changes/'+id);if(saved.proposal.origin?.importacion)return;const where=$('#conversation');where.append(node('h2','','Última propuesta'));renderProposal(where,saved.proposal).status(saved.execution);}catch{/* La sesión anterior puede haber vencido. No reenviar escrituras. */}
+  try{const saved=await api('/api/changes/'+id);if(saved.proposal.origin?.importacion&&saved.proposal.operation!=='insert')return;const where=$('#conversation');where.append(node('h2','','Última propuesta'));renderProposal(where,saved.proposal).status(saved.execution);}catch{/* La sesión anterior puede haber vencido. No reenviar escrituras. */}
 }
 function renderAutomationStatus(status){
   $('#automation-status').textContent=status?.enabled?`Activo · revisa vencimientos cada ${Math.round(status.intervalMs/1000)} segundos mientras el servicio local está funcionando. Última revisión: ${status.lastRun?stamp(status.lastRun):'iniciando'}. Transferencias: ${status.receipts?.executed||0}. ${status.lastError?'Error: '+status.lastError+'. ':''}${(status.receipts?.unknown||status.receipts?.executing)?'Hay resultados pendientes de conciliación. ':''}Usa el plazo y la transferencia habilitada en Protheus; no aprueba documentos.`:'Escalamiento automático desactivado en esta instalación.';

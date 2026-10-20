@@ -43,8 +43,9 @@ export class Changes {
     }
     if(Object.hasOwn(purchaseCreationActions,input.action)){
       assert(this.erp.writes,503,'ESCRITURA_DESHABILITADA','No hay ejecutor de altas');
-      const writePlan=await this.erp.writes.prepare(input.action,input);
-      return this.public(this.store.save(actor,{action:input.action,target:input.target,input,operation:'insert',resource:writePlan.resource,diff:writePlan.diff,items:writePlan.items,approval:writePlan.approval,identity:writePlan.identity,calculation:writePlan.calculation,blockers:writePlan.blockers,warnings:writePlan.warnings,fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
+      const {origin,...creationInput}=input;
+      const writePlan=await this.erp.writes.prepare(input.action,creationInput);
+      return this.public(this.store.save(actor,{action:input.action,target:input.target,input:creationInput,origin,operation:'insert',resource:writePlan.resource,diff:writePlan.diff,items:writePlan.items.map((item,i)=>({...item,cantidadComercial:creationInput.items[i].cantidad,baseCantidad:creationInput.items[i].baseCantidad,precioComercial:creationInput.items[i].precio,basePrecio:creationInput.items[i].basePrecio,fechaNecesidad:creationInput.items[i].fechaNecesidad,centroCosto:creationInput.items[i].centroCosto||'',observacion:creationInput.items[i].observacion||''})),approval:writePlan.approval,identity:{...writePlan.identity,...creationInput.header},calculation:writePlan.calculation,blockers:writePlan.blockers,warnings:writePlan.warnings,fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
     }
     const policy=Object.hasOwn(changePolicies,input.action)?changePolicies[input.action]:null;
     assert(policy,400,'ACCION_NO_HABILITADA','Acciones: '+Object.keys(changePolicies).join(', '));
@@ -92,6 +93,7 @@ export class Changes {
   async check(actor,id){
     const proposal=this.store.get(id,actor);
     assert(proposal,404,'PROPUESTA_NO_EXISTE','Propuesta inexistente');
+    assert(proposal.status!=='superseded',409,'PROPUESTA_REEMPLAZADA','La revisión cambió. Confirmá el resumen más reciente.');
     assert(Date.parse(proposal.expiresAt)>Date.now(),409,'PROPUESTA_VENCIDA','La propuesta venció; generar otra');
     if(proposal.writePlan){const checked=await this.erp.writes.check(proposal);this.store.audit(actor,'proposal.checked',id);return {id,unchanged:true,executionEnabled:checked.executionEnabled};}
     const current=await this.current(changePolicies[proposal.action],proposal.target);
@@ -106,6 +108,7 @@ export class Changes {
     assert(plain(confirmation)&&confirmation.confirm===true&&confirmation.fingerprint===proposal.fingerprint,400,'CONFIRMACION_REQUERIDA','Confirmar explícitamente la huella de la propuesta revisada');
     const existing=this.store.execution(id,actor);
     if(existing?.status==='executed')return existing;
+    assert(proposal.status!=='superseded',409,'PROPUESTA_REEMPLAZADA','La revisión cambió. Confirmá el resumen más reciente.');
     assert(!existing,409,'EJECUCION_NO_REPETIBLE','La ejecución ya se inició; consultar estado. No reenviar automáticamente');
     assert(Date.parse(proposal.expiresAt)>Date.now(),409,'PROPUESTA_VENCIDA','La propuesta venció; generar otra');
     assert(proposal.writePlan&&this.erp.writes?.enabled,503,'ESCRITURA_DESHABILITADA','Esta acción no tiene un ejecutor habilitado');

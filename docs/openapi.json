@@ -1951,7 +1951,9 @@
                 "cliente",
                 "pedidoVenta",
                 "pedidoCompra",
-                "solicitudCompra"
+                "solicitudCompra",
+                "crearPedidoCompra",
+                "crearSolicitudCompra"
               ]
             }
           },
@@ -2026,7 +2028,7 @@
     },
     "/api/price-imports/{id}/preview": {
       "post": {
-        "summary": "Verificar precios y cantidades contra DA1/AIB/SC6/SC7/SC1 y preparar resumen",
+        "summary": "Preparar actualización por filas o un documento nuevo SC1/SC7 desde el adjunto",
         "parameters": [
           {
             "name": "id",
@@ -2114,6 +2116,22 @@
                         "quantityUnit": {
                           "type": "string",
                           "description": "Base de cantidad por fila; independiente de unit."
+                        },
+                        "warehouse": {
+                          "type": "string",
+                          "description": "Dato de ítem para crear SC1/SC7."
+                        },
+                        "due": {
+                          "type": "string",
+                          "description": "Dato de ítem para crear SC1/SC7."
+                        },
+                        "costCenter": {
+                          "type": "string",
+                          "description": "Dato de ítem para crear SC1/SC7."
+                        },
+                        "observation": {
+                          "type": "string",
+                          "description": "Dato de ítem para crear SC1/SC7."
                         }
                       }
                     }
@@ -2135,6 +2153,38 @@
                   "quantityUnit": {
                     "type": "string",
                     "description": "Base de cantidad independiente del precio: millares o unidades (UM de SB1)."
+                  },
+                  "emission": {
+                    "type": "string",
+                    "description": "Alta SC1/SC7: dato general; se solicita en el chat si falta y es requerido."
+                  },
+                  "due": {
+                    "type": "string",
+                    "description": "Alta SC1/SC7: dato general; se solicita en el chat si falta y es requerido."
+                  },
+                  "warehouse": {
+                    "type": "string",
+                    "description": "Alta SC1/SC7: dato general; se solicita en el chat si falta y es requerido."
+                  },
+                  "payment": {
+                    "type": "string",
+                    "description": "Alta SC1/SC7: dato general; se solicita en el chat si falta y es requerido."
+                  },
+                  "requester": {
+                    "type": "string",
+                    "description": "Alta SC1/SC7: dato general; se solicita en el chat si falta y es requerido."
+                  },
+                  "requesterCode": {
+                    "type": "string",
+                    "description": "Alta SC1/SC7: dato general; se solicita en el chat si falta y es requerido."
+                  },
+                  "buyer": {
+                    "type": "string",
+                    "description": "Alta SC1/SC7: dato general; se solicita en el chat si falta y es requerido."
+                  },
+                  "costCenter": {
+                    "type": "string",
+                    "description": "Alta SC1/SC7: dato general; se solicita en el chat si falta y es requerido."
                   }
                 }
               }
@@ -2143,7 +2193,7 @@
         },
         "responses": {
           "200": {
-            "description": "Resumen de lote inmutable con huella, propuestas, errores por fila y candidatos; no ejecuta cambios"
+            "description": "Actualización: lote revisado. Alta: missing e issues o proposal del documento completo para confirmar en /api/changes/{id}/execute. No ejecuta cambios."
           },
           "403": {
             "description": "Permiso o sucursal denegada"

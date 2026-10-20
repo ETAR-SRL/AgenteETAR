@@ -2,7 +2,7 @@ import {renderImportBatch} from './import-batch-ui.js';
 const el=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
 export function installPriceImports({api,capabilities}){
  const actions=capabilities.proposalActions||{};
- if(!['precioListaProveedor','precioLista','pedidoVenta','pedidoCompra','solicitudCompra'].some(k=>actions[k]))return;
+ if(!['precioListaProveedor','precioLista','pedidoVenta','pedidoCompra','solicitudCompra','crearPedidoCompra','crearSolicitudCompra'].some(k=>actions[k]))return;
  const controls=el('div',undefined,'attachment-control'),menu=el('div',undefined,'attachment-menu'),file=el('input'),button=el('button','＋','attach-button');
  const chip=el('div',undefined,'chat-attachment');
  let current,loading=false,revision=0,clearRequested=false,chatBusy=false;
@@ -10,7 +10,7 @@ export function installPriceImports({api,capabilities}){
  button.disabled=!capabilities.documents?.available;menu.hidden=true;chip.hidden=true;
  const choose=el('button','Adjuntar Excel, foto o PDF');choose.type='button';choose.onclick=()=>{menu.hidden=true;button.setAttribute('aria-expanded','false');file.click();};
  file.type='file';file.className='attachment-file';file.accept='.xlsx,.xls,.pdf,.png,.jpg,.jpeg,.webp';file.hidden=true;
- menu.append(choose,el('small','Hasta 20 MB · indicá qué cambiar en el chat'));
+ menu.append(choose,el('small','Hasta 20 MB · indicá qué crear o actualizar en el chat'));
  controls.append(button,menu,file);document.querySelector('.compose-actions').prepend(controls);
  document.querySelector('#query').before(chip);
  button.onclick=()=>{menu.hidden=!menu.hidden;button.setAttribute('aria-expanded',String(!menu.hidden));};
@@ -36,7 +36,7 @@ export function installPriceImports({api,capabilities}){
    if(selected.size>capabilities.documents.maxBytes)throw new Error('El archivo supera 20 MB.');
    const draft=await api('/api/price-imports?'+new URLSearchParams({sucursal:branch}),{method:'POST',headers:{'content-type':'application/octet-stream','x-file-name':encodeURIComponent(selected.name)},body:selected},false);
    if(version!==revision)return;
-   if(current)clear();receive(draft);status.textContent=`${draft.name} · ${draft.rows.length} filas leídas. Decime qué querés actualizar, por texto o voz.`;
+   if(current)clear();receive(draft);status.textContent=`${draft.name} · ${draft.rows.length} filas leídas. Decime qué querés crear o actualizar, por texto o voz.`;
    const details=el('details',undefined,'import-corrections');details.append(el('summary','Ver lectura del archivo'));
    const wrap=el('div',undefined,'table-wrap'),table=el('table'),head=el('tr');
    for(const name of ['Fila','Producto','Descripción','Precio','Moneda','Base precio','Cantidad','Base cantidad','Documento','Ítem','Origen'])head.append(el('th',name));table.append(head);
@@ -57,5 +57,5 @@ export function installPriceImports({api,capabilities}){
  }
  const saved=localStorage.getItem('central-chat-attachment');
  if(saved){const version=revision;api('/api/price-imports/'+saved).then(draft=>{if(version===revision&&draft.branch===document.querySelector('#branch').value)receive(draft);}).catch(()=>{if(version===revision)clear();});}
- return {clear,receive,setChatBusy(value){chatBusy=value;button.disabled=value||loading||!capabilities.documents?.available;const remove=chip.querySelector('button');if(remove)remove.disabled=value;if(value){menu.hidden=true;button.setAttribute('aria-expanded','false');}},get id(){return current?.id||(clearRequested?null:undefined);},get busy(){return loading;}};
+ return {clear,receive,setChatBusy(value){chatBusy=value;button.disabled=value||loading||!capabilities.documents?.available;const remove=chip.querySelector('button');if(remove)remove.disabled=value;if(value){if(current)document.dispatchEvent(new CustomEvent('attachment-revised',{detail:current.id}));menu.hidden=true;button.setAttribute('aria-expanded','false');}},get id(){return current?.id||(clearRequested?null:undefined);},get busy(){return loading;}};
 }

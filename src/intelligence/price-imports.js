@@ -1,8 +1,11 @@
 import {randomUUID} from 'node:crypto';
 import {assert} from '../errors.js';
 import {assertPriceCurrency} from './references.js';
+import {prepareAttachmentCreation} from './purchase-imports.js';
 const normalized=value=>String(value||'').trim().toUpperCase();
 export const importProfiles=Object.freeze({
+ crearPedidoCompra:{action:'crearPedidoCompra',resource:'compras',party:'proveedores',creation:true},
+ crearSolicitudCompra:{action:'crearSolicitudCompra',resource:'solicitudesCompra',creation:true},
  proveedor:{action:'precioListaProveedor',resource:'preciosProveedores',party:'proveedores',price:'AIB_PRCCOM'},
  cliente:{action:'precioLista',resource:'preciosClientes',party:'clientes',price:'DA1_PRCVEN'},
  pedidoVenta:{action:'pedidoVenta',resource:'itemsVentas',party:'clientes',price:'C6_PRCVEN',order:true},
@@ -33,6 +36,12 @@ export function createPriceImports({store,read,prepare,createBatch,metadata=()=>
    assert(!db.prepare("SELECT 1 FROM price_batches WHERE actor=? AND import_id=? AND status IN ('checking','running')").get(actor,id),409,'LOTE_EN_CURSO','Esperá el resultado del lote en curso antes de modificar su revisión.');
    db.prepare("UPDATE price_batches SET status='superseded' WHERE actor=? AND import_id=? AND status='ready'").run(actor,id);
   }
+  const proposals=db.prepare("SELECT id,body FROM proposals WHERE actor=? AND json_extract(body,'$.origin.importacion')=? AND json_extract(body,'$.operation')='insert'").all(actor,id);
+  assert(!proposals.some(p=>store.execution(p.id,actor)?.status==='executing'),409,'LOTE_EN_CURSO','Esperá el resultado del documento en curso.');
+  for(const p of proposals)if(!store.execution(p.id,actor)){
+   const body=JSON.parse(p.body);body.status='superseded';body.executionEnabled=false;
+   db.prepare('UPDATE proposals SET body=? WHERE id=? AND actor=?').run(JSON.stringify(body),p.id,actor);
+  }
  }
  const query=(resource,branch,filters={})=>read(resource,new URLSearchParams({sucursal:branch,limit:'100',...filters}));
  const canonical=(resource,field,value)=>{
@@ -43,6 +52,20 @@ export function createPriceImports({store,read,prepare,createBatch,metadata=()=>
  async function preview(actor,id,input){
   const draft=get(actor,id);
   const profile=importProfiles[draft.kind];assert(profile,400,'DESTINO_INVALIDO','Falta indicar qué actualizar.');
+  if(profile.creation){
+   assert(!busy.has(actor),409,'IMPORTACION_EN_CURSO','Esperá la revisión del adjunto.');busy.add(actor);
+   try{
+    const prior=db.prepare("SELECT id FROM proposals WHERE actor=? AND json_extract(body,'$.origin.importacion')=? AND json_extract(body,'$.operation')='insert'").all(actor,id);
+    assert(!prior.some(p=>store.execution(p.id,actor)),409,'ALTA_YA_INICIADA','Este archivo ya inició un alta. Consultá su resultado; no se creará otro documento con la misma revisión.');
+    invalidateCreationProposals();
+    const result=await prepareAttachmentCreation({actor,draft,input,read,prepare});
+    db.prepare('UPDATE price_imports SET body=? WHERE id=? AND actor=?').run(JSON.stringify({...draft,lastResult:result}),id,actor);
+    return result;
+    function invalidateCreationProposals(){
+     for(const p of prior){const old=store.get(p.id,actor);old.status='superseded';old.executionEnabled=false;db.prepare('UPDATE proposals SET body=? WHERE id=?').run(JSON.stringify(old),p.id);}
+    }
+   }finally{busy.delete(actor);}
+  }
   const updateFields=input?.updateFields||'prices';
   assert(['prices','quantities','both'].includes(updateFields),400,'CAMPOS_INVALIDOS','Elegí precios, cantidades o ambos.');
   const changePrice=updateFields!=='quantities',changeQuantity=updateFields!=='prices';

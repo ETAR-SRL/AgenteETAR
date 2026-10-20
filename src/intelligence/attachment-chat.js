@@ -3,7 +3,7 @@ import {importAction,importProfiles} from './price-imports.js';
 import {importedNumber} from './document-reader.js';
 
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
-const fields=['party','shop','list','number','currency','unit','quantityUnit','updateFields'];
+const fields=['party','shop','list','number','currency','unit','quantityUnit','updateFields','emission','due','warehouse','payment','requester','requesterCode','buyer','costCenter'];
 const properties=Object.fromEntries(fields.map(k=>[k,{type:'string'}]));
 const schema={type:'object',properties:{kind:{type:'string',enum:['','proveedor','cliente','pedidoVenta','pedidoCompra','solicitudCompra']},update:{type:'boolean'},...properties,
  edits:{type:'array',maxItems:30,items:{type:'object',properties:{row:{type:'string'},product:{type:'string'},price:{type:'string'},quantity:{type:'string'},quantityUnit:{type:'string'},currency:{type:'string'},unit:{type:'string'},number:{type:'string'},item:{type:'string'},record:{type:'string'},exclude:{type:'boolean'}},required:['row'],additionalProperties:false}}},
@@ -16,9 +16,37 @@ export function literalAttachmentIntent(text,state={}){
  else if(/\bpedido(?:s)? (?:\d+ )?(?:de )?compra|\borden(?:es)?(?: \d+)? de compra|\bsc7\b/.test(n))out.kind='pedidoCompra';
  else if(/\bproveedor(?:es)?\b|\baib\b/.test(n))out.kind='proveedor';
  else if(/\bcliente(?:s)?\b|\bda1\b/.test(n))out.kind='cliente';
+ const creating=/\b(crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?)\b|\bdesde cero\b|\b(?:nuevo|nueva)\s+(?:pedido|solicitud)\b/.test(n);
+ if(creating){
+  out.create=true;
+  out.update=true;
+  const kind=out.kind||state.kind;
+  if(['pedidoCompra','crearPedidoCompra'].includes(kind))out.kind='crearPedidoCompra';
+  else if(['solicitudCompra','crearSolicitudCompra'].includes(kind))out.kind='crearSolicitudCompra';
+  else if(kind==='proveedor'&&/\bpedidos?\b/.test(n))out.kind='crearPedidoCompra';
+ }
+ if(importProfiles[state.kind]?.creation){
+  if(['proveedor','cliente'].includes(out.kind))delete out.kind;
+  if(out.kind==='pedidoCompra'&&!/\bactualiz|\bmodific|\bcambi/.test(n))out.kind='crearPedidoCompra';
+  if(out.kind==='solicitudCompra'&&!/\bactualiz|\bmodific|\bcambi/.test(n))out.kind='crearSolicitudCompra';
+ }
+ for(const [key,re] of Object.entries({
+  emission:/\b(?:fecha de )?emisi[oó]n\s*(?::|es)?\s*(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})/i,
+  due:/\b(?:fecha de )?(?:necesidad|entrega)\s*(?::|es)?\s*(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})/i,
+  warehouse:/\bdep[oó]sito\s*(?::|es)?\s*([a-z0-9_-]+)/i,
+  payment:/\b(?:condici[oó]n de pago|pago)\s*(?::|es)?\s*([^,;\n]+)/i,
+  requester:/\bsolicitante\s*(?::|es)?\s*([^,;\n]+)/i,
+  requesterCode:/\b(?:usuario (?:ERP|Protheus)|c[oó]digo solicitante)\s*(?::|es)?\s*([a-z0-9_-]+)/i,
+  buyer:/\bcomprador\s*(?::|es)?\s*([a-z0-9_-]+)/i,
+  costCenter:/\bcentro de costo\s*(?::|es)?\s*([a-z0-9_-]+)/i
+ })){const m=re.exec(text);if(m)out[key]=m[1].trim();}
+ if(state.missing?.length===1&&!Object.keys(out).some(k=>fields.includes(k))){
+  const key=state.missing[0];
+  if(['emission','due','warehouse','payment','requester','requesterCode','buyer'].includes(key)&&text.trim().length<=120)out[key]=text.trim();
+ }
  // A party clarification must not turn an existing order into a price list.
  if(importProfiles[state.kind]?.order&&['cliente','proveedor'].includes(out.kind))delete out.kind;
- const party=/(?:proveedor|cliente)\s+(?:(?:es|se llama)\s+)?(.+?)(?=\s+(?:tienda|lista|en (?:d[oó]lares|pesos|usd|ars)|por (?:millar|unidad))\b|[,;\n]|$)/i.exec(text);
+ const party=/(?:proveedor|cliente)\s+(?:(?:es|se llama)\s+)?(.+?)(?=\s+(?:tienda|lista|en (?:d[oó]lares|pesos|usd|ars)|por (?:millar|unidad)|con (?:este|el|ese) (?:archivo|adjunto|excel|pdf)|usando|a partir de)\b|[,;\n]|$)/i.exec(text);
  if(party)out.party=party[1].trim().replace(/^["«]|["».]$/g,'');
  for(const [key,re] of Object.entries({shop:/\btienda\s+([a-z0-9-]+)/i,list:/\blista\s+(?:n[°º.]?\s*)?([0-9]+)/i,number:/\b(?:pedido|solicitud|documento|orden)(?:\s+de\s+(?:venta|compra))?\s*(?:es\s+(?:la|el)\s+)?(?:n(?:ro|[uú]mero)?[°º.]?\s*)?([0-9][a-z0-9-]*)/i})){
   const m=re.exec(text);if(m)out[key]=m[1];
@@ -56,7 +84,7 @@ export function literalAttachmentIntent(text,state={}){
   const amount=/\bcantidad\s+(?:(?:a|es)\s+)?(\d+(?:[.,]\d+)?)/i.exec(text);
   if(amount)edit.quantity=importedNumber(amount[1]);
   if(/\b(exclui|omiti|quita|saca|descarta|ignora)/.test(n))edit.exclude=true;
-  for(const k of ['unit','currency','quantityUnit'])if(out[k]){edit[k]=out[k];delete out[k];}
+  for(const k of ['unit','currency','quantityUnit','warehouse','due','costCenter'])if(out[k]){edit[k]=out[k];delete out[k];}
   delete out.updateFields; // A row correction must not change the selected columns for every other row.
   out.edits.push(edit);
  }
@@ -117,10 +145,13 @@ export function createAttachmentChat({imports,authorize,model}){
   imports.invalidate(actor,id);
   const intent=await attachmentIntent(input.text,state,model);
   if(conversation.attachment&& !state.missing?.length&&!intent.update&&!intent.kind&&!fields.some(k=>intent[k])&&!intent.edits?.length)return null;
-  if(/\bno\s+(?:actuali|cambi|modifi|apli)/i.test(norm(input.text)))return {answer:'No aplicaré cambios. El archivo sigue disponible para revisarlo.',attachment:{id,name:draft.name}};
-  if(/\b(crea|crear|desde cero)\b|\b(?:nuevo|nueva)\s+(?:pedido|solicitud|documento)\b/.test(norm(input.text)))return {answer:'Este archivo está en el flujo de actualización de registros existentes. Para crear un documento desde cero, quitá el adjunto e indicá el alta en el chat con sus datos. No preparé una actualización.',attachment:{id,name:draft.name}};
+  if(/\bno\s+(?:actuali|cambi|modifi|apli|cre[ae]|gener|arm)/i.test(norm(input.text)))return {answer:'No aplicaré cambios. El archivo sigue disponible para revisarlo.',attachment:{id,name:draft.name}};
+  if(intent.create&&!importProfiles[intent.kind||state.kind]?.creation)return {answer:'Desde adjuntos puedo crear pedidos de compra o solicitudes. Indicá cuál de esos documentos querés crear; no preparé ninguna actualización.',attachment:{id,name:draft.name}};
   if(intent.kind&&intent.kind!==state.kind){
-   if(state.kind){state.values={};state.rows=structuredClone(draft.rows);}
+   if(state.kind){
+    state.values={...draft.defaults};state.rows=structuredClone(draft.rows);
+    if(importProfiles[state.kind]?.party!==importProfiles[intent.kind]?.party)for(const key of ['party','shop','list'])delete state.values[key];
+   }
    state.kind=intent.kind;
   }
   state.requested||=intent.update;
@@ -128,15 +159,29 @@ export function createAttachmentChat({imports,authorize,model}){
   for(const edit of intent.edits||[]){
    const row=state.rows.find(r=>r.id===edit.row);
    assert(row,400,'FILA_NO_EXISTE','No existe esa fila en el adjunto.');
-   for(const k of ['product','price','quantity','quantityUnit','unit','currency','number','item','record','exclude'])if(edit[k]!==undefined)row[k]=edit[k];
+   for(const k of ['product','price','quantity','quantityUnit','unit','currency','number','item','record','exclude','warehouse','due','costCenter'])if(edit[k]!==undefined)row[k]=edit[k];
   }
   conversation.attachment=state;
-  const rows=state.rows.filter(r=>!r.exclude).map(r=>({...r,...Object.fromEntries(['unit','currency','quantityUnit'].filter(k=>state.values[k]&&intent[k]).map(k=>[k,state.values[k]]))}));
+  const rows=state.rows.filter(r=>!r.exclude).map(r=>({...r,...Object.fromEntries(['unit','currency','quantityUnit','warehouse','due','costCenter'].filter(k=>state.values[k]&&intent[k]).map(k=>[k,state.values[k]]))}));
   // Persist explicit global corrections, preserving later row-specific corrections.
   state.rows=state.rows.map(r=>rows.find(x=>x.id===r.id)||r);
+  if(importProfiles[state.kind]?.creation){
+   authorize(state.kind,branch);
+   const attachment={id,name:draft.name,kind:state.kind,rows:state.rows,defaults:state.values};
+   if(!state.requested)return {answer:'¿Querés crear un documento nuevo con estas filas?',attachment};
+   imports.classify(actor,id,state.kind);
+   try{
+    const result=await imports.preview(actor,id,{...state.values,rows,reviewed:true});
+    state.missing=result.missing||[];
+    return {answer:result.message,attachment,proposal:result.proposal,issues:result.issues,choices:result.choices};
+   }catch(error){
+    if(['LECTURA_DENEGADA','ACCION_DENEGADA','ACCESO_CAMBIO'].includes(error.code)||!error.code)throw error;
+    return {answer:`No preparé el alta: ${error.message}`,attachment};
+   }
+  }
   const missing=[],questions=[];
   const ask=(key,question)=>{missing.push(key);questions.push(question);};
-  if(!state.requested)ask('instruction','¿Qué querés actualizar con el archivo?');
+  if(!state.requested)ask('instruction','¿Qué querés crear o actualizar con el archivo?');
   if(!state.kind)ask('kind','¿Actualizamos la lista de un proveedor o cliente, un pedido de venta/compra o una solicitud existente?');
   else{
    authorize(state.kind,branch); // before any ERP lookup

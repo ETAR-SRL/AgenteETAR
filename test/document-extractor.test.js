@@ -31,6 +31,14 @@ im=Image.new('RGB',(1400,400),'white');d=ImageDraw.Draw(im)
 for i,r in enumerate(rows):
  for x,v in zip([50,500,950],r):d.text((x,70+i*100),str(v),font=font,fill='black')
 im.save(p/'quantity.png');im.save(p/'quantity.pdf','PDF',resolution=150)
+rows=[['Producto','Cantidad','Precio','Moneda','Base cantidad','Base precio','Deposito','Entrega'],['ZTEST1',2.5,80,'ARS','millares','millar','01','20/10/2026']]
+w=openpyxl.Workbook();s=w.active
+for r in rows:s.append(r)
+w.save(p/'purchase.xlsx')
+im=Image.new('RGB',(2600,400),'white');d=ImageDraw.Draw(im);font=ImageFont.truetype('C:/Windows/Fonts/arial.ttf',28)
+for i,r in enumerate(rows):
+ for x,v in zip([40,350,650,950,1250,1600,1950,2250],r):d.text((x,70+i*100),str(v),font=font,fill='black')
+im.save(p/'purchase.png');im.save(p/'purchase.pdf','PDF',resolution=150)
 `,dir],{windowsHide:true});
   for(const file of ['list.xlsx','list.png','list.pdf']){
    const req=createReadStream(join(dir,file));req.headers={'x-file-name':file};
@@ -42,6 +50,13 @@ im.save(p/'quantity.png');im.save(p/'quantity.pdf','PDF',resolution=150)
    const result=await reader.extract(req);assert.equal(result.rows.length,1,file);
    assert.equal(result.rows[0].product,'ZTEST1',file);assert.equal(result.rows[0].quantity,'2.5',file);
    assert.equal(result.rows[0].quantityUnit,'millares',file);assert.equal(result.rows[0].price,'',file);
+  }
+  for(const file of ['purchase.xlsx','purchase.png','purchase.pdf']){
+   const req=createReadStream(join(dir,file));req.headers={'x-file-name':file};
+   const result=await reader.extract(req),row=result.rows[0];assert.equal(result.rows.length,1,file);
+   assert.equal(row.product,'ZTEST1',file);assert.equal(row.quantity,'2.5',file);assert.equal(row.price,'80',file);
+   assert.equal(row.quantityUnit,'millares',file);assert.equal(row.unit,'millar',file);
+   assert.equal(row.warehouse,'01',file);assert.equal(row.due,'20/10/2026',file);
   }
  }finally{await rm(dir,{recursive:true,force:true});}
 });

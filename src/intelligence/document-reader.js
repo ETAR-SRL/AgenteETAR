@@ -28,10 +28,15 @@ export function parsePriceTables(extracted){
  const orderKinds=destinations.filter(k=>!['proveedor','cliente'].includes(k));
  if(orderKinds.length===1)defaults.kind=orderKinds[0];else if(destinations.length===1)defaults.kind=destinations[0];
  defaults.number=/(?:pedido de (?:venta|compra)|orden de compra|solicitud(?: de compra)?)\s*:\s*([a-z0-9-]+)/i.exec(allText)?.[1]||'';
+ for(const [key,label] of Object.entries({emission:'(?:fecha de )?emisi[oó]n',due:'(?:fecha de )?(?:necesidad|entrega)',warehouse:'dep[oó]sito',payment:'condici[oó]n de pago',requester:'solicitante',requesterCode:'usuario (?:ERP|Protheus)',buyer:'comprador',costCenter:'centro de costo'})){
+  const found=new RegExp(`(?:^|\\n)${label}\\s*:\\s*([^\\n|;]+)`,'i').exec(allText)?.[1]?.trim();
+  if(found)defaults[key]=found;
+ }
  const aliases={product:/^(?:codigo|cod\.?|producto|articulo|sku|codigo (?:del |de )?(?:producto|proveedor)|cod\.? (?:art|prov)\.?|referencia|part number)$/,description:/^(?:descripcion|detalle|denominacion)$/,price:/^(?:precio(?: (?:nuevo|neto|unitario|lista|por unidad|por millar))?|importe|valor(?: unitario)?|costo|price|p\.? unit\.?)$/,currency:/^(?:moneda|divisa|currency)$/,unit:/^(?:unidad|u\.?m\.?|unidad de medida|base|presentacion)$/,number:/^(?:(?:nro\.?|numero|n[uú]m\.?) (?:de )?)?(?:pedido(?: de (?:venta|compra))?|solicitud|documento|orden de compra)$/,item:/^(?:item|renglon|linea|posicion)$/};
  aliases.quantity=/^(?:cantidad(?: (?:nueva|pedida|en (?:millares|unidades)))?|cant\.?|qty|quantity)$/;
- aliases.quantityUnit=/^(?:base cantidad|unidad cantidad|unidad de cantidad|um cantidad|base de cantidad)$/;
- aliases.unit=/^(?:unidad|u\.?m\.?|unidad de medida|base|presentacion|base precio|base del precio)$/;
+ aliases.quantityUnit=/^(?:base\s*cantidad|unidad cantidad|unidad de cantidad|um cantidad|base de cantidad)$/;
+ aliases.unit=/^(?:unidad|u\.?m\.?|unidad de medida|base|presentacion|base\s*precio|base del precio)$/;
+ Object.assign(aliases,{warehouse:/^(?:deposito|almacen|local)$/,due:/^(?:(?:fecha de? )?(?:necesidad|entrega)|fecha necesidad)$/,costCenter:/^centro (?:de )?costo$/,observation:/^observaciones?$/});
  for(const table of extracted.tables){
   let header=-1,columns={};
   for(let i=0;i<Math.min(30,table.rows.length);i++){
@@ -58,6 +63,7 @@ export function parsePriceTables(extracted){
    const quantityWarning=rawQuantity&&!quantity?'Cantidad no reconocida o separador ambiguo: corregila antes de confirmar.':'';
    rows.push({id:String(rows.length+1),product:String(product).trim(),description:String(description).trim(),price:importedNumber(rawPrice),rawPrice:String(rawPrice),currency:String(currency).trim()||defaults.currency,unit:String(unit).trim()||defaults.unit,number:String(cells[columns.number]??'').trim(),item:String(cells[columns.item]??'').trim(),source:source.slice(0,2000),location:`${table.name} · fila ${i+1}`,ocr:!!table.ocr,confidence:table.scores?.[i]??null,warning:!importedNumber(rawPrice)?'Importe no reconocido o separador ambiguo: completalo en decimal sin miles.':header<0?'Columnas inferidas; verificá contra el original.':''});
    Object.assign(rows.at(-1),{quantity,rawQuantity,quantityUnit});
+   for(const key of ['warehouse','due','costCenter','observation'])rows.at(-1)[key]=String(cells[columns[key]]??'').trim();
    if(!String(rawPrice).trim())rows.at(-1).warning='';
    if(quantityWarning)rows.at(-1).warning=[rows.at(-1).warning,quantityWarning].filter(Boolean).join(' ');
   }

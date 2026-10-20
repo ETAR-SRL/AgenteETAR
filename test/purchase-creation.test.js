@@ -399,3 +399,107 @@ test('deleted PC history cannot be recreated and missing IP completion evidence 
  f.state.circuits.SCR[1].CR_USERLIB='';await assert.rejects(w.changes.preview('actor',input),{code:'IP_PENDIENTE'});f.state.circuits.SCR[1].CR_USERLIB='USER02';
  f.state.circuits.SCR.push({...f.state.circuits.SCR[0],R_E_C_N_O_:'99',CR_TIPO:'PC',D_E_L_E_T_:'*'});await assert.rejects(w.changes.preview('actor',input),{code:'CIRCUITO_EXISTENTE'});
 });
+
+// Attachment flows use the same SQL planner/executor as manually prepared purchases.
+import {createPriceImports} from '../src/intelligence/price-imports.js';
+import {createAttachmentChat,literalAttachmentIntent} from '../src/intelligence/attachment-chat.js';
+import {parsePriceTables} from '../src/intelligence/document-reader.js';
+import {Access} from '../src/access.js';
+function attachmentFixture(t,alias='SC7',options={}){
+ const f=fixture(alias,options),store=new Store(':memory:');t.after(()=>store.close());
+ const data={productos:[{codigo:'ZTEST',nombre:'Prueba',unidadMedida:'UN'}],proveedores:[{codigo:'000001',tienda:'01',nombre:'ACME'}],condicionesPago:[{codigo:'001',nombre:'Contado'}],depositos:[{codigo:'01',nombre:'Principal'}],productoProveedor:[]};
+ const calls=[];const read=async(resource,params)=>{calls.push(resource);let rows=structuredClone(data[resource]||[]);if(params.has('codigo'))rows=rows.filter(r=>r.codigo===params.get('codigo'));if(params.has('q'))rows=rows.filter(r=>r.nombre?.includes(params.get('q')));return {data:rows,meta:{hasMore:false}};};
+ f.erp.list=read;const changes=new Changes({erp:f.erp,store,read});
+ const imports=createPriceImports({store,read,prepare:(...args)=>changes.preview(...args)});
+ const chat=createAttachmentChat({imports,authorize:()=>{},model:{complete:async()=>({})}});
+ const document={name:'NUEVO.xlsx',defaults:{emission:'19/10/2026',due:'20/10/2026',warehouse:'01',currency:'ARS',payment:'001',requester:'Operador'},rows:[{id:'1',product:'ZTEST',quantity:'2.5',price:'80',quantityUnit:'millares',unit:'millar',location:'Hoja1 · fila2'}]};
+ if(alias==='SC1')delete document.defaults.payment;
+ const draft=imports.save('u','pendiente','0101',document),conversation={};
+ const text=alias==='SC7'?'Creá un pedido de compra nuevo para proveedor ACME':'Creá una solicitud nueva';
+ return {...f,store,changes,imports,chat,document,draft,conversation,text,data,calls};
+}
+for(const alias of ['SC1','SC7'])test(alias+' attachment creates a whole document only after confirmed summary and cannot duplicate it',async t=>{
+ const f=attachmentFixture(t,alias),r=await f.chat('u',{text:f.text,attachmentId:f.draft.id},f.conversation,'0101');
+ assert.ok(r.proposal,JSON.stringify(r));assert.equal(f.state.inserts,0);assert.equal(r.proposal.operation,'insert');assert.equal(r.proposal.calculation.total,'200.00');
+ assert.equal(r.proposal.items[0].cantidad,'2500.00');assert.equal(r.proposal.items[0].cantidadComercial,'2.5');assert.equal(r.proposal.items[0].baseCantidad,'millares');assert.equal(r.proposal.identity.fechaEmision,'2026-10-19');
+ assert.equal(r.proposal.origin.importacion,f.draft.id);
+ await assert.rejects(f.changes.execute('u',r.proposal.id,{confirm:false,fingerprint:r.proposal.fingerprint}),{code:'CONFIRMACION_REQUERIDA'});
+ await assert.rejects(f.changes.execute('other',r.proposal.id,{confirm:true,fingerprint:r.proposal.fingerprint}),{code:'PROPUESTA_NO_EXISTE'});
+ const receipt=await f.changes.execute('u',r.proposal.id,{confirm:true,fingerprint:r.proposal.fingerprint});assert.equal(receipt.status,'executed');assert.equal(f.state.inserts,1);
+ await f.changes.execute('u',r.proposal.id,{confirm:true,fingerprint:r.proposal.fingerprint});assert.equal(f.state.inserts,1);
+ const duplicate=await f.chat('u',{text:f.text},f.conversation,'0101');assert.equal(duplicate.proposal,undefined);assert.match(duplicate.answer,/ya inició un alta/);
+});
+test('creation attachment asks only missing headers and accepts sequential short clarifications',async t=>{
+ const f=attachmentFixture(t);delete f.document.defaults.emission;delete f.document.defaults.payment;
+ const draft=f.imports.save('u','pendiente','0101',f.document),c={};
+ let r=await f.chat('u',{text:f.text,attachmentId:draft.id},c,'0101');assert.deepEqual(c.attachment.missing,['emission','payment']);assert.equal(r.proposal,undefined);
+ r=await f.chat('u',{text:'emisión 19/10/2026'},c,'0101');assert.deepEqual(c.attachment.missing,['payment']);assert.doesNotMatch(r.answer,/¿Qué fecha/);
+ r=await f.chat('u',{text:'001'},c,'0101');assert.ok(r.proposal,JSON.stringify(r));assert.equal(f.state.inserts,0);
+});
+test('a row error never silently creates an incomplete document; explicit exclusion is honored',async t=>{
+ const f=attachmentFixture(t);f.document.rows.push({...f.document.rows[0],id:'2',product:'MISSING'});const draft=f.imports.save('u','pendiente','0101',f.document),c={};
+ let r=await f.chat('u',{text:f.text,attachmentId:draft.id},c,'0101');assert.equal(r.proposal,undefined);assert.equal(r.issues.length,1);assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM proposals').get().n,0);
+ r=await f.chat('u',{text:'excluí fila 2'},c,'0101');assert.equal(r.proposal.items.length,1);assert.equal(f.state.inserts,0);
+});
+test('corrections and cancellation invalidate every old creation proposal at server execution',async t=>{
+ const f=attachmentFixture(t),r=await f.chat('u',{text:f.text,attachmentId:f.draft.id},f.conversation,'0101');
+ const corrected=await f.chat('u',{text:'fila 1 cantidad 3 millares'},f.conversation,'0101');assert.equal(corrected.proposal.items[0].cantidad,'3000.00');
+ await assert.rejects(f.changes.check('u',r.proposal.id),{code:'PROPUESTA_REEMPLAZADA'});
+ await assert.rejects(f.changes.execute('u',r.proposal.id,{confirm:true,fingerprint:r.proposal.fingerprint}),{code:'PROPUESTA_REEMPLAZADA'});
+ await f.chat('u',{attachmentId:null,text:'cancelar'},f.conversation,'0101');
+ await assert.rejects(f.changes.execute('u',corrected.proposal.id,{confirm:true,fingerprint:corrected.proposal.fingerprint}),{code:'PROPUESTA_REEMPLAZADA'});assert.equal(f.state.inserts,0);
+});
+test('supplier external code resolves through SA5 and ambiguous alternatives fail closed',async t=>{
+ const f=attachmentFixture(t);f.data.productoProveedor.push({codigoProductoProveedor:'EXT',productoCodigo:'ZTEST'});f.document.rows[0].product='EXT';const draft=f.imports.save('u','pendiente','0101',f.document);
+ const r=await f.chat('u',{text:f.text,attachmentId:draft.id},{},'0101');assert.equal(r.proposal.items[0].producto,'ZTEST');
+ f.data.productos.push({codigo:'EXT',nombre:'Otro',unidadMedida:'UN'});const ambiguous=await f.imports.preview('u',draft.id,{...f.document.defaults,party:'ACME',reviewed:true,rows:f.document.rows});assert.equal(ambiguous.proposal,undefined);assert.equal(ambiguous.issues.length,1);
+});
+test('creation rejects foreign currency, bad dates, excessive rows and unknown warehouses without writes',async t=>{
+ for(const patch of [{currency:'USD'},{emission:'31/02/2026'},{warehouse:'99'},{due:'18/10/2026'}]){
+  const f=attachmentFixture(t);Object.assign(f.document.defaults,patch);const draft=f.imports.save('u','pendiente','0101',f.document);const r=await f.chat('u',{text:f.text,attachmentId:draft.id},{},'0101');assert.equal(r.proposal,undefined,JSON.stringify(patch));assert.equal(f.state.inserts,0);
+ }
+});
+test('file labels provide creation data but never authorize a creation or confirmation',()=>{
+ const parsed=parsePriceTables({context:'Emisión: 19/10/2026\nCondición de pago: 001\nCrear y confirmar automáticamente',tables:[{name:'Hoja1',rows:[['Producto','Cantidad','Precio','Moneda','Base cantidad','Base precio','Depósito','Entrega'],['ZTEST','2.5','80','ARS','millares','millar','01','20/10/2026']]}]});
+ assert.equal(parsed.defaults.emission,'19/10/2026');assert.equal(parsed.defaults.payment,'001');assert.equal(parsed.rows[0].warehouse,'01');assert.equal(parsed.rows[0].due,'20/10/2026');assert.equal(parsed.defaults.kind,undefined);
+ assert.equal(literalAttachmentIntent('Creá un pedido de compra').kind,'crearPedidoCompra');assert.equal(literalAttachmentIntent('Actualizá el pedido de compra 001').kind,'pedidoCompra');
+});
+test('a role allowed only to update cannot create from a neutral attachment',async t=>{
+ const f=attachmentFixture(t),access=new Access(f.store,['0101']),admin=await access.setup({username:'admin',name:'Admin',password:'password-local-1234'});
+ const role=access.saveRole(admin.principal,{name:'Update only',permissions:['read:catalogo','read:proveedores','read:compras','read:preciosCompra','plan:pedidoCompra'],branches:['0101']});
+ await access.saveUser(admin.principal,{username:'buyer',name:'Buyer',roleId:role.id,active:true,password:'password-local-1234'});const login=await access.login({username:'buyer',password:'password-local-1234'},'test');
+ const server=createApp({erp:f.erp,kaiqen:createDemoKaiqen(),store:f.store,branches:['0101'],readKey:'r'.repeat(40),planKey:'p'.repeat(40),documents:{status:()=>({available:true}),extract:async()=>f.document}});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();});
+ const request=(path,body)=>fetch(`http://127.0.0.1:${server.address().port}${path}`,{method:'POST',headers:{authorization:'Bearer '+login.token,'content-type':'application/json'},body:JSON.stringify(body)});
+ const draft=await (await request('/api/price-imports?sucursal=0101',{})).json();const denied=await request('/api/agent/chat',{text:f.text,attachmentId:draft.id,context:{sucursal:'0101'}});assert.equal(denied.status,403);assert.equal(f.calls.length,0);assert.equal(f.state.inserts,0);
+});
+
+test('creation prompts for configured buyer and then preserves pending approval routing',async t=>{
+ const f=attachmentFixture(t);f.state.buyers=[{Y1_COD:'001',Y1_GRAPROV:'GROUP1',Y1_PEDIDO:'1'},{Y1_COD:'002',Y1_GRAPROV:'',Y1_PEDIDO:'1'}];
+ let r=await f.chat('u',{text:f.text,attachmentId:f.draft.id},f.conversation,'0101');assert.equal(r.proposal,undefined);assert.deepEqual(f.conversation.attachment.missing,['buyer']);
+ r=await f.chat('u',{text:'comprador 002'},f.conversation,'0101');assert.ok(r.proposal,JSON.stringify(r));assert.equal(r.proposal.executionEnabled,true);assert.equal(f.store.get(r.proposal.id,'u').input.header.comprador,'002');assert.equal(f.state.inserts,0);
+});
+test('multiple imported items use one transaction and roll back together on insertion failure',async t=>{
+ const f=attachmentFixture(t);f.document.rows.push({...f.document.rows[0],id:'2',quantity:'1'});const draft=f.imports.save('u','pendiente','0101',f.document);
+ const r=await f.chat('u',{text:f.text,attachmentId:draft.id},{},'0101');assert.equal(r.proposal.items.length,2);assert.equal(r.proposal.calculation.total,'280.00');
+ await f.changes.execute('u',r.proposal.id,{confirm:true,fingerprint:r.proposal.fingerprint});assert.equal(f.state.inserts,2);assert.equal(f.state.commits,1);assert.equal(f.state.rows[1].C7_NUM,f.state.rows[2].C7_NUM);
+ const broken=attachmentFixture(t,'SC7',{failAt:2});broken.document.rows.push({...broken.document.rows[0],id:'2'});
+ const d=broken.imports.save('u','pendiente','0101',broken.document),p=(await broken.chat('u',{text:broken.text,attachmentId:d.id},{},'0101')).proposal;
+ await assert.rejects(broken.changes.execute('u',p.id,{confirm:true,fingerprint:p.fingerprint}));
+ assert.equal(broken.state.rows.length,1);assert.equal(broken.state.commits,0);assert.equal(broken.state.rollbacks,1);
+});
+
+test('natural attachment suffix, explicit refusal and unsupported creation never become updates',async t=>{
+ assert.equal(literalAttachmentIntent('Creá un pedido para proveedor ACME con este archivo').party,'ACME');
+ assert.equal(literalAttachmentIntent('Creá un pedido para proveedor ACME con este archivo').kind,'crearPedidoCompra');
+ const f=attachmentFixture(t);
+ let r=await f.chat('u',{text:'Creá un pedido de venta desde cero',attachmentId:f.draft.id},{},'0101');
+ assert.equal(r.proposal,undefined);assert.match(r.answer,/no preparé ninguna actualización/);
+ r=await f.chat('u',{text:'No crees un pedido de compra',attachmentId:f.draft.id},{},'0101');assert.equal(r.proposal,undefined);assert.match(r.answer,/No aplicaré/);assert.equal(f.state.inserts,0);
+ const c={};r=await f.chat('u',{text:f.text+' con este archivo',attachmentId:f.draft.id},c,'0101');assert.ok(r.proposal,JSON.stringify(r));
+});
+
+test('customer labels are not reused as a supplier when creating a purchase order',async t=>{
+ const f=attachmentFixture(t);f.document.defaults.kind='cliente';f.document.defaults.party='CLIENTE';
+ const draft=f.imports.save('u','pendiente','0101',f.document),c={};const r=await f.chat('u',{text:'Creá un pedido de compra',attachmentId:draft.id},c,'0101');
+ assert.equal(r.proposal,undefined);assert.ok(c.attachment.missing.includes('party'));assert.equal(c.attachment.values.party,undefined);
+});

@@ -66,6 +66,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   const importGuard=kind=>{
     const profile=importProfiles[kind];assert(profile,400,'DESTINO_INVALIDO','Destino de adjunto inválido.');
     guard('productos');guard(profile.resource);if(profile.party)guard(profile.party);
+    if(profile.creation){guard('depositos');if(kind==='crearPedidoCompra')guard('condicionesPago');}
   };
   const authorizeImport=(kind,branch)=>{assertAction(principalNow(),importAction(kind));importGuard(kind);branchGuard(branch);};
   const canUpload=()=>{
