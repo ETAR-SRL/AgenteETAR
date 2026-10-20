@@ -37,6 +37,8 @@ Las sucursales restringen las consultas y operaciones ERP. KAIQEN conserva el al
 
 ## API, chat y memoria
 
+La preparación conversacional directa de SC1 exige permiso de preparar `crearSolicitudCompra` antes de leer referencias, además de los permisos de cada lectura. Sus datos pendientes se guardan dentro de la conversación del actor y se descartan al cambiar de sucursal, cancelar o iniciar otra operación. No agrega rutas ni permisos de ejecución.
+
 Los nuevos comprobantes, pendientes y resúmenes declaran las áreas de ventas o compras, terceros, precios y catálogo. Los recursos antiguos sin clasificación `documentosSalida`, `itemsDocumentosSalida` y `entradasCompras` requieren ambas áreas: contienen también notas de crédito en sentido inverso. Para un rol de una sola área usar los recursos clasificados descritos en [consultas comerciales](consultas-comerciales.md).
 
 El servidor verifica permisos antes de llamar al conector, incluyendo búsquedas, alias, consultas combinadas y herramientas de la IA. Ante una lectura denegada devuelve HTTP 403 `LECTURA_DENEGADA`, con **«Esto no podés leerlo.»**. El chat detiene la búsqueda ante esa denegación, descarta los resultados parciales de esa respuesta y no pide al modelo que busque una alternativa para eludirla.

@@ -48,6 +48,12 @@ test('AI terminates with the explicit denial, without passing protected data to 
  const r=await f.request('/api/agent/chat',{body:{text:'Mostrame los costos'}});assert.equal(r.status,200);assert.equal(r.data.answer,denied);assert.equal(r.data.accessDenied,true);assert.deepEqual(r.data.evidence,[]);assert.equal(turns,1);assert.deepEqual(f.calls,[]);assert.ok(!messages.join('').includes('9999'));
  const exact=await f.request('/api/agent/query',{body:{text:'mostrame los costos',context:{sucursal:'0101'}}});assert.equal(exact.status,403);
 });
+test('direct SC1 intake checks its action permission before reading any catalog',async t=>{
+ const f=await fixture(t,{name:'unused',complete:()=>{throw Error('Model must not run');}});
+ const r=await f.request('/api/agent/chat',{body:{text:'Creame una solicitud de compra con el producto 1'}});
+ assert.equal(r.status,200);assert.equal(r.data.accessDenied,true);assert.match(r.data.answer,/Esto no podés leerlo/);
+ assert.deepEqual(f.calls,[]);assert.deepEqual(r.data.evidence,[]);
+});
 test('denial after an allowed AI call clears partial evidence and cannot be bypassed by prompt instructions',async t=>{
  const sequence=[{action:'buscar',args:{recurso:'productos',texto:'Z1'},answer:''},{action:'consultar_erp',args:{recurso:'costos',filtros:{}},answer:''}];
  const f=await fixture(t,{name:'test',status:()=>({}),complete:async()=>sequence.shift()});

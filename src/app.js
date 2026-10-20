@@ -104,7 +104,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     return read(command.resource,params);
   }
   const attachmentChat=createAttachmentChat({imports:priceImports,authorize:authorizeImport,model:model||createModel()});
-  const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,attachmentChat,prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
+  const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,attachmentChat,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
   const server=http.createServer(async(req,res)=>{
     try{
       network.origin(req);

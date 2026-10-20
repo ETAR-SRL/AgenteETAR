@@ -8,10 +8,10 @@ const amount=value=>{try{return new Decimal(value).toSignificantDigits(15).toFix
 export function createBusinessTools({read,executeRead,kaiqen,branch,metadata,reportCurrencyRequested=true}){
  const query=(resource,filters={})=>read(resource,new URLSearchParams({...filters,sucursal:branch,limit:String(filters.limit||25)}));
  async function resolve(resource,term){
-   assert(text(term).length>=2&&term.length<=120,400,'TERMINO_REQUERIDO','Indicar código o nombre');
+   assert(text(term).length>=1&&term.length<=120,400,'TERMINO_REQUERIDO','Indicar código o nombre');
    const generic=term.normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/^(un|una|el|la|los|las|ese|esa|este|esta)\s+/,'');
    if(/^(producto|articulo|pieza|cliente|proveedor|lista)s?$/.test(generic))return {kind:'clarification',message:'¿Cuál es el nombre, código o descripción del producto, cliente o lista que querés consultar?',data:[],meta:{needsIdentifier:true,hasMore:false}};
-   const exact=await query(resource,{codigo:term,limit:12});if(exact.data.length)return exact;
+   const exact=await query(resource,{codigo:term,limit:12});if(exact.data.length||text(term).length===1)return exact;
    const words=term.split(/\s+/).filter(w=>!['de','del','la','el','los','las'].includes(w.toLowerCase()));
    const search=words.join(' ')||term;return query(resource,{q:search,limit:12});
  }
