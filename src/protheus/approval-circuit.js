@@ -58,7 +58,7 @@ export function superiorRoute(approver,member,SAK,SAL){
 
 // Builds only pending approval entries. Limits already consumed in SCS are
 // evaluated by Protheus when the approver acts, never consumed or reset here.
-export function buildApprovalCircuit({alias,group='',values,items,catalogs}){
+export function buildApprovalCircuit({alias,group='',values,items,catalogs,exchangeRate='1'}){
  const {SAL,SAK,DHL,DHM,DBL=[]}=catalogs,entity=alias==='SC1'?values.MV_APRSCEC:values.MV_APRPCEC;
  const type=alias==='SC1'?'SC':entity?'IP':'PC',batches=new Map(),excluded=[],routes=[];
  if(entity){
@@ -88,7 +88,7 @@ export function buildApprovalCircuit({alias,group='',values,items,catalogs}){
    const superiores=superiorRoute(approver,member,SAK,SAL);
    check(amount(profile.DHL_MOEDA,'DHL_MOEDA').eq(1)&&amount(approver.AK_MOEDA,'AK_MOEDA').eq(1),'Perfil y aprobador deben usar moneda local 1');
    const min=amount(profile.DHL_LIMMIN,'DHL_LIMMIN'),max=amount(profile.DHL_LIMMAX,'DHL_LIMMAX');check(max.gte(min),'Rango de perfil invertido');
-   const automatic=clean(member.AL_AUTOLIM)==='S',eligible=n=>!automatic||(n.gte(min)&&n.lte(max));
+   const automatic=clean(member.AL_AUTOLIM)==='S',eligible=n=>!automatic||(n.mul(exchangeRate).gte(min)&&n.mul(exchangeRate).lte(max));
    const selected=entity&&values.MV_PERFALC==='2'?batch.items.filter(i=>eligible(new D(i.total))):eligible(sum(batch.items))?batch.items:[];
    if(!selected.length){excluded.push({grupo:batch.group,itemGrupo:batch.groupItem,aprobador:clean(member.AL_APROV),motivo:'Importe fuera del rango del perfil'});continue;}
    pending.push({superiores,tipo:type,grupo:batch.group,itemGrupo:batch.groupItem,aprobador:clean(member.AL_APROV),usuario:user,nivel:level,perfil:clean(member.AL_PERFIL),minimo:min.toFixed(),maximo:max.toFixed(),tipoAprobacion:clean(member.AL_LIBAPR),tipoLiberacion:clean(member.AL_TPLIBER),limiteAutomatico:automatic,total:sum(selected).toFixed(2),items:selected.map(i=>({item:i.item,total:i.total})),limiteAprobador:amount(approver.AK_LIMITE,'AK_LIMITE').toFixed(),periodicidad:clean(approver.AK_TIPO)});
@@ -99,7 +99,7 @@ export function buildApprovalCircuit({alias,group='',values,items,catalogs}){
  const twoStage=alias==='SC7'&&entity&&values.MV_APRIPPC==='1';
  let deferred=[];
  if(twoStage){
-  const pc=buildApprovalCircuit({alias,group,values:{...values,MV_APRPCEC:false,MV_IPAPREC:false},items,catalogs});
+  const pc=buildApprovalCircuit({alias,group,values:{...values,MV_APRPCEC:false,MV_IPAPREC:false},items,catalogs,exchangeRate});
   excluded.push(...pc.excluded.map(e=>({...e,tipo:'PC'})));
   if(entries.length)deferred=pc.entries;else entries.push(...pc.entries);
  }

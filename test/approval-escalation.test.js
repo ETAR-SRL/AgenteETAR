@@ -133,3 +133,8 @@ test('one invalid document or unavailable branch does not starve a valid pending
  const scan=f.adapter.scan;f.adapter.branches=['9999','0101'];f.adapter.scan=(branch,after)=>branch==='9999'?Promise.reject({code:'SOURCE_ERROR'}):scan(branch,after);
  const worker=createApprovalScheduler({adapter:f.adapter,store,enabled:true});await worker.run();assert.equal(f.state.updates,1);assert.equal(worker.status().receipts.executed,1);assert.equal(worker.status().lastError,'SOURCE_ERROR');assert.equal(store.escalationHistory().issues.length,1);
 });
+for(const type of ['IP','PC'])test(type+' foreign currency escalation preserves the agreed rate and rejects mismatches',async()=>{
+ const f=fixture(type);Object.assign(f.state.rows.SCR[0],{CR_MOEDA:'2',CR_TXMOEDA:'1518'});Object.assign(f.state.rows.SC7[0],{C7_MOEDA:'2',C7_TXMOEDA:'1518'});
+ const p=await f.adapter.prepare(f.target);await f.adapter.execute(p);assert.equal(f.state.rows.SCR[0].CR_TXMOEDA,'1518');assert.equal(f.state.rows.SCR[0].CR_MOEDA,'2');assert.equal(f.state.rows.SCR[0].CR_TOTAL,'200');
+ const other=fixture(type);Object.assign(other.state.rows.SCR[0],{CR_MOEDA:'2',CR_TXMOEDA:'1518'});Object.assign(other.state.rows.SC7[0],{C7_MOEDA:'2',C7_TXMOEDA:'1500'});await assert.rejects(other.adapter.prepare(other.target),{code:'MONEDA_NO_SOPORTADA'});
+});

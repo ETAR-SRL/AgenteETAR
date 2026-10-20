@@ -49,7 +49,8 @@ export function createApprovalEscalation({db,catalog,getWriteDb,enabled,allowedB
   const row=found[0],decision=deadlineDecision(row,await today(connection));
   assert(decision.due,409,decision.reason,'El vencimiento no requiere transferencia');
   assert(!clean(row.CR_FLUIG)&&['','N'].includes(clean(row.CR_WF)),409,'FLUJO_EXTERNO','La aprobación pertenece a un flujo externo');
-  assert(sourceNumber(row.CR_MOEDA,'CR_MOEDA').eq(1)&&sourceNumber(row.CR_TXMOEDA,'CR_TXMOEDA').eq(1),409,'MONEDA_NO_SOPORTADA','Se requiere moneda local');
+  const currency=sourceNumber(row.CR_MOEDA,'CR_MOEDA'),rate=sourceNumber(row.CR_TXMOEDA,'CR_TXMOEDA');
+  assert(currency.isInteger()&&currency.gte(1)&&currency.lte(5)&&rate.gt(0)&&(currency.eq(1)?rate.eq(1):live.doc.length>0&&target.tipo!=='SC'&&live.doc.every(r=>sourceNumber(r.C7_MOEDA,'C7_MOEDA').eq(currency)&&sourceNumber(r.C7_TXMOEDA,'C7_TXMOEDA').eq(rate))),409,'MONEDA_NO_SOPORTADA','La moneda y cotización deben coincidir entre documento y circuito');
   const SAK=await readApprovalCatalog(connection,catalog,'SAK',target.sucursal,lock),SAL=await readApprovalCatalog(connection,catalog,'SAL',target.sucursal,lock);
   const approvers=SAK.filter(r=>clean(r.AK_COD)===clean(row.CR_APROV)&&clean(r.AK_USER)===clean(row.CR_USER));
   assert(approvers.length===1,409,'APROBADOR_AMBIGUO','No coincide el usuario y aprobador actual');

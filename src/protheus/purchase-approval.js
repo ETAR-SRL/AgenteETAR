@@ -23,7 +23,7 @@ export function resolveApprovalParameters(rows,branch,spec){
  }
  return {values,parameters,blockers};
 }
-export async function purchaseApproval({connection,catalog,alias,branch,buyerCode='',requester='',items=[],lock=false}){
+export async function purchaseApproval({connection,catalog,alias,branch,buyerCode='',requester='',items=[],exchangeRate='1',lock=false}){
  const spec=alias==='SC1'?{MV_APROVSC:'L',MV_APRSCEC:'L',MV_RESTSOL:'C'}:{MV_APRPCEC:'L',MV_PCAPROV:'C',MV_ALTPDOC:'L'};
  const sx6=catalog.table('SX6');requiredFields(sx6,['X6_FIL','X6_VAR','X6_TIPO','X6_CONTEUD','D_E_L_E_T_']);
  const values={},parameters=[],blockers=[],evidence={parameters:[],catalogs:{}};
@@ -67,7 +67,7 @@ export async function purchaseApproval({connection,catalog,alias,branch,buyerCod
    const rights=buildSimpleRequestApproval({items,requester,rows:(await load(['SAI'])).SAI,values:{...values,MV_APROVSC:!entity&&values.MV_APROVSC}});
    if(!entity)circuit=rights;
   }
-  if(entity||group)circuit=buildApprovalCircuit({alias,group,values,items,catalogs:await load(['SAL','SAK','DHL','DHM',...(entity?['DBL']:[])])});
+  if(entity||group)circuit=buildApprovalCircuit({alias,group,values,items,exchangeRate,catalogs:await load(['SAL','SAK','DHL','DHM',...(entity?['DBL']:[])])});
  }catch(error){
   if(!['CIRCUITO_INVALIDO','CIRCUITO_ESQUEMA','CIRCUITO_EXCEDIDO','TABLA_NO_DISPONIBLE','SUCURSAL_CONFIGURACION'].includes(error.code))throw error;
   blockers.push({code:error.code,message:error.message});

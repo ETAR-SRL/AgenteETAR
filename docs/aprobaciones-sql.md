@@ -66,3 +66,7 @@ Pruebas con dobles: circuito estándar, SC/IP con DBM, niveles y tipos de libera
 - Esquemas SX2/SX3, relaciones SX9 y tipos/defaults/índices SQL de esta instalación, inspeccionados en lectura. El mapeo SQL es implementación del adaptador; no un contrato de escritura SQL publicado o certificado por TOTVS.
 
 Fuentes de esta ampliación: [TOTVS: proceso IP+PC](https://tdn.totvs.com/pages/viewpage.action?pageId=556389327), [prioridad del superior SAK sobre SAL](https://tdn.totvs.com/pages/viewpage.action?pageId=274637723), [transferencia al superior](https://centraldeatendimento.totvs.com/hc/pt-br/articles/360016547552), [programación por tipo de compra](https://tdn.totvs.com/pages/viewpage.action?pageId=267795014). Se trata de una implementación SQL del adaptador; no se presenta como ejecución ADVPL ni homologación de liberación en las pantallas Protheus.
+
+## Documentos con origen en dólares
+
+SC7 conserva C7_MOEDA/C7_TXMOEDA y los pasos SCR conservan CR_MOEDA/CR_TXMOEDA, incluido PC diferido después de IP. CR_TOTAL y DBM_VALOR corresponden a importes del documento; los rangos DHL locales se comparan con importe × cotización. SC1 convierte su estimación a moneda local antes de evaluar el circuito. Los perfiles, aprobadores y superiores soportados siguen siendo de moneda local. El escalamiento admite un SC7 extranjero si moneda y cotización coinciden con SCR; no modifica ninguna de ellas. Ver [alcance y evidencia de monedas](monedas-altas.md).

@@ -21,9 +21,11 @@ function fixture(alias='SC1',options={}){
  for(const [a,fields] of Object.entries({SX6:['X6_FIL','X6_VAR','X6_TIPO','X6_CONTEUD','D_E_L_E_T_'],SY1:['Y1_FILIAL','Y1_COD','Y1_GRAPROV','Y1_PEDIDO','D_E_L_E_T_','R_E_C_N_O_']}))tables.set(a,{schema:'dbo',name:a+'010',columns:new Map(fields.map(k=>[k,{type:'varchar'}]))});
  const refs={SB1:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',B1_FILIAL:'0101',B1_COD:'ZTEST',B1_DESC:'Prueba',B1_UM:'UN',B1_SEGUM:'MI',B1_CONV:'1000',B1_TIPCONV:'D',B1_CC:'',B1_GRADE:'N',B1_MSBLQL:'2',B1_GRUPO:'0001',B1_SOLICIT:'N'},SA2:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',A2_FILIAL:'01',A2_COD:'000001',A2_LOJA:'01',A2_MSBLQL:'2'},NNR:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',NNR_FILIAL:'0101',NNR_CODIGO:'01'},SE4:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',E4_FILIAL:'0101',E4_CODIGO:'001'},CTT:{R_E_C_N_O_:'1',D_E_L_E_T_:' ',CTT_FILIAL:'0101',CTT_CUSTO:'001'}};
  for(const [a,row] of Object.entries(refs))tables.set(a,{schema:'dbo',name:a+'010',columns:new Map(Object.keys(row).map(k=>[k,{type:'varchar'}]))});
- const catalog={tables,dictionary,table:a=>{assert.ok(tables.has(a),a);return tables.get(a);},branch:(a,b)=>{assert.equal(b,'0101');return ['SA2','SY1'].includes(a)?'01':b;}};
+ const catalog={tables,dictionary,table:a=>{assert.ok(tables.has(a),a);return tables.get(a);},branch:(a,b)=>{assert.equal(b,'0101');return a==='SM2'?'':['SA2','SY1'].includes(a)?'01':b;}};
  const parameters=Object.entries({MV_APROVSC:['L','.F.'],MV_APRSCEC:['L','F'],MV_RESTSOL:['C','N'],MV_APRPCEC:['L','F'],MV_PCAPROV:['C',''],MV_ALTPDOC:['L','T']}).map(([X6_VAR,[X6_TIPO,X6_CONTEUD]])=>({X6_FIL:' ',X6_VAR,X6_TIPO,X6_CONTEUD}));
- const state={parameters,catalogs:{SAL:[],SAK:[],DHL:[],DHM:[],DBL:[],SAI:[]},circuits:{SCR:[],DBM:[]},buyers:[],rows:[{R_E_C_N_O_:'9007199254740993',D_E_L_E_T_:'*',[p+'_NUM']:'000099',[p+'_FILIAL']:'9999'}],calls:[],inserts:0,commits:0,rollbacks:0};let queue=Promise.resolve();
+ tables.set('SM2',{schema:'dbo',name:'SM2010',columns:new Map(['M2_DATA','M2_MOEDA2','D_E_L_E_T_','R_E_C_N_O_'].map(f=>[f,{}]))});
+ const currencyParameters=[{X6_FIL:' ',X6_VAR:'MV_MOEDA1',X6_TIPO:'C',X6_CONTEUD:'PESO'},{X6_FIL:' ',X6_VAR:'MV_MOEDA2',X6_TIPO:'C',X6_CONTEUD:'DOLAR'}];
+ const state={currencyParameters,rates:[{registro:'1',fecha:'20261019',tasa:'1518'}],parameters,catalogs:{SAL:[],SAK:[],DHL:[],DHM:[],DBL:[],SAI:[]},circuits:{SCR:[],DBM:[]},buyers:[],rows:[{R_E_C_N_O_:'9007199254740993',D_E_L_E_T_:'*',[p+'_NUM']:'000099',[p+'_FILIAL']:'9999'}],calls:[],inserts:0,commits:0,rollbacks:0};let queue=Promise.resolve();
  const circuitColumns={};
  for(const [a,chars,nums] of [
   ['SCR',{CR_FILIAL:4,CR_NUM:50,CR_TIPO:2,CR_USER:6,CR_APROV:6,CR_GRUPO:6,CR_ITGRP:2,CR_NIVEL:2,CR_STATUS:2,CR_EMISSAO:8,CR_USERLIB:6,CR_LIBAPRO:6,CR_DATALIB:8,CR_USERORI:6,CR_APRORI:6,CR_TPTRAN:1},{CR_TOTAL:[14,2],CR_MOEDA:[2,0],CR_TXMOEDA:[11,2],CR_VALLIB:[14,2]}],
@@ -41,7 +43,8 @@ function fixture(alias='SC1',options={}){
   const source=/(?:FROM|INSERT INTO|UPDATE) \[dbo\]\.\[(\w+)010\]/.exec(sql)?.[1];
   if(state.catalogs[source]){assert.equal(params.branch,'0101');return structuredClone(state.catalogs[source]);}
   const cols=circuitColumns[source]||circuitColumns[params.tableName?.slice(4,-3)]||columns,tableRows=state.circuits[source]||state.rows,numberField=source==='SCR'?'CR_NUM':source==='DBM'?'DBM_NUM':p+'_NUM';
-  if(sql.includes('[SX6010]'))return structuredClone(state.parameters.filter(r=>Object.values(params).includes(r.X6_VAR)&&['',params.branch].includes(r.X6_FIL.trim())));
+  if(sql.includes('[SM2010]'))return structuredClone(state.rates.filter(r=>r.fecha===params.date));
+  if(sql.includes('[SX6010]'))return structuredClone([...state.parameters,...state.currencyParameters].filter(r=>Object.values(params).includes(r.X6_VAR)&&['',params.branch].includes(r.X6_FIL.trim())));
   if(sql.includes('[SY1010]')){assert.equal(params.branch,'01');return structuredClone(state.buyers);}
   if(sql.includes('FROM sys.columns'))return structuredClone(cols);
   if(sql.includes('FROM sys.indexes'))return options.noIndex?[]:[{name:'PK'}];
@@ -94,7 +97,7 @@ test('catalog, definition and approval changes after preview invalidate creation
  for(const mutate of [f=>f.refs.SB1.B1_CONV='100',f=>f.refs.SA2.A2_MSBLQL='1',f=>f.columns.push({field:'C7_CUSTOM',type:'varchar',definition:"(' ')"}),f=>f.columns.find(c=>c.field==='C7_CONAPRO').definition="('L')"]){const f=fixture('SC7'),proposal=await f.proposal();mutate(f);await assert.rejects(f.writes.execute(proposal));assert.equal(f.state.inserts,0);}
 });
 test('invalid references, schema, prices, bases, dates, injected IDs and native links are rejected',async()=>{
- for(const mutate of [f=>f.input.target.registro='123',f=>f.input.target.sucursal='9999',f=>f.input.header.moneda='2',f=>f.input.header.fechaEmision='2026-02-30',f=>f.input.items[0].fechaNecesidad='2026-01-01',f=>f.input.items[0].precio='80.123',f=>f.input.items[0].cantidad='0',f=>f.input.items[0].basePrecio='unknown',f=>f.input.items[0].C1_APROV='L',f=>f.input.items[0].solicitud='001',f=>f.refs.SB1.B1_UM='KG',f=>f.refs.SB1.B1_MSBLQL='1',f=>f.refs.SB1.B1_TIPCONV='?',f=>f.columns.find(c=>c.field==='R_E_C_N_O_').identityColumn=true,f=>f.columns.push({field:'CUSTOM',type:'varchar',definition:null,nullable:false})]){const f=fixture();mutate(f);await assert.rejects(f.proposal());assert.equal(f.state.inserts,0);}
+ for(const mutate of [f=>f.input.target.registro='123',f=>f.input.target.sucursal='9999',f=>f.input.header.moneda='9',f=>f.input.header.fechaEmision='2026-02-30',f=>f.input.items[0].fechaNecesidad='2026-01-01',f=>f.input.items[0].precio='80.123',f=>f.input.items[0].cantidad='0',f=>f.input.items[0].basePrecio='unknown',f=>f.input.items[0].C1_APROV='L',f=>f.input.items[0].solicitud='001',f=>f.refs.SB1.B1_UM='KG',f=>f.refs.SB1.B1_MSBLQL='1',f=>f.refs.SB1.B1_TIPCONV='?',f=>f.columns.find(c=>c.field==='R_E_C_N_O_').identityColumn=true,f=>f.columns.push({field:'CUSTOM',type:'varchar',definition:null,nullable:false})]){const f=fixture();mutate(f);await assert.rejects(f.proposal());assert.equal(f.state.inserts,0);}
  for(const options of [{noIndex:true},{trigger:true},{missing:'SB1'},{missing:'NNR'}])await assert.rejects(fixture('SC1',options).proposal());
 });
 test('confirmed creation is actor-scoped, idempotent and never retries a lost COMMIT',async t=>{
@@ -174,7 +177,7 @@ test('approval changes invalidate previews and all approval reads are locked dur
   const f=fixture('SC7'),p=await f.proposal();mutate(f);await assert.rejects(f.writes.execute(p),{code:'CONFLICTO_CONCURRENCIA'});assert.equal(f.state.inserts,0);
  }
  const f=fixture('SC7'),p=await f.proposal();f.state.calls=[];await f.writes.execute(p);
- const reads=f.state.calls.filter(c=>c.sql.includes('[SX6010]')||c.sql.includes('[SY1010]'));assert.equal(reads.length,4);
+ const reads=f.state.calls.filter(c=>c.sql.includes('[SX6010]')||c.sql.includes('[SY1010]'));assert.equal(reads.length,6);
  for(const call of reads)assert.match(call.sql,/WITH \(UPDLOCK,HOLDLOCK\)/);
  // Old B previews and caller-supplied state cannot be used to bypass the resolver.
  const old=await f.proposal();old.writePlan.snapshotHash='old-version-B';await assert.rejects(f.writes.execute(old),{code:'CONFLICTO_CONCURRENCIA'});
@@ -454,8 +457,8 @@ test('supplier external code resolves through SA5 and ambiguous alternatives fai
  const r=await f.chat('u',{text:f.text,attachmentId:draft.id},{},'0101');assert.equal(r.proposal.items[0].producto,'ZTEST');
  f.data.productos.push({codigo:'EXT',nombre:'Otro',unidadMedida:'UN'});const ambiguous=await f.imports.preview('u',draft.id,{...f.document.defaults,party:'ACME',reviewed:true,rows:f.document.rows});assert.equal(ambiguous.proposal,undefined);assert.equal(ambiguous.issues.length,1);
 });
-test('creation rejects foreign currency, bad dates, excessive rows and unknown warehouses without writes',async t=>{
- for(const patch of [{currency:'USD'},{emission:'31/02/2026'},{warehouse:'99'},{due:'18/10/2026'}]){
+test('creation rejects unsupported currency, bad dates, excessive rows and unknown warehouses without writes',async t=>{
+ for(const patch of [{currency:'EUR'},{emission:'31/02/2026'},{warehouse:'99'},{due:'18/10/2026'}]){
   const f=attachmentFixture(t);Object.assign(f.document.defaults,patch);const draft=f.imports.save('u','pendiente','0101',f.document);const r=await f.chat('u',{text:f.text,attachmentId:draft.id},{},'0101');assert.equal(r.proposal,undefined,JSON.stringify(patch));assert.equal(f.state.inserts,0);
  }
 });
@@ -502,4 +505,56 @@ test('customer labels are not reused as a supplier when creating a purchase orde
  const f=attachmentFixture(t);f.document.defaults.kind='cliente';f.document.defaults.party='CLIENTE';
  const draft=f.imports.save('u','pendiente','0101',f.document),c={};const r=await f.chat('u',{text:'Creá un pedido de compra',attachmentId:draft.id},c,'0101');
  assert.equal(r.proposal,undefined);assert.ok(c.attachment.missing.includes('party'));assert.equal(c.attachment.values.party,undefined);
+});
+for(const alias of ['SC1','SC7'])test(alias+' USD attachment keeps original amounts and confirms a single atomic document',async t=>{
+ const f=attachmentFixture(t,alias);f.document.defaults.currency='USD';const draft=f.imports.save('u','pendiente','0101',f.document);
+ const r=await f.chat('u',{text:f.text,attachmentId:draft.id},{},'0101');assert.ok(r.proposal,JSON.stringify(r));assert.equal(f.state.inserts,0);
+ const p=r.proposal;assert.equal(p.calculation.tipoCambio,'1518');assert.equal(p.calculation.fuenteCotizacion,'SM2.M2_MOEDA2');assert.equal(p.calculation.totalMonedaLocal,'303600.00');assert.equal(p.items[0].totalOriginal,'200.00');
+ assert.equal(p.identity.moneda,alias==='SC1'?'1':'2');assert.equal(p.calculation.total,alias==='SC1'?'303600.00':'200.00');
+ if(alias==='SC1')assert.match(p.calculation.tratamiento,/estimación convertida/);
+ await f.changes.execute('u',p.id,{confirm:true,fingerprint:p.fingerprint});const row=f.state.rows[1];assert.equal(row[f.p+'_MOEDA'],alias==='SC1'?'1':'2');assert.equal(row[f.p+'_QUANT'],'2500.00');
+ if(alias==='SC7')assert.equal(row.C7_TXMOEDA,'1518.0000');else assert.equal(row.C1_VUNIT,'121.44');
+});
+test('USD is resolved from SX6 rather than hardcoded to currency 2',async()=>{
+ const f=fixture('SC7');f.input.header.moneda='USD';f.state.currencyParameters[1].X6_VAR='MV_MOEDA3';f.catalog.table('SM2').columns.set('M2_MOEDA3',{});
+ const p=await f.proposal();assert.equal(p.writePlan.identity.moneda,'3');assert.equal(p.writePlan.calculation.fuenteCotizacion,'SM2.M2_MOEDA3');
+});
+test('missing, duplicate, invalid and stale rates never create records or reuse another day',async()=>{
+ for(const rates of [[],[{registro:'1',fecha:'20261018',tasa:'100'}],[{registro:'1',fecha:'20261019',tasa:'0'}],[{registro:'1',fecha:'20261019',tasa:'-1'}],[{registro:'1',fecha:'20261019',tasa:'100'},{registro:'2',fecha:'20261019',tasa:'100'}]]){
+  const f=fixture('SC7');f.input.header.moneda='USD';f.state.rates=rates;await assert.rejects(f.proposal());assert.equal(f.state.inserts,0);
+ }
+ for(const alias of ['SC1','SC7']){const f=fixture(alias);f.input.header.moneda='USD';const p=await f.proposal();f.state.rates[0].tasa='1519';await assert.rejects(f.writes.execute(p),{code:'CONFLICTO_CONCURRENCIA'});assert.equal(f.state.inserts,0);}
+});
+test('currency configuration changes invalidate a confirmed preview and duplicate USD is rejected',async()=>{
+ const f=fixture('SC7');f.input.header.moneda='USD';const p=await f.proposal();f.state.currencyParameters[1].X6_CONTEUD='EURO';await assert.rejects(f.writes.execute(p));assert.equal(f.state.inserts,0);
+ f.state.currencyParameters[1].X6_CONTEUD='DOLAR';f.state.currencyParameters.push({...f.state.currencyParameters[1],X6_VAR:'MV_MOEDA3'});await assert.rejects(f.proposal(),{code:'MONEDA_AMBIGUA'});
+});
+test('USD approval thresholds compare local amounts but SCR and DBM preserve document currency',async()=>{
+ for(const alias of ['SC1','SC7']){const f=fixture(alias);f.input.header.moneda='USD';const c=configuredCircuit(f,{entity:true});c.DHL[0].DHL_LIMMIN='303600';c.DHL[0].DHL_LIMMAX='303600';
+ const p=await f.proposal();assert.equal(p.writePlan.approval.circuit.entries.length,3);await f.writes.execute(p);
+ assert.equal(f.state.circuits.SCR[0].CR_MOEDA,alias==='SC1'?'1':'2');assert.equal(f.state.circuits.SCR[0].CR_TOTAL,alias==='SC1'?'303600.00':'200.00');assert.equal(f.state.circuits.DBM[0].DBM_VALOR,alias==='SC1'?'303600.00':'200.00');
+ assert.ok(f.state.calls.filter(c=>c.sql.includes('[SM2010]')).some(c=>c.sql.includes('UPDLOCK,HOLDLOCK')));
+ }
+});
+test('USD two-stage IP to PC retains currency and fixed exchange rate',async t=>{
+ const f=fixture('SC7');f.input.header.moneda='USD';const c=configuredCircuit(f,{entity:true});c.DHL[0].DHL_LIMMAX='400000';parameter(f,'MV_APRIPPC','1');parameter(f,'MV_PCAPROV','000001');
+ const w=await createdWorkflow(f,t);approveIp(f);const p=await w.changes.preview('actor',w.input('continuarAprobacionCompra'));
+ await w.changes.execute('actor',p.id,{confirm:true,fingerprint:p.fingerprint});const rows=f.state.circuits.SCR.filter(r=>r.CR_TIPO==='PC');assert.equal(rows.length,3);assert.ok(rows.every(r=>r.CR_MOEDA==='2'&&r.CR_TXMOEDA==='1518.00'&&r.CR_TOTAL==='200.00'));
+});
+test('SC1 USD conversion exposes rounding of local unit estimates and recomputes total from stored price',async()=>{
+ const f=fixture('SC1');f.input.header.moneda='USD';f.input.items[0].precio='80.01';const p=await f.proposal();const row=p.writePlan.rows[0];assert.equal(row.C1_VUNIT,'121.46');assert.equal(row.C1_TOTAL,'303650.00');assert.equal(p.writePlan.items[0].ajusteRedondeoLocal,'12.050000');
+});
+test('missing quote asks for emission only, and mixed currencies remain row errors',async t=>{
+ const f=attachmentFixture(t);f.document.defaults.currency='USD';f.state.rates=[];let d=f.imports.save('u','pendiente','0101',f.document),c={};let r=await f.chat('u',{text:f.text,attachmentId:d.id},c,'0101');assert.deepEqual(c.attachment.missing,['emission']);assert.equal(r.proposal,undefined);
+ f.state.rates=[{registro:'1',fecha:'20261020',tasa:'1524.5'}];r=await f.chat('u',{text:'20/10/2026'},c,'0101');assert.ok(r.proposal,JSON.stringify(r));assert.equal(r.proposal.calculation.tipoCambio,'1524.5');
+ f.document.rows.push({...f.document.rows[0],id:'2',currency:'ARS'});d=f.imports.save('u','pendiente','0101',f.document);r=await f.chat('u',{text:f.text,attachmentId:d.id},{},'0101');assert.equal(r.proposal,undefined);assert.match(r.issues[0].motivo,/sola moneda/);
+});
+test('local currency numeric code and ARS labels are equivalent in attachment rows',async t=>{
+ const f=attachmentFixture(t);f.document.rows[0].currency='1';const d=f.imports.save('u','pendiente','0101',f.document);const r=await f.chat('u',{text:f.text,attachmentId:d.id},{},'0101');assert.ok(r.proposal,JSON.stringify(r));
+});
+test('foreign circuit rate changes cannot pass stage verification',async t=>{
+ const f=fixture('SC7');f.input.header.moneda='USD';const c=configuredCircuit(f,{entity:true});c.DHL[0].DHL_LIMMAX='400000';parameter(f,'MV_APRIPPC','1');parameter(f,'MV_PCAPROV','000001');const w=await createdWorkflow(f,t);approveIp(f);f.state.circuits.SCR[0].CR_TXMOEDA='1';await assert.rejects(w.changes.preview('actor',w.input('continuarAprobacionCompra')),{code:'CIRCUITO_CAMBIO'});
+});
+test('SC1 conversion cannot round an entered positive price down to zero',async()=>{
+ const f=fixture('SC1');f.input.header.moneda='USD';f.input.items[0].precio='0.000001';await assert.rejects(f.proposal(),{code:'PRECISION_INVALIDA'});assert.equal(f.state.inserts,0);
 });

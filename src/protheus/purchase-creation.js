@@ -1,3 +1,4 @@
+import {resolvePurchaseCurrency} from './purchase-currency.js';
 import {createApprovalEscalation} from './approval-escalation.js';
 import {createHash} from 'node:crypto';
 import {assert} from '../errors.js';
@@ -85,10 +86,13 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
   assert(plain(input)&&Object.keys(input).every(k=>['action','target','header','items'].includes(k))&&plain(input.target)&&Object.keys(input.target).every(k=>k==='sucursal')&&allowedBranches.includes(input.target.sucursal),400,'CLAVE_INVALIDA','Sólo sucursal autorizada; RECNO y número son automáticos');
   const branch=input.target.sucursal,p=alias==='SC1'?'C1':'C7',h=input.header;
   assert(plain(h)&&Object.keys(h).every(k=>['fechaEmision','solicitante','proveedor','tienda','condicionPago','contacto','moneda','comprador','solicitanteCodigo'].includes(k)),400,'CABECERA_INVALIDA','Cabecera inválida');
-  assert(h.moneda==='1',400,'MONEDA_NO_SOPORTADA','Altas en moneda local 1, cotización 1');
+
   assert(Array.isArray(input.items)&&input.items.length>0&&input.items.length<=50,400,'ITEMS_INVALIDOS','Indicar de 1 a 50 ítems');
   const metadata=await schema(connection,alias),refs=[],rows=[],initials=[],summary=[],approvalItems=[];
   const emission=date(h.fechaEmision,p+'_EMISSAO',alias),filial=catalog.branch(alias,branch);let vendor,payment;
+  const currency=await resolvePurchaseCurrency({connection,catalog,branch,date:h.fechaEmision,currency:h.moneda,lock});
+  const documentCurrency=alias==='SC1'?'1':currency.codigo,documentRate=alias==='SC1'?'1':currency.tipoCambio;
+  const conversion=alias==='SC1'?new D(currency.tipoCambio):new D(1);
   if(alias==='SC7'){
    vendor=await lookup(connection,'SA2',{A2_COD:text(h.proveedor,'C7_FORNECE',alias),A2_LOJA:text(h.tienda,'C7_LOJA',alias)},branch,lock);
    assert(Object.hasOwn(vendor,'A2_MSBLQL'),409,'ESTADO_NO_VERIFICABLE','Falta estado de bloqueo SA2');
@@ -104,20 +108,21 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    const unit=text(clean(product.B1_UM),p+'_UM',alias),second=clean(product.B1_SEGUM);
    assert(['unidades','millares'].includes(item.baseCantidad)&&['unidad','millar'].includes(item.basePrecio),400,'BASE_REQUERIDA','Indicar bases de cantidad y precio');
    assert(unit==='UN'||(item.baseCantidad==='unidades'&&item.basePrecio==='unidad'),400,'MILLARES_NO_APLICAN','Millares sólo para UN');
-   const qty=inputNumber(item.cantidad,'cantidad').mul(item.baseCantidad==='millares'?1000:1),price=inputNumber(item.precio,'precio').div(item.basePrecio==='millar'?1000:1);
-   const quantity=fit(qty,p+'_QUANT',catalog,alias),unitPrice=fit(price,alias==='SC1'?'C1_VUNIT':'C7_PRECO',catalog,alias),total=fit(qty.mul(price),p+'_TOTAL',catalog,alias,{round:true});
+   const qty=inputNumber(item.cantidad,'cantidad').mul(item.baseCantidad==='millares'?1000:1),price=inputNumber(item.precio,'precio').div(item.basePrecio==='millar'?1000:1).mul(conversion);
+   const quantity=fit(qty,p+'_QUANT',catalog,alias),unitPrice=fit(price,alias==='SC1'?'C1_VUNIT':'C7_PRECO',catalog,alias,{round:!conversion.eq(1)}),total=fit(qty.mul(unitPrice),p+'_TOTAL',catalog,alias,{round:true});
+   assert(new D(unitPrice).gt(0),400,'PRECISION_INVALIDA','El precio convertido se redondea a cero; revisar la precisión SX3.');
    const warehouse=text(item.deposito,p+'_LOCAL',alias);refs.push(await lookup(connection,'NNR',{NNR_CODIGO:warehouse},branch,lock));
    const due=date(item.fechaNecesidad,p+'_DATPRF',alias);assert(due>=emission,400,'FECHA_INVALIDA','Necesidad anterior a emisión');
    const cost=text(item.centroCosto??clean(product.B1_CC),p+'_CC',alias,true);if(cost)refs.push(await lookup(connection,'CTT',{CTT_CUSTO:cost},branch,lock));
    const itemWidth=Number(catalog.dictionary.get(p+'_ITEM')?.X3_TAMANHO);assert(Number.isInteger(itemWidth)&&itemWidth>0&&itemWidth<=6,409,'ESQUEMA_INCOMPATIBLE','Longitud de ítem');
-   const row={R_E_C_N_O_:'@asignar',D_E_L_E_T_:' ',R_E_C_D_E_L_:'0',[p+'_FILIAL']:filial,[p+'_NUM']:'@asignar',[p+'_ITEM']:text(String(i+1).padStart(itemWidth,'0'),p+'_ITEM',alias),[p+'_PRODUTO']:clean(product.B1_COD),[p+'_DESCRI']:text(clean(product.B1_DESC),p+'_DESCRI',alias),[p+'_UM']:unit,[p+'_LOCAL']:warehouse,[p+'_EMISSAO']:emission,[p+'_DATPRF']:due,[p+'_QUANT']:quantity,[alias==='SC1'?'C1_VUNIT':'C7_PRECO']:unitPrice,[p+'_TOTAL']:total,[p+'_QUJE']:'0',[p+'_MOEDA']:'1',[p+'_TIPO']:'1',[p+'_FILENT']:filial,[p+'_CC']:cost,[p+'_OBS']:text(item.observacion??'',p+'_OBS',alias,true)};
+   const row={R_E_C_N_O_:'@asignar',D_E_L_E_T_:' ',R_E_C_D_E_L_:'0',[p+'_FILIAL']:filial,[p+'_NUM']:'@asignar',[p+'_ITEM']:text(String(i+1).padStart(itemWidth,'0'),p+'_ITEM',alias),[p+'_PRODUTO']:clean(product.B1_COD),[p+'_DESCRI']:text(clean(product.B1_DESC),p+'_DESCRI',alias),[p+'_UM']:unit,[p+'_LOCAL']:warehouse,[p+'_EMISSAO']:emission,[p+'_DATPRF']:due,[p+'_QUANT']:quantity,[alias==='SC1'?'C1_VUNIT':'C7_PRECO']:unitPrice,[p+'_TOTAL']:total,[p+'_QUJE']:'0',[p+'_MOEDA']:documentCurrency,[p+'_TIPO']:'1',[p+'_FILENT']:filial,[p+'_CC']:cost,[p+'_OBS']:text(item.observacion??'',p+'_OBS',alias,true)};
    if(second){const factor=sourceNumber(product.B1_CONV,'B1_CONV'),method=clean(product.B1_TIPCONV);assert(factor.gt(0)&&['M','D'].includes(method),409,'CONVERSION_NO_VERIFICABLE','Revisar factor SB1');row[p+'_SEGUM']=text(second,p+'_SEGUM',alias);row[p+'_QTSEGUM']=fit(method==='M'?qty.mul(factor):qty.div(factor),p+'_QTSEGUM',catalog,alias);}
    if(alias==='SC1')Object.assign(row,{C1_SOLICIT:text(h.solicitante,'C1_SOLICIT',alias),C1_QTDORIG:fit(qty,'C1_QTDORIG',catalog,alias),C1_APROV:' '});
-   else Object.assign(row,{C7_FORNECE:clean(vendor.A2_COD),C7_LOJA:clean(vendor.A2_LOJA),C7_COND:clean(payment.E4_CODIGO),C7_CONTATO:text(h.contacto??'','C7_CONTATO',alias,true),C7_TXMOEDA:fit('1','C7_TXMOEDA',catalog,alias),C7_CONAPRO:' ',C7_COMPRA:text(h.comprador??'','C7_COMPRA',alias,true)});
+   else Object.assign(row,{C7_FORNECE:clean(vendor.A2_COD),C7_LOJA:clean(vendor.A2_LOJA),C7_COND:clean(payment.E4_CODIGO),C7_CONTATO:text(h.contacto??'','C7_CONTATO',alias,true),C7_TXMOEDA:fit(documentRate,'C7_TXMOEDA',catalog,alias),C7_CONAPRO:' ',C7_COMPRA:text(h.comprador??'','C7_COMPRA',alias,true)});
    for(const field of Object.keys(row))assert(metadata.columns.some(c=>c.field===field&&!c.computed&&!c.identityColumn),409,'ESQUEMA_INCOMPATIBLE',field);
-   rows.push(row);approvalItems.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],cantidad:quantity,total,centroCosto:cost,grupoProducto:clean(product.B1_GRUPO),restriccionProducto:clean(product.B1_SOLICIT)});summary.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],descripcion:row[p+'_DESCRI'],deposito:warehouse,unidad:unit,cantidad:quantity,precioUnitario:unitPrice,total,segundaUnidad:second||null,cantidadSegundaUnidad:row[p+'_QTSEGUM']||null,aprobacion:null});
+   rows.push(row);approvalItems.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],cantidad:quantity,total,centroCosto:cost,grupoProducto:clean(product.B1_GRUPO),restriccionProducto:clean(product.B1_SOLICIT)});summary.push({item:row[p+'_ITEM'],producto:row[p+'_PRODUTO'],descripcion:row[p+'_DESCRI'],deposito:warehouse,unidad:unit,cantidad:quantity,precioUnitario:unitPrice,total,moneda:documentCurrency,monedaOriginal:currency.descripcion,totalOriginal:qty.mul(inputNumber(item.precio,'precio').div(item.basePrecio==='millar'?1000:1)).toFixed(2),ajusteRedondeoLocal:new D(total).minus(qty.mul(price)).toFixed(6),segundaUnidad:second||null,cantidadSegundaUnidad:row[p+'_QTSEGUM']||null,aprobacion:null});
   }
-  const approval=await purchaseApproval({connection,catalog,alias,branch,buyerCode:alias==='SC7'?text(h.comprador??'','C7_COMPRA',alias,true):'',requester:h.solicitanteCodigo,items:approvalItems,lock});
+  const approval=await purchaseApproval({connection,catalog,alias,branch,buyerCode:alias==='SC7'?text(h.comprador??'','C7_COMPRA',alias,true):'',requester:h.solicitanteCodigo,items:approvalItems,exchangeRate:documentRate,lock});
   for(let i=0;i<rows.length;i++){
    rows[i][approval.field]=approval.status?approval.circuit.itemStates[summary[i].item]:' ';
    if(alias==='SC7'&&approval.group)rows[i].C7_APROV=text(approval.group,'C7_APROV',alias);
@@ -129,7 +134,7 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    const scr=[],dbm=[],common=a=>({R_E_C_N_O_:'@asignar',R_E_C_D_E_L_:'0',D_E_L_E_T_:' ',[a==='SCR'?'CR_FILIAL':'DBM_FILIAL']:catalog.branch(a,branch)});
    if(approval.circuit.entity)assert(catalog.branch('SCR',branch)===catalog.branch('DBM',branch),409,'CIRCUITO_ESQUEMA','SCR y DBM deben compartir filial');
    for(const e of approval.circuit.entries){
-    scr.push({...common('SCR'),CR_NUM:'@asignar',CR_TIPO:e.tipo,CR_USER:e.usuario,CR_APROV:e.aprobador,CR_GRUPO:e.grupo,CR_ITGRP:e.itemGrupo,CR_NIVEL:e.nivel,CR_STATUS:e.estado,CR_EMISSAO:emission,CR_TOTAL:e.total,CR_MOEDA:'1',CR_TXMOEDA:'1'});
+    scr.push({...common('SCR'),CR_NUM:'@asignar',CR_TIPO:e.tipo,CR_USER:e.usuario,CR_APROV:e.aprobador,CR_GRUPO:e.grupo,CR_ITGRP:e.itemGrupo,CR_NIVEL:e.nivel,CR_STATUS:e.estado,CR_EMISSAO:emission,CR_TOTAL:e.total,CR_MOEDA:documentCurrency,CR_TXMOEDA:documentRate});
     if(['SC','IP'].includes(e.tipo))for(const item of e.items)dbm.push({...common('DBM'),DBM_TIPO:e.tipo,DBM_NUM:'@asignar',DBM_ITEM:item.item,DBM_GRUPO:e.grupo,DBM_ITGRP:e.itemGrupo,DBM_USER:e.usuario,DBM_APROV:'2',DBM_VALOR:item.total});
    }
    for(const [a,list,numberField,branchField,typeField] of [['SCR',scr,'CR_NUM','CR_FILIAL','CR_TIPO'],['DBM',dbm,'DBM_NUM','DBM_FILIAL','DBM_TIPO']])if(list.length){
@@ -146,8 +151,8 @@ export function createPurchasing({db,catalog,getWriteDb,enabled,allowedBranches,
    }
   }
   const {evidence,...approvalView}=approval;
-  const snapshot={version:4,action,branch,metadata,refs,rows,initials,approval,circuits};
-  return {kind:'purchase-create',version:4,resource:alias==='SC1'?'solicitudesCompra':'compras',snapshotHash:hash(snapshot),snapshot,rows,initials,circuits,alias,p,identity:{tabla:alias,sucursal:branch,numero:'Automático al confirmar',moneda:'1',proveedor:h.proveedor||null,solicitante:h.solicitante||null,aprobacion:approval.status},diff:summary.map(r=>({field:`Ítem ${r.item}`,before:null,after:JSON.stringify(r)})),items:summary,calculation:{total:rows.reduce((acc,r)=>acc.plus(r[p+'_TOTAL']),new D(0)).toFixed(2),moneda:'1',aprobacion:approval.status},approval:approvalView,warnings,blockers:approval.blockers,executionEnabled:enabled&&!approval.blockers.length};
+  const snapshot={version:5,action,branch,currency,metadata,refs,rows,initials,approval,circuits};
+  return {kind:'purchase-create',version:5,resource:alias==='SC1'?'solicitudesCompra':'compras',snapshotHash:hash(snapshot),snapshot,rows,initials,circuits,alias,p,identity:{tabla:alias,sucursal:branch,numero:'Automático al confirmar',moneda:documentCurrency,monedaOrigen:currency.descripcion,tipoCambio:currency.tipoCambio,fechaCotizacion:currency.fecha,proveedor:h.proveedor||null,solicitante:h.solicitante||null,aprobacion:approval.status},diff:summary.map(r=>({field:`Ítem ${r.item}`,before:null,after:JSON.stringify(r)})),items:summary,calculation:{total:rows.reduce((acc,r)=>acc.plus(r[p+'_TOTAL']),new D(0)).toFixed(2),moneda:documentCurrency,monedaOrigen:currency.descripcion,tipoCambio:currency.tipoCambio,fechaCotizacion:currency.fecha,fuenteCotizacion:currency.origen,totalMonedaLocal:rows.reduce((acc,r)=>acc.plus(new D(r[p+'_TOTAL']).mul(documentRate)),new D(0)).toFixed(2),monedaLocal:currency.monedaLocal,...(alias==='SC1'&&currency.codigo!=='1'?{tratamiento:'SC1: estimación convertida a moneda local. No fija la moneda de un futuro pedido de compra.'}:{}),aprobacion:approval.status},approval:approvalView,warnings,blockers:approval.blockers,executionEnabled:enabled&&!approval.blockers.length};
  }
  async function verifyInput(connection,proposal,lock){const current=await plan(connection,proposal.action,proposal.input,lock);assert(current.snapshotHash===proposal.writePlan.snapshotHash,409,'CONFLICTO_CONCURRENCIA','Cambió un catálogo, esquema o dato de la propuesta; preparar otra');return current;}
  const workflow=createApprovalWorkflow({db,catalog,getWriteDb,enabled,allowedBranches,selection,creationPlan:plan,schema,defaults,text,fit,allocate:allocateCircuitRecords});

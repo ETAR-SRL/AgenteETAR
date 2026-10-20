@@ -56,6 +56,7 @@ export function createApprovalWorkflow({db,catalog,getWriteDb,enabled,allowedBra
   const current=await creationPlan(connection,source.action,source.input,lock);
   assert(current.executionEnabled,409,'CIRCUITO_CAMBIO',current.blockers.map(b=>b.message).join(' '));
   const live=await snapshot(connection,input,lock);verifyDocument(input,current,live);
+  for(const r of live.scr)assert(sourceNumber(r.CR_MOEDA,'CR_MOEDA').eq(current.rows[0][current.p+'_MOEDA'])&&sourceNumber(r.CR_TXMOEDA,'CR_TXMOEDA').eq(current.alias==='SC7'?current.rows[0].C7_TXMOEDA:'1'),409,'CIRCUITO_CAMBIO','Cambió la moneda o cotización del circuito');
   const circuit=current.approval.circuit,entries=[...circuit.entries,...(circuit.deferred||[])];
   const metadata={SCR:await schema(connection,'SCR'),DBM:await schema(connection,'DBM')};
   let inserts=[],updates=[],message='',already=false;
@@ -70,7 +71,7 @@ export function createApprovalWorkflow({db,catalog,getWriteDb,enabled,allowedBra
     assert(!previous.length,409,'CIRCUITO_EXISTENTE','PC tiene registros previos, incluso borrados; no se regenera');
     assert(live.doc.every(r=>clean(r.C7_CONAPRO)==='B'),409,'DOCUMENTO_CAMBIO','El pedido debe conservar B hasta completar PC');
     for(const e of pcExpected){
-     const row={R_E_C_N_O_:'@asignar',R_E_C_D_E_L_:'0',D_E_L_E_T_:' ',CR_FILIAL:catalog.branch('SCR',input.target.sucursal),CR_NUM:source.result.number,CR_TIPO:'PC',CR_USER:e.usuario,CR_APROV:e.aprobador,CR_GRUPO:e.grupo,CR_ITGRP:e.itemGrupo,CR_NIVEL:e.nivel,CR_STATUS:e.estado,CR_EMISSAO:current.rows[0].C7_EMISSAO,CR_TOTAL:e.total,CR_MOEDA:'1',CR_TXMOEDA:'1'};
+     const row={R_E_C_N_O_:'@asignar',R_E_C_D_E_L_:'0',D_E_L_E_T_:' ',CR_FILIAL:catalog.branch('SCR',input.target.sucursal),CR_NUM:source.result.number,CR_TIPO:'PC',CR_USER:e.usuario,CR_APROV:e.aprobador,CR_GRUPO:e.grupo,CR_ITGRP:e.itemGrupo,CR_NIVEL:e.nivel,CR_STATUS:e.estado,CR_EMISSAO:current.rows[0].C7_EMISSAO,CR_TOTAL:e.total,CR_MOEDA:current.rows[0].C7_MOEDA,CR_TXMOEDA:current.rows[0].C7_TXMOEDA};
      for(const [f,v] of Object.entries(row))if(!['R_E_C_N_O_','R_E_C_D_E_L_','D_E_L_E_T_'].includes(f))row[f]=catalog.dictionary.get(f)?.X3_TIPO==='N'?fit(v,f,catalog,'SCR'):text(v,f,'SCR',true);
      inserts.push({row,defaults:defaults(metadata.SCR,row)});
     }

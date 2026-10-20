@@ -1,5 +1,7 @@
 import {assert} from '../errors.js';
+import {purchaseCurrency} from '../protheus/purchase-currency.js';
 
+const importCurrency=value=>purchaseCurrency(value)==='1'?'ARS':purchaseCurrency(value);
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toUpperCase();
 export function importDate(value){
  const s=String(value||'').trim().replace(/[ T]00:00:00(?:\.000)?$/,''),m=/^(\d{2})\/(\d{2})\/(\d{4})$/.exec(s);
@@ -20,9 +22,9 @@ export async function prepareAttachmentCreation({actor,draft,input,read,prepare}
  };
  const emission=importDate(input.emission);
  if(!emission)ask('emission','¿Qué fecha de emisión usamos? Indicá DD/MM/AAAA.');
- const header={fechaEmision:emission,moneda:'1'};
- if(!input.currency&&!input.rows.every(r=>r.currency))ask('currency','¿En qué moneda está el archivo? Estas altas admiten sólo moneda local (código 1).');
- else if(input.currency)assert(['1','ARS','PESO','PESOS'].includes(norm(input.currency)),400,'MONEDA_NO_SOPORTADA','El alta SQL admite moneda local 1. No convierto automáticamente precios de otra moneda.');
+ const currencies=[...new Set(input.rows.map(r=>importCurrency(r.currency||input.currency)).filter(Boolean))];
+ const header={fechaEmision:emission,moneda:importCurrency(input.currency)||currencies[0]};
+ if(!header.moneda)ask('currency','¿En qué moneda están los precios: pesos o dólares?');
  if(pc){
   if(!input.party)ask('party','¿Cuál es el proveedor del pedido nuevo?');
   else{
@@ -73,7 +75,11 @@ export async function prepareAttachmentCreation({actor,draft,input,read,prepare}
    if(!baseCantidad)ask('quantityUnit','¿Las cantidades son en unidades o millares?');
    if(!basePrecio)ask('unit','¿Los precios son por unidad o por millar?');
    const currency=r.currency||input.currency;
-   assert(!currency||['1','ARS','PESO','PESOS'].includes(norm(currency)),400,'MONEDA_NO_SOPORTADA','La fila no está en moneda local 1; no se convierte automáticamente.');
+   if(!currency)ask('currency','¿En qué moneda están los precios de las filas sin moneda?');
+   else{
+    assert(importCurrency(currency),400,'MONEDA_NO_SOPORTADA','Moneda de la fila no reconocida.');
+    assert(importCurrency(currency)===header.moneda,400,'MONEDAS_MEZCLADAS','El documento debe tener una sola moneda explícita. Separá las filas de distinta moneda; no se convierten ni se suman entre sí.');
+   }
    for(const [key,label] of [['quantity','cantidad'],['price','precio']])assert(/^\d+(?:\.\d+)?$/.test(String(r[key]||''))&&Number(r[key])>0,400,'DATO_FILA_REQUERIDO',`Falta ${label} positivo en fila ${r.id}. Indicá «fila ${r.id} ${label} …».`);
    const warehouse=r.warehouse||input.warehouse,due=importDate(r.due||input.due);
    if(!warehouse)ask('warehouse','¿En qué depósito se reciben los productos?');
@@ -87,7 +93,12 @@ export async function prepareAttachmentCreation({actor,draft,input,read,prepare}
  if(missing.length||issues.length)return {missing,issues,message:['El documento se creará desde cero. Falta completar la revisión:',...questions,...issues.map(i=>`Fila ${i.fila}: ${i.motivo}`),'No preparé un documento incompleto. Corregí las filas o excluilas expresamente.'].join('\n')};
  const excluded=draft.rows.filter(r=>!ids.has(r.id)).map(r=>r.id);
  const selection=`${items.length} de ${draft.rows.length} filas seleccionadas${excluded.length?`; filas excluidas: ${excluded.join(', ')}`:''}`;
- const proposal=await prepare(actor,{action:draft.kind,target:{sucursal:draft.branch},header,items,origin:{importacion:draft.id,archivo:draft.name,ubicacion:selection,lecturaOriginal:JSON.stringify(references)}});
+ let proposal;
+ try{proposal=await prepare(actor,{action:draft.kind,target:{sucursal:draft.branch},header,items,origin:{importacion:draft.id,archivo:draft.name,ubicacion:selection,lecturaOriginal:JSON.stringify(references)}});}
+ catch(e){
+  if(['COTIZACION_NO_UNICA','COTIZACION_INVALIDA'].includes(e.code))return {missing:['emission'],issues:[],message:e.message};
+  throw e;
+ }
  const blockers=proposal.blockers||[];
  if(blockers.some(b=>b.code==='COMPRADOR_REQUERIDO'))ask('buyer','Indicá el código de comprador para resolver su grupo de aprobación.');
  if(blockers.some(b=>/solicitanteCodigo/.test(b.message)))ask('requesterCode','Indicá el código de usuario Protheus del solicitante para validar sus restricciones.');

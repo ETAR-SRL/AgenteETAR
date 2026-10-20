@@ -31,7 +31,7 @@ im=Image.new('RGB',(1400,400),'white');d=ImageDraw.Draw(im)
 for i,r in enumerate(rows):
  for x,v in zip([50,500,950],r):d.text((x,70+i*100),str(v),font=font,fill='black')
 im.save(p/'quantity.png');im.save(p/'quantity.pdf','PDF',resolution=150)
-rows=[['Producto','Cantidad','Precio','Moneda','Base cantidad','Base precio','Deposito','Entrega'],['ZTEST1',2.5,80,'ARS','millares','millar','01','20/10/2026']]
+rows=[['Producto','Cantidad','Precio','Moneda','Base cantidad','Base precio','Deposito','Entrega'],['ZTEST1',2.5,80,'USD','millares','millar','01','20/10/2026']]
 w=openpyxl.Workbook();s=w.active
 for r in rows:s.append(r)
 w.save(p/'purchase.xlsx')
@@ -55,7 +55,7 @@ im.save(p/'purchase.png');im.save(p/'purchase.pdf','PDF',resolution=150)
    const req=createReadStream(join(dir,file));req.headers={'x-file-name':file};
    const result=await reader.extract(req),row=result.rows[0];assert.equal(result.rows.length,1,file);
    assert.equal(row.product,'ZTEST1',file);assert.equal(row.quantity,'2.5',file);assert.equal(row.price,'80',file);
-   assert.equal(row.quantityUnit,'millares',file);assert.equal(row.unit,'millar',file);
+   assert.equal(row.quantityUnit,'millares',file);assert.equal(row.unit,'millar',file);assert.equal(row.currency,'USD',file);
    assert.equal(row.warehouse,'01',file);assert.equal(row.due,'20/10/2026',file);
   }
  }finally{await rm(dir,{recursive:true,force:true});}
