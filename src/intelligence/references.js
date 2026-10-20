@@ -2,7 +2,7 @@ const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 
 // Sólo identidades devueltas por herramientas, nunca códigos extraídos de una
 // respuesta redactada por el modelo. Los importes históricos no se reutilizan.
-export function previousPrice(messages,branch,{singleBranch=false}={}){
+export function previousPrice(messages,branch,{singleBranch=false,allowMultiple=false}={}){
  for(const message of [...messages].reverse()){
   if(message.role!=='assistant')continue;
   let saved;try{saved=JSON.parse(message.content);}catch{continue;}
@@ -11,8 +11,8 @@ export function previousPrice(messages,branch,{singleBranch=false}={}){
   const evidence=(saved.evidence||[]).filter(e=>e.action==='precio_venta'&&e.identities?.length);
   if(!evidence.length){if(saved.evidence?.some(e=>e.identities?.length))return null;continue;}
   const e=evidence.at(-1),products=[...new Set(e.identities.map(r=>r.productoCodigo).filter(Boolean))];
-  if(products.length!==1)return null;
-  return {product:products[0],args:e.args||{},identities:e.identities};
+  if(products.length!==1&&!allowMultiple)return null;
+  return {product:products.length===1?products[0]:undefined,args:e.args||{},identities:e.identities,base:saved.priceBase};
  }
  return null;
 }

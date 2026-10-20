@@ -26,7 +26,7 @@ test('a follow-up price change re-reads the prior product and prepares the curre
  const second=await agent.query('writer',{text:'Cambiame el precio del producto a 60 dolares por millar',conversationId:first.conversationId},{canPlan:true});
  assert.equal(prepared.target.registro,'1');assert.equal(prepared.changes.precio,'60');assert.equal(prepared.priceUnit,'millar');
  assert.ok(s.calls.some(c=>c.resource==='preciosClientes'));assert.ok(s.calls.some(c=>c.resource==='productos'));
- assert.equal(second.evidence.at(-1).result.kind,'proposal');assert.match(second.answer,/Producto verificado en SB1/);
+ assert.ok(second.evidence.some(e=>e.result.kind==='proposal'));assert.match(second.answer,/Productos verificados en SB1/);
 });
 test('follow-up prices reject changed identities, currency conflicts and new ambiguity',async t=>{
  for(const scenario of ['deleted','currency','ambiguous']){

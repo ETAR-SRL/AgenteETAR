@@ -20,7 +20,7 @@ La operación comercial se expresa habitualmente en millares, mientras que TOTVS
 
 Ejemplo: 2,5 millares a 80 por millar son 2500 unidades a 0,08 por unidad, total base 200. No multiplicar a la vez cantidad y precio por 1000. Conservar moneda y precisión SX3; no redondear silenciosamente un precio para que entre en el campo.
 
-La conversión comercial de precios se muestra para terminados Z cuya unidad SB1 es UN. Para otras unidades no se supone que un millar represente kilogramos, metros u otra medida. Antes de modificar un valor ambiguo hay que resolver su base (unidad o millar).
+La conversión comercial de precios se muestra para terminados Z cuya unidad SB1 es UN. Para otras unidades no se supone que un millar represente kilogramos, metros u otra medida. Antes de modificar un valor ambiguo hay que resolver su base (unidad o millar). En propuestas conversacionales DA1 se conserva la base explícita del contexto; si no existe, un terminado Z en UN usa millar como interpretación comercial visible en la respuesta y en la tarjeta que debe confirmar el usuario. Para otras unidades se pregunta, sin convertirlas.
 
 Se verificaron en SX3 `C6_MILLAR` (6 decimales) y `D2_MILLAR` (4 decimales), titulados “Cant. Millar”. No se encontró `C7_MILLAR` en esa consulta; no se inventa un campo equivalente. Ambos campos verificados se exponen como opcionales en las lecturas. Los disparadores de formulario de Protheus no son triggers SQL: actualizar directamente MILLAR no garantiza que se actualicen cantidad, precio, total ni campos relacionados.
 
@@ -41,3 +41,5 @@ El ejecutor relee y bloquea la fila y sus dependencias, comprueba la huella prev
 Ver [contrato de actualizaciones](actualizaciones.md) para campos, permisos, límites y resultados inciertos. No se modificaron registros comerciales durante las pruebas de implementación.
 
 SC1: `solicitudCompra` actualiza precio estimado C1_VUNIT, cantidad C1_QUANT y total C1_TOTAL de ítems existentes sin atención/aprobación/vínculos. En el modo de ventas liberadas, segunda unidad se conserva completa al cambiar sólo precio.
+
+Los ajustes porcentuales de listas DA1 recorren todas las páginas y verifican cada producto en SB1 y cada precio en DA1/DA0. Se excluyen de forma visible los registros inactivos o fuera de vigencia. El porcentaje se calcula sobre el precio actual redondeado a la precisión SX3, nunca sobre propuestas anteriores pendientes. Cualquier redondeo del nuevo precio a SX3 se muestra en el resumen. Se prepara una tarjeta por registro; cada confirmación es una transacción independiente, no una operación atómica de toda la lista. La precondición de precio, producto, lista y moneda se verifica de nuevo durante la preparación y ejecución.

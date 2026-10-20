@@ -92,7 +92,15 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
   return {p,row,product,header,activeTriggers,identity,balance,parameters,releases,documents,releaseTriggers,scope:{table:qualified(catalog.table(p.alias)),branch:catalog.branch(p.alias,target.sucursal),...(p.alias==='SC6'?{releaseTable:qualified(catalog.table('SC9')),releaseBranch:catalog.branch('SC9',target.sucursal)}:{})}};
  }
  function snapshot(c){return {policyVersion:3,row:c.row,product:c.product,header:c.header,triggers:c.activeTriggers,scope:c.scope,releases:c.releases,documents:c.documents,parameters:c.parameters,releaseTriggers:c.releaseTriggers};}
- function calculate(action,input,c){return planSalesBalance(calculateUpdate(action,input,c.row,c.product,catalog,{salesBalance:c.balance?.advanced}),c,catalog);}
+ function calculate(action,input,c){
+  if(input.expectedPrice!==undefined||input.expectedIdentity!==undefined){
+   assert(action==='precioLista'&&input.expectedPrice!==undefined&&input.expectedIdentity,400,'PRECONDICION_INVALIDA','Las precondiciones corresponden a un precio DA1 identificado');
+   const scale=numericSpec(c.p.price,catalog,c.p.alias).scale;
+   assert(sourceNumber(c.row[c.p.price],c.p.price).toDecimalPlaces(scale).eq(sourceNumber(input.expectedPrice,'precio esperado').toDecimalPlaces(scale)),409,'CONFLICTO_CONCURRENCIA','El precio cambió durante la preparación; volvé a solicitar el ajuste.');
+   const expected=input.expectedIdentity;
+   assert(clean(c.row.DA1_CODPRO)===expected.producto&&clean(c.row.DA1_CODTAB)===expected.lista&&sourceNumber(c.row.DA1_MOEDA,'DA1_MOEDA').eq(sourceNumber(expected.moneda,'moneda esperada')),409,'CONFLICTO_CONCURRENCIA','La identidad o moneda del precio cambió durante la preparación.');
+  }
+  return planSalesBalance(calculateUpdate(action,input,c.row,c.product,catalog,{salesBalance:c.balance?.advanced}),c,catalog);}
  function verifyAfter(before,after,updates,p){
   for(const [field,value] of Object.entries(updates))assert(sourceNumber(after[field],field).toFixed(numericSpec(field,catalog,p.alias).scale)===value,409,'LECTURA_POSTERIOR_DIFIERE',`No se guardó el valor esperado de ${field}`);
   for(const field of Object.keys(before))if(!Object.hasOwn(updates,field)&&field!=='S_T_A_M_P_')assert(JSON.stringify(after[field])===JSON.stringify(before[field]),409,'EFECTO_NO_PREVISTO',`Cambió un campo no solicitado: ${field}`);

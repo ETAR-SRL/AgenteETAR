@@ -260,3 +260,18 @@ test('HTTP executes active-credit price-only proposal and chat discloses retaine
  const res=await post('/api/changes/preview',f.input);assert.equal(res.status,201);const p=await res.json();assert.equal(p.executionEnabled,true);assert.equal(p.warnings[0].code,'PRECIO_SQL_SIN_REVALIDACION');
  const result=await post('/api/changes/'+p.id+'/execute',{confirm:true,fingerprint:p.fingerprint});assert.equal(result.status,200);assert.equal(f.state.writes,4);assert.equal((await result.json()).result.nativeCreditRevalidation,false);
 });
+
+test('DA1 contextual price preconditions detect changes before proposal and at execution',async()=>{
+ for(const change of ['price','list','product','currency']){
+  const f=fixture('precioLista');f.state.row.DA1_MOEDA='2.0000000000000000e+000';
+  f.input.expectedPrice='0.08';f.input.expectedIdentity={producto:'ZTEST',lista:'001',moneda:'2'};
+  const proposal=await f.proposal();
+  if(change==='price')f.state.row.DA1_PRCVEN='0.09';
+  if(change==='list')f.state.row.DA1_CODTAB='002';
+  if(change==='product')f.state.row.DA1_CODPRO='OTHER';
+  if(change==='currency')f.state.row.DA1_MOEDA='1';
+  await assert.rejects(f.proposal(),{code:'CONFLICTO_CONCURRENCIA'});
+  await assert.rejects(f.writes.execute(proposal),{code:'CONFLICTO_CONCURRENCIA'});
+  assert.equal(f.state.writes,0);
+ }
+});
