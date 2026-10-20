@@ -125,7 +125,7 @@ test('HTTP writer key executes; planner, reader and cross-origin sessions cannot
  const base=`http://127.0.0.1:${server.address().port}`,post=(path,key,body)=>fetch(base+path,{method:'POST',headers:{authorization:'Bearer '+key,'content-type':'application/json'},body:JSON.stringify(body)});
  const res=await post('/api/changes/preview',writeKey,f.input);assert.equal(res.status,201);const p=await res.json();const confirm={confirm:true,fingerprint:p.fingerprint};
  for(const key of [readKey,planKey])assert.equal((await post('/api/changes/'+p.id+'/execute',key,confirm)).status,403);
- const session=await fetch(base+'/api/ui/session',{method:'POST',headers:{origin:base}});assert.equal((await session.json()).role,'writer');const cookie=session.headers.get('set-cookie').split(';')[0];
+ const session=await fetch(base+'/api/auth/setup',{method:'POST',headers:{origin:base,'content-type':'application/json'},body:JSON.stringify({username:'admin',name:'Admin prueba',password:'Clave-de-prueba-123'})});assert.equal((await session.json()).user.role,'writer');const cookie=session.headers.get('set-cookie').split(';')[0];
  const cross=await fetch(base+'/api/changes/preview',{method:'POST',headers:{cookie,origin:'https://foreign.example','content-type':'application/json'},body:JSON.stringify(f.input)});assert.equal(cross.status,403);
  assert.equal((await post('/api/changes/'+p.id+'/execute',writeKey,confirm)).status,200);assert.equal(f.state.writes,1);
 });

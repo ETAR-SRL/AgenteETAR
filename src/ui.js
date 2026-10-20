@@ -3,12 +3,12 @@ import { readFileSync } from 'node:fs';
 import { assert } from './errors.js';
 
 const files=new Map([
-  ['/','index.html'],['/app.js','app.js'],['/style.css','style.css'],
+  ['/','index.html'],['/access-ui.js','access-ui.js'],['/app.js','app.js'],['/style.css','style.css'],
   ['/manifest.webmanifest','manifest.webmanifest'],['/sw.js','sw.js'],
   ['/icon.svg','icon.svg'],['/icon-192.png','icon-192.png'],['/icon-512.png','icon-512.png']
 ]);
 const mime={html:'text/html; charset=utf-8',js:'text/javascript; charset=utf-8',css:'text/css; charset=utf-8',webmanifest:'application/manifest+json',svg:'image/svg+xml',png:'image/png'};
-export function createUi({operator=false}={}){
+export function createUi({operator=false,access}={}){
   const role=operator?'writer':'reader';
   const sessions=new Map();
   function local(req){
@@ -20,24 +20,22 @@ export function createUi({operator=false}={}){
     const origin=local(req);
     assert(req.headers.origin===origin && (!req.headers['sec-fetch-site'] || req.headers['sec-fetch-site']==='same-origin'),403,'ORIGEN_INVALIDO','Abrí la aplicación desde este equipo');
   }
+  const token=req=>/(?:^|;\s*)central_auth=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie||'')?.[1];
   return {
+    local,sameOrigin,token,
+    authCookie(value){return `central_auth=${value}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=${value?28800:0}`;},
     principal(req){
-      const id=/(?:^|;\s*)central_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie||'')?.[1];
-      if(!id)return null;
+      const authToken=token(req);if(!access||!authToken)return null;
       local(req);
-      assert(!req.headers['sec-fetch-site'] || ['same-origin','none'].includes(req.headers['sec-fetch-site']),403,'ORIGEN_INVALIDO','Origen no permitido');
+      assert(!req.headers['sec-fetch-site']||['same-origin','none'].includes(req.headers['sec-fetch-site']),403,'ORIGEN_INVALIDO','Origen no permitido');
       if(!['GET','HEAD'].includes(req.method))sameOrigin(req);
-      const until=sessions.get(id);if(!until || until<Date.now()){sessions.delete(id);return null;}
-      return {role,actor:'ui:'+id.slice(0,12)};
+      return access.fromToken(authToken);
     },
     handle(req,res,path){
       if(path==='/api/ui/session' && req.method==='POST'){
         sameOrigin(req);
-        for(const [id,until] of sessions)if(until<Date.now())sessions.delete(id);
-        assert(sessions.size<500,429,'SESIONES_AGOTADAS','Demasiadas sesiones locales');
-        const existing=/(?:^|;\s*)central_session=([a-f0-9]{64})(?:;|$)/.exec(req.headers.cookie||'')?.[1];
-        const id=existing&&sessions.has(existing)?existing:randomBytes(32).toString('hex');sessions.set(id,Date.now()+12*3600_000);
-        res.writeHead(200,{'content-type':'application/json','cache-control':'no-store','set-cookie':`central_session=${id}; HttpOnly; SameSite=Strict; Path=/api; Max-Age=43200`});res.end(JSON.stringify({role}));return true;
+        const principal=this.principal(req);assert(principal,401,'INGRESO_REQUERIDO','Ingresá con tu usuario y contraseña.');
+        res.writeHead(200,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify({role:principal.role}));return true;
       }
       if(req.method!=='GET' || !files.has(path))return false;
       local(req);

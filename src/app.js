@@ -1,3 +1,6 @@
+import {AsyncLocalStorage} from 'node:async_hooks';
+import {Access,assertRead,assertAction,canRead,denied} from './access.js';
+import {scopeKaiqen} from './kaiqen-access.js';
 import http from 'node:http';
 import { timingSafeEqual, createHash } from 'node:crypto';
 import { assert, HttpError } from './errors.js';
@@ -9,7 +12,7 @@ import { createVoice } from './voice.js';
 import { createIntelligence } from './intelligence/agent.js';
 
 const safeEqual=(a,b)=>{const x=Buffer.from(a),y=Buffer.from(b||'');return x.length===y.length && timingSafeEqual(x,y);};
-function send(res,status,body){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));}
+function rawSend(res,status,body){res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(JSON.stringify(body));}
 async function body(req){
   assert((req.headers['content-type']||'').split(';')[0]==='application/json',415,'JSON_REQUERIDO','Usar Content-Type: application/json');
   const chunks=[];let bytes=0;
@@ -19,17 +22,31 @@ async function body(req){
 export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),model}){
   assert(readKey?.length>=32 && planKey?.length>=32 && readKey!==planKey,500,'CLAVES_INVALIDAS','Configurar dos claves distintas de al menos 32 caracteres');
   assert(!writeKey || (writeKey.length>=32 && writeKey!==readKey && writeKey!==planKey),500,'CLAVES_INVALIDAS','La clave de escritura debe ser distinta y de al menos 32 caracteres');
-  const rate=new Map(),ui=createUi({operator:localWrites&&erp.writes?.enabled===true});
+  const access=new Access(store,branches),context=new AsyncLocalStorage();
+  const principalNow=()=>access.refresh(context.getStore());
+  const send=(res,status,value)=>{if(context.getStore())principalNow();return rawSend(res,status,value);};
+  const guard=resource=>{const p=principalNow();assertRead(p,resource);return p;};
+  const branchGuard=branch=>{const p=principalNow();assert(p?.unrestricted||p?.branches.includes(branch),403,'LECTURA_DENEGADA',denied);};
+  const rawErp=erp,rawKaiqen=kaiqen;
+  erp={...rawErp,list:async(resource,params)=>{guard(resource);branchGuard(params.get('sucursal'));const value=await rawErp.list(resource,params);principalNow();return value;}};
+  if(rawErp.writes){erp.writes={...rawErp.writes};for(const method of ['prepare','check','execute'])erp.writes[method]=async(...args)=>{
+    const action=method==='prepare'?args[0]:args[0].action,target=method==='prepare'?args[1].target:args[0].target;
+    const p=principalNow();assertAction(p,action,method==='execute');if(method==='execute'&&p.userId)assert(localWrites,403,'ESCRITURA_LOCAL_DESHABILITADA','La ejecución está deshabilitada para usuarios en esta instalación.');branchGuard(target.sucursal);
+    return rawErp.writes[method](...args);
+  };}
+  kaiqen={...rawKaiqen};for(const [method,resource] of Object.entries({projects:'proyectos',project:'proyectos',quality:'calidad',projectLink:'proyectos',product:'productos'}))if(rawKaiqen[method])kaiqen[method]=async(...args)=>{guard(resource);const value=await rawKaiqen[method](...args);const p=principalNow();return p.admin||p.unrestricted?value:scopeKaiqen(method,value);};
+  const rate=new Map(),ui=createUi({access});
   function auth(req){
     const token=/^Bearer ([^\s]+)$/.exec(req.headers.authorization||'')?.[1]||'';
     const session=token?null:ui.principal(req);
-    const role=writeKey&&safeEqual(token,writeKey)?'writer':safeEqual(token,planKey)?'planner':safeEqual(token,readKey)?'reader':session?.role;
+    const managed=token?access.fromToken(token):session?.userId?session:null;
+    const role=managed?.role||(writeKey&&safeEqual(token,writeKey)?'writer':safeEqual(token,planKey)?'planner':safeEqual(token,readKey)?'reader':session?.role);
     assert(role,401,'NO_AUTORIZADO','Bearer token requerido');
-    const actor=session?.actor || role+':'+createHash('sha256').update(token).digest('hex').slice(0,12);
+    const actor=managed?.actor || session?.actor || role+':'+createHash('sha256').update(token).digest('hex').slice(0,12);
     const now=Date.now(),bucket=rate.get(actor);
     if(!bucket || bucket.until<now)rate.set(actor,{count:1,until:now+60_000});
     else {bucket.count++;assert(bucket.count<=120,429,'LIMITE_CONSULTAS','Máximo 120 solicitudes por minuto');}
-    return {role,actor};
+    return managed||{role,actor,unrestricted:true};
   }
   async function read(resource,params){
     assert(params.has('sucursal') && branches.includes(params.get('sucursal')),403,'SUCURSAL_NO_AUTORIZADA','Sucursal fuera del alcance de esta instalación');
@@ -41,6 +58,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   }
   const changes=new Changes({erp,store,read});
   async function executeRead(command){
+    guard(command.resource);
     const params=new URLSearchParams(command.filters);
     if(command.resource==='proyectos'){
       assert(params.size===0,400,'FILTRO_NO_ADMITIDO','La consulta de proyectos por texto no admite filtros; usar /api/kaiqen/projects');
@@ -52,6 +70,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     }
     if(command.resource==='entregas'){
       assert(params.has('sucursal') && branches.includes(params.get('sucursal')),403,'SUCURSAL_NO_AUTORIZADA','Sucursal fuera del alcance de esta instalación');
+      branchGuard(params.get('sucursal'));
       return {data:[],source:{system:'sin_conector_logistico',mode},status:'not_configured',limitations:['No se configuró evidencia de recepción física. Un remito emitido no es una entrega confirmada.']};
     }
     if(command.resource==='remitos'){
@@ -62,17 +81,41 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     }
     return read(command.resource,params);
   }
-  const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,prepareChange:(actor,input)=>changes.preview(actor,input)});
+  const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
   const server=http.createServer(async(req,res)=>{
     try{
       assert(req.url.length<=4096,414,'URL_LARGA','URL demasiado larga');
       const url=new URL(req.url,'http://localhost');
+      if(url.pathname.startsWith('/api/auth/')){
+        ui.local(req);
+        if(req.method==='GET'&&url.pathname==='/api/auth/state')return rawSend(res,200,{setupRequired:!access.hasUsers(),user:access.fromToken(ui.token(req))});
+        if(req.method==='POST'){
+          ui.sameOrigin(req);
+          if(url.pathname==='/api/auth/logout'){access.logout(ui.token(req));res.setHeader('set-cookie',ui.authCookie(''));return rawSend(res,200,{ok:true});}
+          if(['/api/auth/setup','/api/auth/login'].includes(url.pathname)){
+            const input=await body(req),result=url.pathname.endsWith('/setup')?await access.setup(input):await access.login(input,req.socket.remoteAddress);
+            res.setHeader('set-cookie',ui.authCookie(result.token));return rawSend(res,200,{user:result.principal});
+          }
+        }
+        throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
+      }
       if(ui.handle(req,res,url.pathname))return;
       if(url.pathname==='/health' && req.method==='GET')return send(res,200,{status:'up',mode});
       const principal=auth(req);
-      if(req.method==='GET'&&url.pathname==='/api/approvals/automation'){assert(principal.role==='writer',403,'ROL_REQUERIDO','Requiere operador de escritura');return send(res,200,{status:approvalScheduler?.status()||{enabled:false},...store.escalationHistory()});}
+      return await context.run(principal,async()=>{
+      if(url.pathname.startsWith('/api/admin/')){
+        access.admin(principal);
+        if(req.method==='GET'&&url.pathname==='/api/admin/access')return send(res,200,access.list(principal));
+        const target=/^\/api\/admin\/(roles|users)(?:\/([a-f0-9-]{36}|admin))?$/.exec(url.pathname);
+        if(target&&['POST','PUT'].includes(req.method)){
+          const result=target[1]==='roles'?access.saveRole(principal,await body(req),target[2]):await access.saveUser(principal,await body(req),target[2]);
+          return rawSend(res,200,{...result,reauthenticate:target[1]==='users'&&target[2]===principal.userId});
+        }
+        throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
+      }
+      if(req.method==='GET'&&url.pathname==='/api/approvals/automation'){guard('aprobacionesCompras');assert(principal.role==='writer',403,'ROL_REQUERIDO','Requiere operador de escritura');return send(res,200,{status:approvalScheduler?.status()||{enabled:false},...store.escalationHistory()});}
       if(req.method==='GET'&&url.pathname==='/api/agent/status')return send(res,200,await intelligence.status());
-      if(req.method==='POST'&&url.pathname==='/api/agent/chat')return send(res,200,await intelligence.query(principal.actor,await body(req),{canPlan:['planner','writer'].includes(principal.role)}));
+      if(req.method==='POST'&&url.pathname==='/api/agent/chat')return send(res,200,await intelligence.query(principal.actor,await body(req),{canPlan:['planner','writer'].includes(principal.role),allowedBranches:principal.branches||branches}));
       if(url.pathname==='/api/agent/knowledge'){
         if(req.method==='GET')return send(res,200,{data:intelligence.memory.list(principal.actor)});
         if(req.method==='POST')return send(res,201,intelligence.memory.add(principal.actor,await body(req)));
@@ -81,7 +124,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       if(memoryMatch?.[1]==='knowledge'&&req.method==='DELETE')return send(res,200,{deleted:intelligence.memory.remove(principal.actor,memoryMatch[2])});
       if(memoryMatch?.[1]==='conversations'&&req.method==='GET')return send(res,200,intelligence.memory.conversation(memoryMatch[2],principal.actor));
       for(const key of url.searchParams.keys())assert(url.searchParams.getAll(key).length===1,400,'FILTRO_DUPLICADO','Filtro repetido');
-      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,erp:erp.metadata(),kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true,writePolicy:erp.writes?.policy||null,purchaseCreation:erp.writes?.creation||null,approvalAutomation:approvalScheduler?.status()||{enabled:false},proposalActions:changePolicies,voice:voice.status(),externalAI:false});
+      if(req.method==='GET' && url.pathname==='/api/capabilities')return send(res,200,{mode,user:principal,erp:{...erp.metadata(),entities:Object.fromEntries(Object.entries(erp.metadata().entities).filter(([name])=>canRead(principal,name)))},kaiqen:{configured:kaiqen.available,source:kaiqen.source||'api',computedQuality:kaiqen.computedQuality!==false},branches:principal.branches||branches,writeExecution:erp.writes?.enabled===true,canExecute:principal.role==='writer'&&erp.writes?.enabled===true&&(!principal.userId||localWrites),writePolicy:erp.writes?.policy||null,purchaseCreation:erp.writes?.creation||null,approvalAutomation:canRead(principal,'aprobacionesCompras')?(approvalScheduler?.status()||{enabled:false}):{enabled:false},proposalActions:Object.fromEntries(Object.entries(changePolicies).filter(([action,policy])=>canRead(principal,policy.resource)&&(principal.admin||principal.unrestricted||principal.permissions.includes('plan:'+action)))),voice:voice.status(),externalAI:false});
       if(req.method==='GET' && url.pathname==='/api/voice/status')return send(res,200,voice.status());
       if(req.method==='POST' && url.pathname==='/api/voice/transcribe')return send(res,200,await voice.transcribe(req));
       if(req.method==='GET' && url.pathname==='/api/openapi.json')return send(res,200,JSON.parse(readFileSync(new URL('../docs/openapi.json',import.meta.url))));
@@ -92,6 +135,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       if(req.method==='GET' && (match=/^\/api\/kaiqen\/projects\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/.exec(url.pathname)))return send(res,200,await kaiqen.project(match[1]));
       if(req.method==='GET' && (match=/^\/api\/kaiqen\/quality(?:\/([A-Za-z0-9][A-Za-z0-9_-]{0,127}))?$/.exec(url.pathname)))return send(res,200,await kaiqen.quality(match[1]));
       if(req.method==='GET' && (match=/^\/api\/overview\/projects\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/.exec(url.pathname))){
+        guard('proyectos');guard('calidad');guard('costos');
         const project=await kaiqen.project(match[1]);
         const results=await Promise.allSettled([kaiqen.quality(match[1]),kaiqen.projectLink?.(match[1])??Promise.reject(new HttpError(503,'VINCULO_NO_CONFIGURADO','Vínculo ERP no configurado'))]);
         let partial=results.some(x=>x.status==='rejected') || project.data?.derivedStateAvailable===false;
@@ -116,12 +160,13 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       }
       if(req.method==='POST' && url.pathname==='/api/changes/preview'){
         assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere clave de planificación');
-        return send(res,201,await changes.preview(principal.actor,await body(req)));
+        const input=await body(req);assertAction(principal,input.action);return send(res,201,await changes.preview(principal.actor,input));
       }
       if(req.method==='POST' && (match=/^\/api\/changes\/([a-f0-9-]{36})\/check$/.exec(url.pathname))){assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere clave de planificación');return send(res,200,await changes.check(principal.actor,match[1]));}
-      if(req.method==='GET' && (match=/^\/api\/changes\/([a-f0-9-]{36})$/.exec(url.pathname))){assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere permiso de planificación');return send(res,200,changes.status(principal.actor,match[1]));}
+      if(req.method==='GET' && (match=/^\/api\/changes\/([a-f0-9-]{36})$/.exec(url.pathname))){assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere permiso de planificación');const saved=store.get(match[1],principal.actor);if(saved)assertAction(principal,saved.action);return send(res,200,changes.status(principal.actor,match[1]));}
       if(req.method==='POST' && (match=/^\/api\/changes\/([a-f0-9-]{36})\/execute$/.exec(url.pathname))){assert(principal.role==='writer',403,'ROL_INSUFICIENTE','Se requiere permiso de escritura');return send(res,200,await changes.execute(principal.actor,match[1],await body(req)));}
       throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
+      });
     }catch(error){
       const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:503;
       send(res,status,{error:{code:error.code||'FUENTE_NO_DISPONIBLE',message:status<500?error.message:'Fuente o función no disponible; consultar diagnóstico local'},mode});

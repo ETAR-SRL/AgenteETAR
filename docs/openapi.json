@@ -15,13 +15,13 @@
       "bearerAuth": {
         "type": "http",
         "scheme": "bearer",
-        "description": "API_READ_KEY lectura, API_PLAN_KEY propuestas, API_WRITE_KEY ejecución confirmada. No embeber claves en PWA distribuida."
+        "description": "Claves de servicio API_READ_KEY/API_PLAN_KEY/API_WRITE_KEY con alcance global; no distribuir a usuarios ni embeber en PWA. Las sesiones personales también se validan como bearer."
       },
       "localSession": {
         "type": "apiKey",
         "in": "cookie",
-        "name": "central_session",
-        "description": "Sesión local HttpOnly/SameSite Strict; operador sólo con flags habilitados, loopback y mismo origen."
+        "name": "central_auth",
+        "description": "Usuario personal, sesión HttpOnly SameSite Strict de ocho horas. Roles por área, acción y sucursal; loopback y mismo origen."
       }
     }
   },
@@ -1089,23 +1089,27 @@
     },
     "/api/ui/session": {
       "post": {
-        "summary": "Crear o renovar sesión local de PWA",
-        "description": "Requiere Origin idéntico al Host local 127.0.0.1 o localhost y conexión loopback. No devuelve claves API. Rol writer sólo cuando ERP_WRITE_ENABLED y LOCAL_WRITE_ENABLED están habilitados; reader por defecto.",
-        "security": [],
+        "summary": "Comprueba la sesión personal existente; no crea sesiones anónimas",
+        "security": [
+          {
+            "localSession": []
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Resultado JSON",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": true
-                }
-              }
-            }
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
           },
           "403": {
-            "description": "Origen o equipo no permitido"
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
           }
         }
       }
@@ -1418,6 +1422,413 @@
           },
           "403": {
             "description": "Requiere writer"
+          }
+        }
+      }
+    },
+    "/api/auth/state": {
+      "get": {
+        "summary": "Estado de configuración y usuario actual; no revela contraseñas ni tokens",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "403": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          }
+        }
+      }
+    },
+    "/api/auth/setup": {
+      "post": {
+        "summary": "Primer administrador, sólo si no hay usuarios; establece cookie",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 12,
+                    "maxLength": 128
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "403": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "summary": "Ingreso personal, establece cookie; límite de intentos por dirección",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "403": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "summary": "Revoca la sesión personal y elimina la cookie",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "403": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          }
+        }
+      }
+    },
+    "/api/admin/access": {
+      "get": {
+        "summary": "Administrador: usuarios, roles, permisos y dependencias de lectura",
+        "security": [
+          {
+            "localSession": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "403": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          }
+        }
+      }
+    },
+    "/api/admin/roles": {
+      "post": {
+        "summary": "Administrador: crear roles",
+        "security": [
+          {
+            "localSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "branches": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "403": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          }
+        }
+      }
+    },
+    "/api/admin/roles/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "summary": "Administrador: modificar roles; aplica nueva revisión de acceso",
+        "security": [
+          {
+            "localSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "branches": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "403": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          }
+        }
+      }
+    },
+    "/api/admin/users": {
+      "post": {
+        "summary": "Administrador: crear users",
+        "security": [
+          {
+            "localSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  },
+                  "roleId": {
+                    "type": "string"
+                  },
+                  "active": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "403": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          }
+        }
+      }
+    },
+    "/api/admin/users/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string"
+          }
+        }
+      ],
+      "put": {
+        "summary": "Administrador: modificar users; aplica nueva revisión de acceso",
+        "security": [
+          {
+            "localSession": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  },
+                  "roleId": {
+                    "type": "string"
+                  },
+                  "active": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "400": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "401": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "403": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
+          },
+          "409": {
+            "description": "Respuesta JSON; errores incluyen error.code y error.message."
           }
         }
       }

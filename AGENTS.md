@@ -4,6 +4,7 @@
 - Escribir mensajes de commit claros en español, describiendo el cambio real y sus límites.
 - No versionar `.env`, credenciales, bases locales, audio, capturas comerciales, informes con filas ERP, modelos ni runtimes. Usar `.env.example` sin valores secretos.
 - Preservar PWA, consultas por texto/voz, memoria local, fuentes ERP/KAIQEN, informes de saldos y aislamiento de sucursales.
+- Preservar ingreso personal y autorización en servidor. Cada recurso nuevo debe declarar sus áreas en src/access.js, incluyendo datos de referencias y consultas combinadas; denegar lo desconocido. No usar claves globales de servicio en la PWA ni memoria compartida entre usuarios. Revisar docs/accesos.md al agregar rutas, herramientas de IA o acciones.
 - Leer `docs/reglas-etar.md` antes de modificar precios, cantidades, pedidos o vínculos comerciales.
 - Los terminados de ETAR comienzan con `Z`. Resolver cliente → `SA1.A1_TABELA` → lista DA0/DA1 → producto; no inferir un cliente único a partir del prefijo ni del nombre.
 - La operación comercial usa habitualmente millares; TOTVS guarda cantidades en unidades. Un millar = 1000 unidades. Mantener separadas cantidad, precio por unidad, precio por millar y total.

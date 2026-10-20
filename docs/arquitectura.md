@@ -112,7 +112,7 @@ El futuro servicio ADVPL deberá volver a comprobar la identidad de empresa, amb
 
 El flujo actual interpreta texto con formato conocido, por ejemplo `consultar compras pendientes sucursal 0101` o `actualizar precio registro 4 a 1350.00 sucursal 0101`. La segunda instrucción produce una propuesta; no altera DA1. No interpreta instrucciones generales como “ajustá todos los precios según inflación”.
 
-La PWA captura audio mediante MediaRecorder y lo envía al endpoint autenticado `/api/voice/transcribe`. Whisper base int8 lo transcribe en CPU local, con máximo 45 segundos y borrado de archivos temporales. El usuario revisa el texto antes de consultar. La sesión es de lectura por defecto; LOCAL_WRITE_ENABLED habilita operador local. La tarjeta presenta identidad, sucursal, moneda y diferencias antes de confirmar. El LLM propone llamadas delimitadas y nunca genera SQL ejecutable.
+La PWA captura audio mediante MediaRecorder y lo envía al endpoint autenticado `/api/voice/transcribe`. Whisper base int8 lo transcribe en CPU local, con máximo 45 segundos y borrado de archivos temporales. El usuario revisa el texto antes de consultar. La sesión requiere usuario personal; su rol controla áreas, acciones y sucursales. LOCAL_WRITE_ENABLED permite ejecutar a usuarios con el permiso correspondiente. Ver accesos.md. La tarjeta presenta identidad, sucursal, moneda y diferencias antes de confirmar. El LLM propone llamadas delimitadas y nunca genera SQL ejecutable.
 
 ## Puesta en servicio y evidencia pendiente
 

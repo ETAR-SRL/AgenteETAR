@@ -1,3 +1,4 @@
+import {accessReady,loadAccessPanel} from './access-ui.js';
 const $=s=>document.querySelector(s);
 const labels={condicionesPago:'Condiciones de pago',depositos:'Depósitos',centrosCosto:'Centros de costo',solicitudesCompra:'Solicitudes de compra',costos:'Costos',compras:'Órdenes de compra',produccion:'Producción',ventas:'Pedidos de venta',itemsVentas:'Ítems de ventas / pendientes',documentosSalida:'Documentos de salida',itemsDocumentosSalida:'Ítems de documentos de salida',remitos:'Remitos',entregas:'Entregas físicas',clientes:'Clientes',proveedores:'Proveedores',productos:'Productos',listasPreciosClientes:'Listas de precios de clientes',preciosClientes:'Precios de clientes · DA1',listasPreciosProveedores:'Listas de precios de proveedores',preciosProveedores:'Precios de proveedores',productoProveedor:'Productos por proveedor',productoCliente:'Productos por cliente',entradasCompras:'Entradas de compras',estructuras:'Estructuras',cotizaciones:'Cotizaciones',itemsCotizaciones:'Ítems de cotizaciones',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN'};
 const fieldLabels={precioPorMillar:'Precio por millar',cantidadMillares:'Cantidad en millares',registro:'Registro',codigo:'Código',descripcion:'Descripción',sucursal:'Sucursal',producto:'Producto',cliente:'Cliente',proveedor:'Proveedor',nombre:'Nombre',tienda:'Tienda',numero:'Número',lista:'Lista',precio:'Precio',desde:'Desde',hasta:'Hasta',pendiente:'Pendientes',status_name:'Estado registrado',phase_no:'Fase',name:'Nombre',code:'Código',customer:'Cliente',current_phase_name:'Fase actual',planned_start:'Inicio previsto',planned_end:'Fin previsto',actual_start:'Inicio real',actual_end:'Fin real',updated_at:'Actualizado',part_number:'N.º de pieza',part_name:'Pieza',sin_ia_externa:'Restricción IA externa',sin_ia_externa_por_cliente:'Restricción IA del cliente'};
@@ -10,7 +11,7 @@ async function session(){const res=await fetch('/api/ui/session',{method:'POST',
 async function api(path,options={},retry=true){
   let response;
   try{response=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});}catch{throw Object.assign(new Error('No se puede acceder al servicio local. Iniciá Central en este equipo y verificá la red o VPN.'),{code:'SIN_CONEXION'});}
-  if(response.status===401&&retry){await session();return api(path,options,false);}
+  if(response.status===401&&retry){await accessReady();await session();return api(path,options,false);}
   const data=await response.json();if(!response.ok)throw Object.assign(new Error(data.error?.message||'No se pudo realizar la consulta'),{code:data.error?.code});return data;
 }
 function showError(where,error){
@@ -76,8 +77,9 @@ function renderQuality(where,envelope,append=false){
   if(append)where.append(section);else where.replaceChildren(section);
 }
 function switchView(view){
+  if(view==='access')loadAccessPanel();
   document.querySelectorAll('.view').forEach(el=>el.classList.toggle('hidden',el.id!==view));document.querySelectorAll('.nav').forEach(el=>{el.classList.toggle('active',el.dataset.view===view);el.setAttribute('aria-current',el.dataset.view===view?'page':'false');});
-  $('#page-name').textContent={assistant:'Asistente',explorer:'Explorar ERP',updates:'Actualizaciones',projects:'Proyectos y calidad',sources:'Conexiones'}[view];
+  $('#page-name').textContent={assistant:'Asistente',explorer:'Explorar ERP',updates:'Actualizaciones',projects:'Proyectos y calidad',sources:'Conexiones',access:'Usuarios y roles'}[view];
   if(view==='projects'&&!$('#project-list').children.length)loadProjects();if(view==='sources')renderSources();
 }
 document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>switchView(el.dataset.view));
@@ -201,10 +203,19 @@ $('#install').onclick=async()=>{if(deferredInstall){await deferredInstall.prompt
 $('#help').onclick=()=>$('#help-dialog').showModal();$('#close-help').onclick=()=>$('#help-dialog').close();
 window.addEventListener('offline',()=>notice('Sin conexión. La interfaz está disponible, pero las consultas requieren el servicio local y acceso a las fuentes.'));
 window.addEventListener('online',()=>notice('Conexión recuperada. Volvé a consultar para actualizar la información.'));
+const canPrepare=action=>Object.hasOwn(capabilities?.proposalActions||{},action);
+const canExecuteAction=action=>capabilities?.canExecute&&(capabilities.user?.admin||capabilities.user?.unrestricted||capabilities.user?.permissions?.includes('write:'+action));
+function applyActionAccess(){
+ for(const [select,button] of [['#update-action','#update-preview'],['#create-action','#create-preview'],['#workflow-action','#workflow-form button[type=submit]']]){
+  for(const option of [...$(select).options])if(!canPrepare(option.value))option.remove();
+  $(button).disabled=!$(select).options.length;
+ }
+ $('#create-action').onchange();$('#workflow-action').onchange();
+}
 async function start(){
-  try{await session();capabilities=await api('/api/capabilities');renderAutomationStatus(capabilities.approvalAutomation);$('#automation-refresh').disabled=!capabilities.canExecute;$('#update-preview').disabled=!capabilities.canExecute;$('#create-preview').disabled=!capabilities.canExecute;$('#update-access').textContent=capabilities.canExecute?'UPDATE SQL habilitados. La ejecución depende de las validaciones de cada propuesta; este modo no revalida crédito en Protheus.':'Esta sesión no tiene ejecución de cambios habilitada.';if(capabilities.purchaseCreation){$('#creation-status').textContent='Altas SC1/SC7 disponibles en el formulario de abajo. Numeración automática al confirmar; aprobación según la configuración vigente de Protheus.';}restoreProposal();$('#connection').textContent=capabilities.mode==='live'?'Servicio real':'Modo DEMO';$('#connection').classList.toggle('warn',capabilities.mode!=='live');
+  try{const user=await accessReady();if(localStorage.getItem('central-access-actor')!==user.actor){conversationId=undefined;for(const key of Object.keys(localStorage))if(key.startsWith('central-'))localStorage.removeItem(key);localStorage.setItem('central-access-actor',user.actor);}await session();capabilities=await api('/api/capabilities');renderAutomationStatus(capabilities.approvalAutomation);$('#automation-refresh').disabled=!capabilities.canExecute;applyActionAccess();$('#update-access').textContent=capabilities.canExecute?'UPDATE SQL habilitados. La ejecución depende de las validaciones de cada propuesta; este modo no revalida crédito en Protheus.':'Esta sesión no tiene ejecución de cambios habilitada.';if(capabilities.purchaseCreation){$('#creation-status').textContent='Altas SC1/SC7 disponibles en el formulario de abajo. Numeración automática al confirmar; aprobación según la configuración vigente de Protheus.';}restoreProposal();$('#connection').textContent=capabilities.mode==='live'?'Servicio real':'Modo DEMO';$('#connection').classList.toggle('warn',capabilities.mode!=='live');
     capabilities.branches.forEach(v=>{const o=node('option','',v);o.value=v;$('#branch').append(o);});
-    const resources=Object.keys(capabilities.erp.entities||{});for(const key of [...resources,'remitos','entregas']){const o=node('option','',labels[key]||key);o.value=key;$('#resource').append(o);}$('#resource').value='costos';buildFilters();
+    const resources=Object.keys(capabilities.erp.entities||{});for(const key of [...resources,...(resources.includes('documentosSalida')?['remitos']:[]),...(resources.includes('ventas')?['entregas']:[])]){const o=node('option','',labels[key]||key);o.value=key;$('#resource').append(o);}$('#resource').value=resources.includes('costos')?'costos':resources[0]||'';if(resources.length)buildFilters();
     $('#voice-status').textContent=capabilities.voice.available?'Dictado en español · transcripción local · hasta 45 segundos':'Transcripción local no instalada. Las consultas por texto están disponibles.';
     api('/api/agent/status').then(status=>{$('#ai-status').textContent=status.available?'IA local activa · '+status.model:'Motor de IA no disponible';}).catch(()=>{$('#ai-status').textContent='No se pudo verificar el modelo';});
     if(conversationId){try{const history=await api('/api/agent/conversations/'+conversationId);const conversation=$('#conversation');for(const message of history.messages){if(message.role==='user'){const q=node('div','question');q.append(node('span','',message.content));conversation.append(q);}else{let saved;try{saved=JSON.parse(message.content);}catch{continue;}const a=node('article','answer-card');a.append(node('div','result-meta','Conversación anterior · valores históricos, consultá nuevamente para actualizarlos'),node('div','answer-text',saved.answer));conversation.append(a);}}}catch{conversationId=undefined;localStorage.removeItem('central-conversation-id');}}
@@ -228,7 +239,7 @@ function renderProposal(where,proposal,{append=true}={}){
   for(const blocker of proposal.blockers||[])card.append(node('p','notice',blocker.message));
   const check=node('input');check.type='checkbox';const label=node('label','confirm-change');label.append(check,document.createTextNode(' Revisé el registro, la moneda, los valores y las condiciones indicadas. Confirmo este cambio en el ERP.'));
   const execute=node('button','primary',proposal.operation==='insert'?'Confirmar y crear documento':'Confirmar y actualizar ERP'),refresh=node('button','secondary','Consultar estado');execute.type=refresh.type='button';
-  execute.disabled=true;check.onchange=()=>{execute.disabled=!check.checked||!capabilities?.canExecute||!proposal.executionEnabled;};
+  execute.disabled=true;check.onchange=()=>{execute.disabled=!check.checked||!canExecuteAction(proposal.action)||!proposal.executionEnabled;};
   controls.append(execute,refresh);card.append(label,controls,result);let terminal=false;
   function status(execution){
     const names={executed:'Cambio SQL guardado y verificado. No implica aprobación nativa.',executing:'Ejecución en curso. No repitas el cambio.',failed:'No se confirmó el cambio. Revisá el error y generá una nueva propuesta.',unknown:'Resultado incierto. Verificá el registro en Protheus antes de preparar otro cambio.'};
@@ -254,7 +265,7 @@ function renderProposal(where,proposal,{append=true}={}){
   return {status};
 }
 async function restoreProposal(){
-  const id=localStorage.getItem('central-last-proposal');if(!id||!capabilities?.canExecute)return;
+  const id=localStorage.getItem('central-last-proposal');if(!id||!Object.keys(capabilities?.proposalActions||{}).length)return;
   try{const saved=await api('/api/changes/'+id);const where=$('#update-pending');where.replaceChildren(node('h2','','Última propuesta'));renderProposal(where,saved.proposal).status(saved.execution);}catch{/* La sesión anterior puede haber vencido. No reenviar escrituras. */}
 }
 $('#update-form').onsubmit=async event=>{
@@ -263,7 +274,7 @@ $('#update-form').onsubmit=async event=>{
   if(price)changes[order?'precioUnitario':'precio']=price;if(quantity)changes.cantidadPedida=quantity;
   $('#update-preview').disabled=true;busy(where,'Leyendo el registro y calculando diferencias…');
   try{const proposal=await api('/api/changes/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,target:{sucursal:$('#branch').value,registro:$('#update-record').value.trim()},changes,...(price?{priceUnit:$('#update-price-unit').value}:{}),...(quantity?{quantityUnit:$('#update-quantity-unit').value}:{})})});localStorage.setItem('central-last-proposal',proposal.id);renderProposal(where,proposal,{append:false});}
-  catch(e){showError(where,e);}finally{$('#update-preview').disabled=!capabilities?.canExecute;}
+  catch(e){showError(where,e);}finally{$('#update-preview').disabled=!canPrepare($('#update-action').value);}
 };
 
 function addCreateItem(){
@@ -280,7 +291,7 @@ $('#create-form').onsubmit=async event=>{
  event.preventDefault();const action=$('#create-action').value,header={fechaEmision:$('#create-date').value,moneda:'1'};
  if(action==='crearSolicitudCompra'){header.solicitante=$('#create-requester').value.trim();header.solicitanteCodigo=$('#create-requester-code').value.trim();}else Object.assign(header,{proveedor:$('#create-vendor').value.trim(),tienda:$('#create-store').value.trim(),condicionPago:$('#create-payment').value.trim(),comprador:$('#create-buyer').value.trim()});
  const items=[...$('#create-items').children].map(row=>Object.fromEntries([...row.querySelectorAll('[data-field]')].map(i=>[i.dataset.field,i.value.trim()]))),where=$('#create-result');$('#create-preview').disabled=true;busy(where,'Verificando catálogos y preparando el documento…');
- try{const proposal=await api('/api/changes/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,target:{sucursal:$('#branch').value},header,items})});localStorage.setItem('central-last-proposal',proposal.id);renderProposal(where,proposal,{append:false});}catch(e){showError(where,e);}finally{$('#create-preview').disabled=!capabilities?.canExecute;}
+ try{const proposal=await api('/api/changes/preview',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,target:{sucursal:$('#branch').value},header,items})});localStorage.setItem('central-last-proposal',proposal.id);renderProposal(where,proposal,{append:false});}catch(e){showError(where,e);}finally{$('#create-preview').disabled=!canPrepare($('#create-action').value);}
 };
 
 $('#workflow-action').onchange=()=>{const transfer=$('#workflow-action').value==='escalarAprobacionCompra';$('#workflow-record').disabled=!transfer;$('#workflow-record').required=transfer;};
