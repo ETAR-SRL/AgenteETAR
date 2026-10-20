@@ -21,7 +21,7 @@ function showError(where,error){
 function display(value){if(value===null||value===undefined||value==='')return '—';if(typeof value==='boolean')return value?'Sí':'No';if(typeof value==='object')return JSON.stringify(value);return String(value);}
 function visual(value){
   if(value&&typeof value==='object'&&!Array.isArray(value))return Object.entries(value).map(([key,v])=>`${title(key)}: ${display(v)}`).join(' · ');
-  if(typeof value==='string'&&/^-?\d+\.\d+e[+-]\d+$/i.test(value)){
+  if(typeof value==='string'&&/^-?\d+\.\d+(?:e[+-]\d+)?$/i.test(value)){
     const number=Number(value);if(Number.isFinite(number))return number!==0&&Math.abs(number)<0.000001?number.toLocaleString('es-AR',{maximumSignificantDigits:6}):number.toLocaleString('es-AR',{maximumFractionDigits:6});
   }
   return display(value);
