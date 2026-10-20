@@ -34,9 +34,12 @@ function fixture(t){
  };
  const erp={list:read,metadata:()=>({entities:{}}),writes:{enabled:true,prepare:async(action,input)=>{
   prepares++;prepared.push(input);const profile=Object.values(importProfiles).find(p=>p.action===action);
-  const row=data[profile.resource].find(r=>r.registro===input.target.registro),price=new Decimal(input.changes.precio??input.changes.precioUnitario).div(input.priceUnit==='millar'?1000:1).toFixed(4);
-  const diff=[{field:profile.price,before:row.precio??row.precioUnitario,after:price}];
-  if(profile.order)diff.push({field:action==='pedidoVenta'?'C6_VALOR':action==='pedidoCompra'?'C7_TOTAL':'C1_TOTAL',before:row.total,after:new Decimal(price).times(row.cantidadPedida).toFixed(2)});
+  const row=data[profile.resource].find(r=>r.registro===input.target.registro),priceInput=input.changes.precio??input.changes.precioUnitario;
+  const price=priceInput===undefined?row.precioUnitario:new Decimal(priceInput).div(input.priceUnit==='millar'?1000:1).toFixed(4);
+  const diff=priceInput===undefined?[]:[{field:profile.price,before:row.precio??row.precioUnitario,after:price}];
+  const quantity=input.changes.cantidadPedida===undefined?row.cantidadPedida:new Decimal(input.changes.cantidadPedida).times(input.quantityUnit==='millares'?1000:1).toFixed(2);
+  if(input.changes.cantidadPedida!==undefined)diff.push({field:action==='pedidoVenta'?'C6_QTDVEN':action==='pedidoCompra'?'C7_QUANT':'C1_QUANT',before:row.cantidadPedida,after:quantity});
+  if(profile.order)diff.push({field:action==='pedidoVenta'?'C6_VALOR':action==='pedidoCompra'?'C7_TOTAL':'C1_TOTAL',before:row.total,after:new Decimal(price).times(quantity).toFixed(2)});
   return {diff,identity:{unidadMedida:'UN'},snapshotHash:'hash-'+prepares,executionEnabled:true,blockers:[],warnings:[]};
  },check:async()=>({executionEnabled:true}),execute:async()=>{writes++;return {affected:1};}}};
  const changes=new Changes({erp,store,read});
@@ -152,4 +155,69 @@ test('neutral upload and chat API produce a review without ERP execution',async 
  assert.equal(response.status,200);const result=await response.json();assert.equal(result.batch.counts.valid,1);assert.ok(result.conversationId);
  const denied=await request('/api/price-imports/batches/'+result.batch.id+'/execute',{confirm:true,fingerprint:result.batch.fingerprint});
  assert.equal(denied.status,403);assert.equal(f.writes,0);
+});
+
+for(const [kind,number,label] of [['pedidoVenta','000123','pedido de venta'],['pedidoCompra','000456','pedido de compra'],['solicitudCompra','000789','solicitud']]){
+ for(const mode of ['quantities','both'])test(`${kind}: ${mode} keeps independent bases and summarizes total before confirmation`,async t=>{
+  const f=fixture(t);Object.assign(f.document.rows[0],{quantity:'2.5',quantityUnit:'millares',...(kind==='solicitudCompra'?{currency:'ARS'}:{})});
+  const draft=f.imports.save('u','pendiente','0101',f.document),conversation={};
+  const r=await f.chat('u',{text:`Actualizá ${mode==='both'?'precios y cantidades':'cantidades'} del ${label} ${number}`,attachmentId:draft.id},conversation,'0101');
+  assert.equal(r.batch.counts.valid,1,JSON.stringify(r));assert.equal(f.writes,0);
+  const change=f.prepared[0],row=r.batch.rows[0];assert.equal(change.changes.cantidadPedida,'2.5');assert.equal(change.quantityUnit,'millares');assert.equal(change.expectedQuantity,'1000');
+  assert.equal(row.cantidadAnterior,'1000');assert.equal(row.cantidadNueva,'2500.00');assert.equal(row.cantidadAnteriorComercial,'1');assert.equal(row.cantidadNuevaComercial,'2.5');
+  assert.equal(row.totalNuevo,mode==='both'?'150.00':'145.00');
+  if(mode==='quantities'){assert.equal(change.changes.precioUnitario,undefined);assert.equal(row.anterior,row.nuevo);}
+  else assert.equal(change.priceUnit,'millar');
+  assert.match(r.answer,/no se suman/);
+  const executed=await f.batches.run('u',r.batch.id,{confirm:true,fingerprint:r.batch.fingerprint});assert.equal(executed.counts.executed,1);
+ });
+}
+test('quantity-only file asks only its missing basis, not currency or price basis',async t=>{
+ const f=fixture(t);Object.assign(f.document.rows[0],{price:'',rawPrice:'',currency:'',unit:'',quantity:'2500'});
+ const draft=f.imports.save('u','pendiente','0101',f.document),conversation={};
+ const first=await f.chat('u',{text:'Actualizá cantidades del pedido de compra 000456',attachmentId:draft.id},conversation,'0101');
+ assert.deepEqual(conversation.attachment.missing,['quantityUnit']);assert.equal(f.prepared.length,0);
+ const result=await f.chat('u',{text:'unidades'},conversation,'0101');assert.equal(result.batch.counts.valid,1,JSON.stringify(result));assert.equal(f.prepared[0].quantityUnit,'unidades');assert.equal(result.batch.rows[0].totalNuevo,'145.00');
+});
+test('generic mixed file asks columns; a price instruction does not silently import quantities',async t=>{
+ const f=fixture(t);Object.assign(f.document.rows[0],{quantity:'2.5',quantityUnit:'millares'});const draft=f.imports.save('u','pendiente','0101',f.document),conversation={};
+ const first=await f.chat('u',{text:'Actualizá el pedido de compra 000456',attachmentId:draft.id},conversation,'0101');assert.match(first.answer,/precios, cantidades o ambos/);assert.equal(f.prepared.length,0);
+ const r=await f.chat('u',{text:'precios'},conversation,'0101');assert.equal(r.batch.counts.valid,1);assert.equal(f.prepared[0].changes.cantidadPedida,undefined);
+});
+test('quantity edits invalidate old confirmation without switching other rows from both to quantities',async t=>{
+ const f=fixture(t);Object.assign(f.document.rows[0],{quantity:'2.5',quantityUnit:'millares'});const draft=f.imports.save('u','pendiente','0101',f.document),conversation={};
+ const first=await f.chat('u',{text:'Actualizá precios y cantidades del pedido de compra 000456',attachmentId:draft.id},conversation,'0101');
+ const next=await f.chat('u',{text:'fila 1 cantidad 3,5 millares'},conversation,'0101');assert.equal(next.batch.rows[0].totalNuevo,'210.00');assert.equal(next.batch.rows[0].nuevo,'60');assert.equal(f.batches.get('u',first.batch.id).status,'superseded');
+});
+test('different price and quantity bases are not crossed; ambiguous basis is requested',async t=>{
+ const f=fixture(t);Object.assign(f.document.rows[0],{quantity:'2500',unit:'',quantityUnit:''});const draft=f.imports.save('u','pendiente','0101',f.document),conversation={};
+ const first=await f.chat('u',{text:'Actualizá precios y cantidades del pedido de compra 000456',attachmentId:draft.id},conversation,'0101');assert.deepEqual(conversation.attachment.missing,['unit','quantityUnit']);
+ const r=await f.chat('u',{text:'precios por millar y cantidades en unidades'},conversation,'0101');assert.equal(r.batch.counts.valid,1);assert.equal(f.prepared[0].priceUnit,'millar');assert.equal(f.prepared[0].quantityUnit,'unidades');assert.equal(r.batch.rows[0].totalNuevo,'150.00');
+});
+test('quantity updates reject list destinations, incompatible UM and invalid values without partial row changes',async t=>{
+ const f=fixture(t),draft=f.imports.save('u','pedidoCompra','0101',f.document);
+ for(const quantity of ['','0','-1','1.000,5','1e3']){
+  const result=await f.imports.preview('u',draft.id,{reviewed:true,number:'000456',updateFields:'both',rows:[{...f.document.rows[0],quantity,quantityUnit:'millares'}]});assert.equal(result.proposals.length,0);assert.equal(result.issues[0].codigo,'CANTIDAD_INVALIDA');
+ }
+ f.data.productos[0].unidadMedida='KG';const result=await f.imports.preview('u',draft.id,{reviewed:true,number:'000456',updateFields:'quantities',rows:[{...f.document.rows[0],quantity:'2',quantityUnit:'millares'}]});assert.equal(result.issues[0].codigo,'UNIDAD_INCOMPATIBLE');
+ const list=f.imports.save('u','proveedor','0101',f.document);await assert.rejects(f.imports.preview('u',list.id,{reviewed:true,updateFields:'quantities',rows:f.document.rows}),{code:'CANTIDAD_NO_ADMITIDA'});assert.equal(f.prepared.length,0);
+});
+test('quantity-only headers and independent bases survive extraction; totals are not quantities or prices',()=>{
+ const r=parsePriceTables({tables:[{name:'Qty',rows:[['Producto','Cantidad en millares','Total'],['Z1',2.5,999]]},{name:'Both',rows:[['Producto','Cantidad','Base cantidad','Precio','Base precio','Moneda'],['Z2','2500','unidades','80','millar','USD']]}]});
+ assert.equal(r.rows[0].quantity,'2.5');assert.equal(r.rows[0].quantityUnit,'millares');assert.equal(r.rows[0].price,'');assert.equal(r.rows[1].quantityUnit,'unidades');assert.equal(r.rows[1].unit,'millar');
+ const bad=parsePriceTables({tables:[{name:'Bad',rows:[['Producto','Cantidad'],['Z1','1.234']]}]});assert.equal(bad.rows[0].quantity,'');assert.match(bad.rows[0].warning,/Cantidad/);
+});
+
+test('basis clarification preserves both columns and ambiguous basis cannot be supplied by the model',async()=>{
+ const state={values:{updateFields:'both'},missing:['unit','quantityUnit']};
+ const quantity=literalAttachmentIntent('cantidades en millares',state);
+ assert.equal(quantity.quantityUnit,'millares');assert.equal(quantity.updateFields,undefined);assert.equal(quantity.unit,undefined);
+ const price=literalAttachmentIntent('precios por unidad',state);
+ assert.equal(price.unit,'unidad');assert.equal(price.updateFields,undefined);
+ let calls=0;const result=await attachmentIntent('millares',state,{complete:async()=>{calls++;return {unit:'millares'};}});
+ assert.equal(result.unit,undefined);assert.equal(result.quantityUnit,undefined);assert.equal(calls,0);
+ assert.equal(literalAttachmentIntent('actualizá las cantidades sin tocar los precios').updateFields,'quantities');
+ assert.equal(literalAttachmentIntent('actualizá sólo precios sin cambiar cantidades').updateFields,'prices');
+ const parsed=parsePriceTables({tables:[{name:'Hoja1',rows:[['Producto','Cantidad','Unidad'],['Z1','$ 2','millares']]}]});
+ assert.equal(parsed.rows[0].quantity,'');assert.match(parsed.rows[0].warning,/Cantidad no reconocida/);
 });

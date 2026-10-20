@@ -29,11 +29,14 @@ export function parsePriceTables(extracted){
  if(orderKinds.length===1)defaults.kind=orderKinds[0];else if(destinations.length===1)defaults.kind=destinations[0];
  defaults.number=/(?:pedido de (?:venta|compra)|orden de compra|solicitud(?: de compra)?)\s*:\s*([a-z0-9-]+)/i.exec(allText)?.[1]||'';
  const aliases={product:/^(?:codigo|cod\.?|producto|articulo|sku|codigo (?:del |de )?(?:producto|proveedor)|cod\.? (?:art|prov)\.?|referencia|part number)$/,description:/^(?:descripcion|detalle|denominacion)$/,price:/^(?:precio(?: (?:nuevo|neto|unitario|lista|por unidad|por millar))?|importe|valor(?: unitario)?|costo|price|p\.? unit\.?)$/,currency:/^(?:moneda|divisa|currency)$/,unit:/^(?:unidad|u\.?m\.?|unidad de medida|base|presentacion)$/,number:/^(?:(?:nro\.?|numero|n[uú]m\.?) (?:de )?)?(?:pedido(?: de (?:venta|compra))?|solicitud|documento|orden de compra)$/,item:/^(?:item|renglon|linea|posicion)$/};
+ aliases.quantity=/^(?:cantidad(?: (?:nueva|pedida|en (?:millares|unidades)))?|cant\.?|qty|quantity)$/;
+ aliases.quantityUnit=/^(?:base cantidad|unidad cantidad|unidad de cantidad|um cantidad|base de cantidad)$/;
+ aliases.unit=/^(?:unidad|u\.?m\.?|unidad de medida|base|presentacion|base precio|base del precio)$/;
  for(const table of extracted.tables){
   let header=-1,columns={};
   for(let i=0;i<Math.min(30,table.rows.length);i++){
    const mapped={};table.rows[i].forEach((cell,index)=>{const value=normalize(cell).replace(/[_\n]/g,' ').replace(/\s+/g,' ');for(const [key,re] of Object.entries(aliases))if(re.test(value))mapped[key]=index;});
-   if(mapped.price!==undefined&&(mapped.product!==undefined||mapped.description!==undefined)){header=i;columns=mapped;break;}
+   if((mapped.price!==undefined||mapped.quantity!==undefined)&&(mapped.product!==undefined||mapped.description!==undefined)){header=i;columns=mapped;break;}
   }
   if(header<0)notices.push(`${table.name}: no reconocí encabezados; las filas son candidatas y requieren revisar código e importe.`);
   const before=rows.length;
@@ -47,8 +50,16 @@ export function parsePriceTables(extracted){
     product=cells[0];description=cells.slice(1,index).join(' ');rawPrice=cells[index];currency='';unit='';
    }
    if(!String(product).trim()&&!String(description).trim())continue;
-   if(!String(rawPrice).trim())continue;
+   const rawQuantity=header>=0?String(cells[columns.quantity]??'').trim():'';
+   const quantityHeader=normalize(table.rows[header]?.[columns.quantity]);
+   const quantityUnit=String(cells[columns.quantityUnit]??'').trim()||(/millares/.test(quantityHeader)?'millares':/unidades/.test(quantityHeader)?'unidades':columns.price===undefined?String(unit||''):'');
+   if(!String(rawPrice).trim()&&!rawQuantity)continue;
+   const quantity=/^[\d.,\s]+$/.test(rawQuantity)?importedNumber(rawQuantity):'';
+   const quantityWarning=rawQuantity&&!quantity?'Cantidad no reconocida o separador ambiguo: corregila antes de confirmar.':'';
    rows.push({id:String(rows.length+1),product:String(product).trim(),description:String(description).trim(),price:importedNumber(rawPrice),rawPrice:String(rawPrice),currency:String(currency).trim()||defaults.currency,unit:String(unit).trim()||defaults.unit,number:String(cells[columns.number]??'').trim(),item:String(cells[columns.item]??'').trim(),source:source.slice(0,2000),location:`${table.name} · fila ${i+1}`,ocr:!!table.ocr,confidence:table.scores?.[i]??null,warning:!importedNumber(rawPrice)?'Importe no reconocido o separador ambiguo: completalo en decimal sin miles.':header<0?'Columnas inferidas; verificá contra el original.':''});
+   Object.assign(rows.at(-1),{quantity,rawQuantity,quantityUnit});
+   if(!String(rawPrice).trim())rows.at(-1).warning='';
+   if(quantityWarning)rows.at(-1).warning=[rows.at(-1).warning,quantityWarning].filter(Boolean).join(' ');
   }
   if(rows.length===before)notices.push(`${table.name}: no se identificaron filas de precios. Podés agregar filas manualmente a partir del texto extraído.`);
  }

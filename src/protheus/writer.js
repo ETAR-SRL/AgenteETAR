@@ -93,6 +93,11 @@ export function createWriter({db,catalog,getWriteDb,enabled=false,allowedBranche
  }
  function snapshot(c){return {policyVersion:3,row:c.row,product:c.product,header:c.header,triggers:c.activeTriggers,scope:c.scope,releases:c.releases,documents:c.documents,parameters:c.parameters,releaseTriggers:c.releaseTriggers};}
  function calculate(action,input,c){
+  if(input.expectedQuantity!==undefined){
+   assert(c.p.quantity,400,'PRECONDICION_INVALIDA','Esta acción no modifica cantidades.');
+   const scale=numericSpec(c.p.quantity,catalog,c.p.alias).scale;
+   assert(sourceNumber(c.row[c.p.quantity],'cantidad actual').toDecimalPlaces(scale).eq(sourceNumber(input.expectedQuantity,'cantidad esperada').toDecimalPlaces(scale)),409,'CONFLICTO_CONCURRENCIA','La cantidad cambió durante la preparación; volvé a revisar.');
+  }
   if(input.expectedPrice!==undefined||input.expectedIdentity!==undefined){
    assert(input.expectedPrice!==undefined&&input.expectedIdentity,400,'PRECONDICION_INVALIDA','Falta precio o identidad esperada.');
    const scale=numericSpec(c.p.price,catalog,c.p.alias).scale;

@@ -39,14 +39,14 @@ export function installPriceImports({api,capabilities}){
    if(current)clear();receive(draft);status.textContent=`${draft.name} · ${draft.rows.length} filas leídas. Decime qué querés actualizar, por texto o voz.`;
    const details=el('details',undefined,'import-corrections');details.append(el('summary','Ver lectura del archivo'));
    const wrap=el('div',undefined,'table-wrap'),table=el('table'),head=el('tr');
-   for(const name of ['Fila','Producto','Descripción','Precio','Moneda','Base','Documento','Ítem','Origen'])head.append(el('th',name));table.append(head);
+   for(const name of ['Fila','Producto','Descripción','Precio','Moneda','Base precio','Cantidad','Base cantidad','Documento','Ítem','Origen'])head.append(el('th',name));table.append(head);
    for(const row of draft.rows){
-    const tr=el('tr');for(const value of [row.id,row.product,row.description,row.rawPrice,row.currency,row.unit,row.number,row.item,row.location])tr.append(el('td',value||'—'));table.append(tr);
+    const tr=el('tr');for(const value of [row.id,row.product,row.description,row.rawPrice,row.currency,row.unit,row.rawQuantity,row.quantityUnit,row.number,row.item,row.location])tr.append(el('td',value||'—'));table.append(tr);
     if(row.warning)details.append(el('p',`Fila ${row.id}: ${row.warning}`,'notice'));
    }
    wrap.append(table);details.append(wrap);
    for(const notice of draft.notices||[])details.append(el('p',notice,'notice'));
-   details.append(el('p','Podés corregirlo en el chat: «fila 2 precio 60», «fila 2 producto Z1304003» o «excluí fila 2».'));
+   details.append(el('p','Podés corregirlo en el chat: «fila 2 precio 60», «fila 2 cantidad 2,5 millares», «fila 2 producto Z1304003» o «excluí fila 2».'));
    card.append(details);document.querySelector('#query').focus();
   }catch(error){status.textContent=error.message;}finally{loading=false;button.disabled=!capabilities.documents?.available;file.value='';}
  };

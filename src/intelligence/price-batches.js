@@ -33,14 +33,21 @@ export function createPriceBatches({store,check,execute,authorize=()=>{}}){
    if(!proposal.executionEnabled||proposal.blockers?.length){
     issues.push({fila:resolved.fila,producto:resolved.producto,ubicacion:proposal.origin?.ubicacion,codigo:'PRECIO_NO_EJECUTABLE',motivo:proposal.blockers?.map(b=>b.message).join(' · ')||'La ejecución de este precio no está habilitada.'});continue;
    }
-   const field=importProfiles[draft.kind].price,diff=proposal.diff.find(d=>d.field===field);
+   const field=importProfiles[draft.kind].price,priceDiff=proposal.diff.find(d=>d.field===field);
+   const quantityField={pedidoVenta:'C6_QTDVEN',pedidoCompra:'C7_QUANT',solicitudCompra:'C1_QUANT'}[action];
+   const quantityDiff=proposal.diff.find(d=>d.field===quantityField);
+   const retainedPrice=proposal.calculation?.precioPorUnidad??proposal.before?.precioUnitario;
+   const diff=priceDiff|| (resolved.quantityChanged?{before:retainedPrice,after:retainedPrice}:null);
    assert(diff&&proposal.action===action&&proposal.target.sucursal===draft.branch,409,'LOTE_INVALIDO','La propuesta no corresponde al adjunto.');
    const factor=resolved.base==='millar'?1000:1,scale=String(diff.after).split('.')[1]?.length||0;
    const totalField={pedidoVenta:'C6_VALOR',pedidoCompra:'C7_TOTAL',solicitudCompra:'C1_TOTAL'}[action],total=proposal.diff.find(d=>d.field===totalField);
    rows.push({...resolved,proposalId:proposal.id,fingerprint:proposal.fingerprint,expiresAt:proposal.expiresAt,
     anterior:new Decimal(diff.before).toDecimalPlaces(scale).times(factor).toFixed(),
     nuevo:new Decimal(diff.after).times(factor).toFixed(),
-    unidadMedida:proposal.calculation?.unidadMedida||proposal.identity?.unidadMedida,totalAnterior:total?.before,totalNuevo:total?.after,
+    unidadMedida:proposal.calculation?.unidadMedida||proposal.identity?.unidadMedida,totalAnterior:total?.before??proposal.before?.total,totalNuevo:total?.after??proposal.before?.total,
+    cantidadAnterior:quantityDiff?.before??resolved.cantidad,cantidadNueva:quantityDiff?.after??resolved.cantidad,
+    cantidadAnteriorComercial:resolved.quantityChanged?new Decimal(quantityDiff?.before??resolved.cantidad).div(resolved.quantityUnit==='millares'?1000:1).toFixed():undefined,
+    cantidadNuevaComercial:resolved.quantityChanged?new Decimal(quantityDiff?.after??resolved.cantidad).div(resolved.quantityUnit==='millares'?1000:1).toFixed():undefined,
     origen:proposal.origin?.ubicacion,warnings:proposal.warnings||[],diff:proposal.diff});
   }
   const data={id:randomUUID(),importId:draft.id,kind:draft.kind,action,branch:draft.branch,name:draft.name,rows,issues,

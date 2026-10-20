@@ -1,5 +1,5 @@
 const el=(tag,text,cls)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(cls)e.className=cls;return e;};
-const states={ready:'Listo para confirmar',checking:'Revalidando precios',running:'Aplicando precios',completed:'Lote terminado',blocked:'Revalidación detenida',stopped:'Ejecución detenida',interrupted:'Ejecución interrumpida: revisar resultados',superseded:'Reemplazado por otra revisión'};
+const states={ready:'Listo para confirmar',checking:'Revalidando cambios',running:'Aplicando cambios',completed:'Lote terminado',blocked:'Revalidación detenida',stopped:'Ejecución detenida',interrupted:'Ejecución interrumpida: revisar resultados',superseded:'Reemplazado por otra revisión'};
 const rowStates={pending:'Pendiente',executed:'Aplicado',failed:'Falló',unknown:'Resultado incierto',executing:'En curso',validation_failed:'Revisión requerida'};
 function grid(headers,rows){
  const wrap=el('div',undefined,'table-wrap'),table=el('table'),head=el('thead'),tr=el('tr'),body=el('tbody');
@@ -9,28 +9,31 @@ function grid(headers,rows){
 }
 export function renderImportBatch(where,initial,{api,capabilities}){
  let batch=initial,invalidated=false,submitted=false,timer;
+ const hasQuantities=batch.rows.some(r=>r.quantityChanged),noun=hasQuantities?'cambios':'precios';
  const card=el('section',undefined,'import-batch'),summary=el('div'),status=el('p'),outcome=el('div'),check=el('input'),label=el('label',undefined,'confirm-change');
  const confirm=el('button',undefined,'primary'),refresh=el('button','Consultar resultado del lote','secondary');
  check.type='checkbox';confirm.type=refresh.type='button';status.setAttribute('role','status');
- label.append(check,document.createTextNode(` Revisé el resumen y confirmo actualizar estos precios (${batch.counts.valid}). Filas excluidas por errores: ${batch.counts.excluded}.`));
+ label.append(check,document.createTextNode(` Revisé el resumen y confirmo ${hasQuantities?'aplicar estos cambios':'actualizar estos precios'} (${batch.counts.valid}). Filas excluidas por errores: ${batch.counts.excluded}.`));
  const permitted=capabilities.canExecute&&(capabilities.user?.admin||capabilities.user?.unrestricted||capabilities.user?.permissions?.includes('write:'+batch.action));
- card.append(el('h3','Resumen de precios revisados'),summary,label,confirm,refresh,status,outcome);where.append(card);
+ card.append(el('h3',hasQuantities?'Resumen de cantidades, precios y totales':'Resumen de precios revisados'),summary,label,confirm,refresh,status,outcome);where.append(card);
  localStorage.setItem('central-last-price-batch',batch.id);
  function draw(){
   clearTimeout(timer);
   const kindLabel={proveedor:'Lista de proveedor',cliente:'Lista de cliente',pedidoVenta:'Pedido de venta',pedidoCompra:'Pedido de compra',solicitudCompra:'Solicitud de compra · precio estimado'}[batch.kind]||batch.kind;
-  summary.replaceChildren(el('p',`${kindLabel} · ${batch.name} · sucursal ${batch.branch} · Precios válidos: ${batch.counts.valid} · Filas con errores: ${batch.counts.excluded}.`),
-   el('p','Se aplica una transacción por precio. Si hay un fallo, se detiene el resto; los cambios ya aplicados se conservan. No se crean registros ni se cambia la moneda.'),
+  summary.replaceChildren(el('p',`${kindLabel} · ${batch.name} · sucursal ${batch.branch} · Filas válidas: ${batch.counts.valid} · Filas con errores: ${batch.counts.excluded}.`),
+   el('p','Se aplica una transacción por fila. Si hay un fallo, se detiene el resto; los cambios ya aplicados se conservan. No se crean registros ni se cambia la moneda.'),
    grid(['Producto','Descripción','Tercero / tienda','Lista / documento','Ítem','Antes','Nuevo','Moneda','Base del precio','Unidad ERP','Origen'],batch.rows.map(r=>[r.producto,r.descripcion,[r.tercero,r.tienda].filter(Boolean).join(' / '),r.numero||r.lista,r.item,r.anterior,r.nuevo,r.moneda,r.base,r.unidadMedida,r.origen])));
   if(batch.rows.some(r=>r.numero)){
-   summary.append(grid(['Producto','Documento','Ítem','Cantidad conservada (ERP)','Total anterior','Total nuevo'],batch.rows.map(r=>[r.producto,r.numero,r.item,r.cantidad,r.totalAnterior,r.totalNuevo])));
+   if(hasQuantities)summary.append(el('p','Las cantidades nuevas reemplazan las actuales, no se suman. La base de la cantidad es independiente de la base del precio.'),
+    grid(['Producto','Documento / ítem','Cantidad anterior','Cantidad nueva','Base cantidad','Antes en unidad ERP','Nuevo en unidad ERP','Total anterior','Total nuevo'],batch.rows.map(r=>[r.producto,`${r.numero} / ${r.item}`,r.cantidadAnteriorComercial,r.cantidadNuevaComercial,r.quantityUnit,r.cantidadAnterior,r.cantidadNueva,r.totalAnterior,r.totalNuevo])));
+   else summary.append(grid(['Producto','Documento','Ítem','Cantidad conservada (ERP)','Total anterior','Total nuevo'],batch.rows.map(r=>[r.producto,r.numero,r.item,r.cantidad,r.totalAnterior,r.totalNuevo])));
    const details=el('details');details.append(el('summary','Ver campos y totales recalculados'));
    details.append(grid(['Producto','Documento','Campo','Antes','Después'],batch.rows.flatMap(r=>r.diff.map(d=>[r.producto,r.numero,d.field,d.before,d.after]))));summary.append(details);
   }
   for(const row of batch.rows)for(const warning of row.warnings||[])summary.append(el('p',`${row.producto}: ${warning.message}`,'notice'));
   if(batch.issues.length)summary.append(el('h4','Filas con errores · no se actualizarán'),grid(['Fila / origen','Producto','Motivo'],batch.issues.map(r=>[r.ubicacion||r.fila,r.producto,r.motivo])));
   else summary.append(el('p','No hay filas con errores.'));
-  confirm.textContent=`Confirmar y actualizar ${batch.counts.valid} precios`;
+  confirm.textContent=`Confirmar y ${hasQuantities?'aplicar':'actualizar'} ${batch.counts.valid} ${noun}`;
   confirm.disabled=invalidated||submitted||!check.checked||!permitted||batch.status!=='ready'||!batch.counts.valid||Date.parse(batch.expiresAt)<=Date.now();
   check.disabled=invalidated||submitted||batch.status!=='ready'||!batch.counts.valid||!permitted;
   if(!permitted)status.textContent='Tu rol permite revisar este resumen, pero no ejecutar los cambios.';

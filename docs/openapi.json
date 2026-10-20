@@ -2026,7 +2026,7 @@
     },
     "/api/price-imports/{id}/preview": {
       "post": {
-        "summary": "Verificar precios revisados contra DA1/AIB/SC6/SC7/SC1 y preparar resumen",
+        "summary": "Verificar precios y cantidades contra DA1/AIB/SC6/SC7/SC1 y preparar resumen",
         "parameters": [
           {
             "name": "id",
@@ -2075,8 +2075,7 @@
                     "items": {
                       "type": "object",
                       "required": [
-                        "id",
-                        "price"
+                        "id"
                       ],
                       "properties": {
                         "id": {
@@ -2089,7 +2088,8 @@
                           "type": "string"
                         },
                         "price": {
-                          "type": "string"
+                          "type": "string",
+                          "description": "Obligatorio si updateFields es prices o both. Se conserva el precio ERP al actualizar sólo cantidades."
                         },
                         "currency": {
                           "type": "string"
@@ -2106,6 +2106,14 @@
                         },
                         "item": {
                           "type": "string"
+                        },
+                        "quantity": {
+                          "type": "string",
+                          "description": "Cantidad nueva positiva; reemplaza la actual. Obligatoria si updateFields es quantities o both."
+                        },
+                        "quantityUnit": {
+                          "type": "string",
+                          "description": "Base de cantidad por fila; independiente de unit."
                         }
                       }
                     }
@@ -2113,6 +2121,20 @@
                   "number": {
                     "type": "string",
                     "description": "Documento existente; se puede indicar por fila."
+                  },
+                  "updateFields": {
+                    "type": "string",
+                    "enum": [
+                      "prices",
+                      "quantities",
+                      "both"
+                    ],
+                    "default": "prices",
+                    "description": "Cantidades sólo en pedidos de venta, compra y solicitudes existentes."
+                  },
+                  "quantityUnit": {
+                    "type": "string",
+                    "description": "Base de cantidad independiente del precio: millares o unidades (UM de SB1)."
                   }
                 }
               }

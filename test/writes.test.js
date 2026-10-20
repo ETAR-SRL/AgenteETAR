@@ -90,6 +90,28 @@ for(const action of ['pedidoVenta','pedidoCompra','solicitudCompra'])test(action
  const f=fixture(action);f.state.header.C5_MOEDA='2';f.state.row.C7_MOEDA='2';f.input.expectedIdentity=good;f.input.expectedPrice='0.09';
  await assert.rejects(f.proposal(),{code:'CONFLICTO_CONCURRENCIA'});
 });
+for(const action of ['pedidoVenta','pedidoCompra','solicitudCompra'])test(action+': quantity-only import preserves price, recalculates total and rejects stale quantities',async()=>{
+ const f=fixture(action);f.input.changes={cantidadPedida:'2.5'};f.input.expectedQuantity='1000';delete f.input.priceUnit;
+ const p=await f.proposal();assert.equal(f.state.writes,0);
+ await f.writes.execute(p);
+ assert.equal(f.state.row[f.p.price],'0.08');
+ assert.equal(f.state.row[f.p.quantity],'2500.00');
+ assert.equal(f.state.row[f.p.total],'200.00');
+ if(action==='pedidoVenta')assert.equal(f.state.row.C6_MILLAR,'2.500000');
+ const g=fixture(action);g.input.changes={cantidadPedida:'2.5'};g.input.expectedQuantity='1000';
+ const old=await g.proposal();g.state.row[g.p.quantity]='1200';g.state.row[g.p.total]='96';
+ await assert.rejects(g.proposal(),{code:'CONFLICTO_CONCURRENCIA'});
+ await assert.rejects(g.writes.execute(old),{code:'CONFLICTO_CONCURRENCIA'});
+ assert.equal(g.state.writes,0);
+});
+test('quantity-only import cannot alter fulfilled or approved documents',async()=>{
+ const sale=partialFixture();sale.input.changes={cantidadPedida:'2'};
+ await assert.rejects(sale.proposal(),{code:'SOLO_PRECIO_PENDIENTE'});assert.equal(sale.state.writes,0);
+ const purchase=fixture('pedidoCompra');purchase.input.changes={cantidadPedida:'2'};purchase.state.row.C7_QUJE='1';
+ await assert.rejects(purchase.proposal(),{code:'COMPRA_ATENDIDA_REQUIERE_PROTHEUS'});assert.equal(purchase.state.writes,0);
+ const request=fixture('solicitudCompra');request.input.changes={cantidadPedida:'2'};request.state.row.C1_APROV='L';
+ await assert.rejects(request.proposal());assert.equal(request.state.writes,0);
+});
 test('price change updates net, base list price and total atomically',async()=>{
  const f=fixture();f.input.changes={precioUnitario:'85.123'};const p=await f.proposal();await f.writes.execute(p);
  assert.equal(f.state.row.C6_PRCVEN,'0.085123');assert.equal(f.state.row.C6_PRUNIT,'0.085123');assert.equal(f.state.row.C6_VALOR,'85.12');assert.equal(f.state.row.C6_QTDVEN,'1000');

@@ -43,6 +43,10 @@ export function createPriceImports({store,read,prepare,createBatch,metadata=()=>
  async function preview(actor,id,input){
   const draft=get(actor,id);
   const profile=importProfiles[draft.kind];assert(profile,400,'DESTINO_INVALIDO','Falta indicar qué actualizar.');
+  const updateFields=input?.updateFields||'prices';
+  assert(['prices','quantities','both'].includes(updateFields),400,'CAMPOS_INVALIDOS','Elegí precios, cantidades o ambos.');
+  const changePrice=updateFields!=='quantities',changeQuantity=updateFields!=='prices';
+  assert(!changeQuantity||profile.order,400,'CANTIDAD_NO_ADMITIDA','Las cantidades sólo se actualizan en pedidos o solicitudes existentes.');
   assert(input&&input.reviewed===true,400,'REVISION_REQUERIDA','Revisá la lectura del archivo y marcá la confirmación antes de preparar.');
   assert(profile.order||typeof input.party==='string'&&input.party.trim()&&input.party.length<=120,400,'TERCERO_REQUERIDO','Indicá el proveedor o cliente.');
   assert(Array.isArray(input.rows)&&input.rows.length>0&&input.rows.length<=500,400,'FILAS_REQUERIDAS','Seleccioná entre 1 y 500 filas.');
@@ -85,12 +89,26 @@ export function createPriceImports({store,read,prepare,createBatch,metadata=()=>
       for(const linkedCode of linked){const r=await query('productos',draft.branch,{codigo:linkedCode});assert(r.data.length<=1&&!r.meta?.hasMore,409,'PRODUCTO_AMBIGUO','Código relacionado ambiguo.');candidates.push(...r.data);}
      }else{const r=await lookup('productos',draft.branch,description);assert(r.data.length<=1&&!r.meta?.hasMore,409,'PRODUCTO_AMBIGUO','Hay más productos; indicá el código.');candidates=r.data;}
      const unique=[...new Map(candidates.map(r=>[r.codigo,r])).values()];assert(unique.length===1,409,'PRODUCTO_AMBIGUO',unique.length?'El código propio y/o la relación SA5 identifican varios productos. Indicá el código correcto.':'No encontré el producto en SB1 ni una relación SA5 para este proveedor.');const product=unique[0];
-     const currency=String(inputRow.currency||input.currency||'').trim();assert(currency,400,'MONEDA_REQUERIDA','Falta moneda: indicá ARS, USD, EUR o el código de moneda ERP. No interpreto $ automáticamente.');
-     const unit=normalized(inputRow.unit||input.unit);let priceUnit;
+     let currency=String(inputRow.currency||input.currency||'').trim();
+     let priceUnit,value;
+     if(changePrice){
+     assert(currency,400,'MONEDA_REQUERIDA','Falta moneda: indicá ARS, USD, EUR o el código de moneda ERP. No interpreto $ automáticamente.');
+     const unit=normalized(inputRow.unit||input.unit);
      if(['MILLAR','MILLARES','1000'].includes(unit)){assert(normalized(product.unidadMedida)==='UN',400,'UNIDAD_INCOMPATIBLE','Sólo productos UN admiten precio por millar.');priceUnit='millar';}
      else if(['UNIDAD','UNITARIO'].includes(unit)||unit&&unit===normalized(product.unidadMedida))priceUnit='unidad';
      else assert(false,400,'BASE_PRECIO_REQUERIDA',`Falta base compatible: unidad ERP (${product.unidadMedida}) o millar para UN.`);
-     const value=String(inputRow.price||'').trim().replace(',','.');assert(/^\d{1,16}(?:\.\d{1,12})?$/.test(value)&&Number(value)>0,400,'PRECIO_INVALIDO','Precio positivo en decimal sin separadores de miles.');
+     value=String(inputRow.price||'').trim().replace(',','.');assert(/^\d{1,16}(?:\.\d{1,12})?$/.test(value)&&Number(value)>0,400,'PRECIO_INVALIDO','Precio positivo en decimal sin separadores de miles.');
+     }
+     let quantityUnit,quantity;
+     if(changeQuantity){
+      quantity=String(inputRow.quantity??'').trim().replace(',','.');
+      assert(/^\d{1,16}(?:\.\d{1,12})?$/.test(quantity)&&Number(quantity)>0,400,'CANTIDAD_INVALIDA','Cantidad positiva en decimal sin separadores de miles.');
+      const base=normalized(inputRow.quantityUnit||input.quantityUnit);
+      if(['MILLAR','MILLARES','1000'].includes(base)){
+       assert(normalized(product.unidadMedida)==='UN',400,'UNIDAD_INCOMPATIBLE','Sólo productos UN admiten cantidades en millares.');quantityUnit='millares';
+      }else if(['UNIDAD','UNIDADES'].includes(base)||base&&base===normalized(product.unidadMedida))quantityUnit='unidades';
+      else assert(false,400,'BASE_CANTIDAD_REQUERIDA',`Falta la base de cantidad: unidades (${product.unidadMedida}) o millares para UN. Es independiente de la base del precio.`);
+     }
      if(inputRow.record)assert(typeof inputRow.record==='string'&&/^[1-9]\d{0,18}$/.test(inputRow.record),400,'REGISTRO_INVALIDO','Registro de precio inválido.');
      const number=canonical(profile.resource,'numero',inputRow.number||input.number),item=canonical(profile.resource,'item',inputRow.item);
      if(profile.order&&input.number&&inputRow.number)assert(canonical(profile.resource,'numero',input.number)===number,409,'DOCUMENTO_CONTRADICTORIO','El documento del archivo no coincide con el indicado en el chat. Corregí el número de esta fila.');
@@ -111,12 +129,16 @@ export function createPriceImports({store,read,prepare,createBatch,metadata=()=>
       row.moneda=header.moneda;
       row.clienteCodigo=header.clienteCodigo;row.clienteTienda=header.clienteTienda;
      }
+     if(changePrice){
      const currencyText=/^\d+$/.test(currency)?'moneda '+currency:currency;
      assert(/^(USD|ARS|EUR|D[OÓ]LAR(?:ES)?|PESOS?|EUROS?|\d+)$/i.test(currency),400,'MONEDA_INVALIDA','Usá ARS, USD, EUR o código ERP.');assertPriceCurrency(currencyText,row,assert);
+     }else currency=row.moneda?.descripcion||`Moneda ${row.moneda?.codigo||'sin identificar'}`;
      assert(!seen.has(String(row.registro)),409,'DESTINO_DUPLICADO','Otro renglón del adjunto apunta al mismo registro. Prepará una sola fila por precio.');seen.add(String(row.registro));
      const expectedIdentity=profile.order?{producto:product.codigo,numero:row.numero,item:row.item,moneda:String(row.moneda?.codigo||''),...(draft.kind==='pedidoCompra'?{proveedor:row.proveedorCodigo,tienda:row.proveedorTienda}:draft.kind==='pedidoVenta'?{cliente:row.clienteCodigo,tienda:row.clienteTienda}:{})}:{producto:product.codigo,lista:row.listaCodigo,moneda:String(row.moneda?.codigo||''),...(supplier?{proveedor:party.codigo,tienda:party.tienda}:{})};
-     const proposal=await prepare(actor,{action:profile.action,target:{sucursal:draft.branch,registro:String(row.registro)},changes:{[profile.order?'precioUnitario':'precio']:value},priceUnit,expectedPrice:profile.order?row.precioUnitario:row.precio,expectedIdentity,origin});
+     const changes={...(changePrice?{[profile.order?'precioUnitario':'precio']:value}:{}),...(changeQuantity?{cantidadPedida:quantity}:{})};
+     const proposal=await prepare(actor,{action:profile.action,target:{sucursal:draft.branch,registro:String(row.registro)},changes,...(changePrice?{priceUnit}:{}),...(changeQuantity?{quantityUnit,expectedQuantity:row.cantidadPedida}:{}),expectedPrice:profile.order?row.precioUnitario:row.precio,expectedIdentity,origin});
      proposals.push({...proposal,origin});resolved.push({fila:inputRow.id,producto:product.codigo,descripcion:product.nombre,registro:row.registro,lista:row.listaCodigo,numero:row.numero,item:row.item,tercero:party?.nombre||row.proveedor?.nombre||row.proveedorCodigo||row.clienteCodigo,tienda:party?.tienda||row.proveedorTienda||row.clienteTienda,precio:value,base:priceUnit,moneda:currency,cantidad:row.cantidadPedida});
+     Object.assign(resolved.at(-1),{base:priceUnit||'unidad',quantityUnit,quantityChanged:changeQuantity,priceChanged:changePrice});
     }catch(error){if(['LECTURA_DENEGADA','ACCION_DENEGADA','ACCESO_CAMBIO'].includes(error.code))throw error;issues.push({fila:inputRow.id,producto:inputRow.product,ubicacion:origin.ubicacion,motivo:error.message,codigo:error.code||'ERROR_VERIFICACION'});}
    }
    const result={proposals,issues,resolved,message:`Cambios preparados: ${proposals.length}. Filas para revisar: ${issues.length}. No se modificó el ERP.`};
