@@ -65,3 +65,5 @@ Los conectores KAIQEN usan una proyección explícita de campos para usuarios re
 
 
 Las preferencias personales (`user_preferences`) sólo se alimentan con instrucciones explícitas del usuario autenticado por el chat existente. Admiten campos tipados, no reglas de acceso. Se aíslan por actor y revisión de permisos; depósito/solicitante además por sucursal. No agregan rutas ni recursos ERP. Guardar un depósito exige la lectura autorizada de `depositos`, y usarlo en un alta vuelve a exigir los permisos de preparación y lectura actuales. Las preferencias no cambian las autorizaciones, la moneda ni la base de cantidades de una escritura. Las cuentas de servicio no pueden guardarlas.
+
+La interpretación natural de preferencias usa un esquema cerrado y fragmentos literales del mensaje actual. El modelo propone campos; el servidor valida tipos, propiedad del usuario, sucursal y lecturas antes de persistir. Un fallo o ambigüedad no modifica la memoria. Los guardados múltiples son atómicos; la lectura de depósitos ocurre antes de la transacción SQLite. No hay nuevos permisos ni acciones ERP.
