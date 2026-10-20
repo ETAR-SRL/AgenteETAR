@@ -35,16 +35,22 @@ export function purchaseValues(text){
 // Values remain user input, never executed SQL or instructions from an ERP row.
 export async function purchaseChat({text,conversation,branch,canPlan,authorizePlan,read,prepare,actor}){
  const n=norm(text),purchaseOrder=/\bpedido(?: de)? compra\b/.test(n),start=/\b(crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?)\b/.test(n)&&/\b(?:solicitud(?: de)? (?:compra|importacion)|pedido(?: de)? compra)\b/.test(n);
+ const resume=/\b(retoma(?:r|me)?|retomemos|continu(?:a(?:r|mos)?|emos)|segui(?:r|mos)?)\b/.test(n)&&/\b(solicitud|pedido de compra)\b/.test(n);
+ if(resume&&conversation.pausedPurchase?.branch===branch&&conversation.pausedPurchase.action===(purchaseOrder?'crearPedidoCompra':'crearSolicitudCompra')){conversation.purchaseDraft=conversation.pausedPurchase;delete conversation.pausedPurchase;}
  let state=conversation.purchaseDraft;
+ const pause=()=>{if(state?.branch===branch){conversation.pausedPurchase=structuredClone(state);delete conversation.pausedPurchase.values.resolvedPrice;}delete conversation.purchaseDraft;};
+ if(start)delete conversation.pausedPurchase;
+ const hadPaused=!!conversation.pausedPurchase;
+ if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n))delete conversation.pausedPurchase;
  const values=purchaseValues(text);if(/\b(?:sin precio|no tengo precio)\b/.test(n))values.withoutPrice=true;
  if(/\bno\b/.test(n)&&!/\bno tengo precio\b/.test(n)||/\b(?:solo|solamente)\s+consult/.test(n)){delete conversation.purchaseDraft;return null;}
- if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&state){delete conversation.purchaseDraft;return {answer:'Descarté los datos de esta solicitud. No se creó ningún documento.',evidence:[],trace:[]};}
+ if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&(state||hadPaused)){delete conversation.purchaseDraft;return {answer:'Descarté los datos de esta solicitud. No se creó ningún documento.',evidence:[],trace:[]};}
  // Do not turn a multi-item or another business operation into a single item.
  if(/\bproductos\b|\b(?:factura|venta)\b/.test(n)||/\bpedido\b/.test(n)&&!purchaseOrder&&state?.action!=='crearPedidoCompra'||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n)){
-  delete conversation.purchaseDraft;return null;
+  pause();return null;
  }
- if(start&&!values.product)return null;
- if(!start&&(!state||state.branch!==branch||!Object.keys(values).length)){delete conversation.purchaseDraft;return null;}
+ if(start&&!values.product){delete conversation.purchaseDraft;return null;}
+ if(!start&&(!state||state.branch!==branch||(!Object.keys(values).length&&!resume))){pause();return null;}
  assert(canPlan&&prepare,403,'ROL_INSUFICIENTE','Tu rol no permite preparar solicitudes de compra.');
  const action=start&&purchaseOrder?'crearPedidoCompra':start?'crearSolicitudCompra':state.action||'crearSolicitudCompra',pc=action==='crearPedidoCompra';
  await authorizePlan?.(action);

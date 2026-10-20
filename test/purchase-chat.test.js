@@ -72,3 +72,19 @@ test('SC1 asks only for quantity/logistics and prepares without price or currenc
  const next=await f.query('10 unidades; depósito 16; emisión 20/10/2026; necesidad 21/10/2026; solicitante Ana',r.conversationId);
  assert.equal(f.prepared.length,1,next.answer);assert.equal(f.prepared[0].items[0].precio,undefined);assert.equal(f.prepared[0].header.moneda,'ARS');
 });
+
+test('resuming after a long detour preserves supplied quantity and asks only missing fields',async t=>{
+ const f=fixture(t),first=await f.query('Creame una solicitud de compra con producto 1, 10 unidades');
+ for(let i=0;i<15;i++)await f.query('Ayudame con una operación',first.conversationId);
+ const resumed=await f.query('Retomemos la solicitud',first.conversationId);
+ assert.match(resumed.answer,/depósito/);assert.doesNotMatch(resumed.answer,/• cantidad/);
+ const done=await f.query('depósito 16; emisión 20/10/2026; necesidad 21/10/2026; solicitante Ana',first.conversationId);
+ assert.equal(f.prepared.length,1);assert.equal(f.prepared[0].items[0].cantidad,'10');assert.equal(done.evidence.at(-1).result.kind,'proposal');
+});
+
+test('cancelled paused drafts never resume or prepare a document',async t=>{
+ const f=fixture(t),first=await f.query('Creame una solicitud de compra con producto 1, 10 unidades');
+ await f.query('Ayudame con una operación',first.conversationId);await f.query('cancelalo',first.conversationId);
+ await f.query('Retomemos la solicitud',first.conversationId);assert.equal(f.prepared.length,0);
+ assert.equal(f.calls.filter(c=>c.resource==='productos').length,1);
+});
