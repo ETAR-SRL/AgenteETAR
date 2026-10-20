@@ -4,6 +4,8 @@ Indicaciones del dueño del 19/10/2026. Son contexto permanente de este proyecto
 
 ## Productos y clientes
 
+Las altas y modificaciones se solicitan desde el chat por texto o voz, con revisión y confirmación en la conversación. No mantener una pantalla separada de formularios de Actualizaciones. Verificar el producto en SB1 y el pedido/ítem existente; distinguir expresamente un documento nuevo desde cero de una modificación.
+
 Los productos terminados de ETAR comienzan con `Z`. El vínculo comercial se resuelve mediante la lista de precios: `SA1.A1_TABELA` identifica la lista del cliente y `DA1_CODTAB` / `DA1_CODPRO` identifican sus precios de producto. La cabecera está en DA0. Conservar cliente, tienda, sucursal, moneda y vigencia. Un producto puede aparecer en varias listas; el prefijo Z por sí solo no identifica un cliente.
 
 ## Millares y unidades

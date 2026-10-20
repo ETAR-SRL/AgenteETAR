@@ -9,6 +9,25 @@ const source={system:'protheus',mode:'test',fetchedAt:new Date().toISOString()};
 const product={codigo:'ABC/1',nombre:'Resorte prueba',unidadMedida:'UN'};
 const price={productoCodigo:'ABC/1',listaCodigo:'001',precio:'125.50',moneda:{codigo:'2',descripcion:'DOLAR'},vigenteDesde:'2025-01-01',activo:{descripcion:'Si'},registro:'1'};
 const header={codigo:'001',nombre:'Lista prueba',estado:{descripcion:'Si'},vigenteDesde:'2024-01-01',vigenteHasta:'2050-01-01'};
+test('chat summaries use the aggregate tool and replace invented totals with verified evidence',async t=>{
+ const store=new Store(':memory:');t.after(()=>store.close());const calls=[];
+ const result={kind:'dashboard',data:[{importeNeto:'321.05'}],verifiedSummary:'NF + ND − NC: 321.05; moneda 1; período verificado.'};
+ const decisions=[{action:'resumir',args:{recurso:'ventas',filtros:{desde:'2026-10-01',hasta:'2026-10-20',agrupar:'mes',cliente:'',producto:' ',moneda:'1'}}},{action:'responder',answer:'Vendiste 999999.'}];
+ const context=setup(),agent=createIntelligence({...context,store,erp:{metadata:()=>({entities:{resumenVentas:{aggregate:true}}})},executeRead:async command=>{calls.push(command);return result;},model:{name:'test',complete:async()=>decisions.shift()}});
+ const reply=await agent.query('reader',{text:'Sacame un dashboard de ventas de este mes'});
+ assert.equal(calls[0].resource,'resumenVentas');assert.equal(reply.answer,result.verifiedSummary);assert.equal(reply.evidence[0].result.kind,'dashboard');
+ assert.equal(calls[0].filters.moneda,undefined);assert.equal(calls[0].filters.cliente,undefined);assert.equal(calls[0].filters.producto,undefined);
+});
+test('update proposal fails when the row product is not uniquely verified in SB1',async t=>{
+ for(const rows of [[],[product,product]]){
+  const context=setup({productos:rows,itemsVentas:[{registro:'7',productoCodigo:product.codigo,numero:'123',item:'01'}]}),store=new Store(':memory:');t.after(()=>store.close());let prepared=0;
+  const decisions=[{action:'consultar_erp',args:{recurso:'itemsVentas',filtros:{}}},{action:'preparar_cambio',args:{accion:'pedidoVenta',registro:'7',precio:'80',basePrecio:'millar'}},{action:'responder',answer:'¿Podés verificar el producto?'}];
+  const agent=createIntelligence({...context,store,prepareChange:async()=>{prepared++;},model:{name:'test',complete:async()=>decisions.shift()}});
+  const reply=await agent.query('writer',{text:'Cambiá el precio del pedido 123 a 80 por millar'},{canPlan:true});
+  assert.equal(prepared,0);assert.ok(reply.trace.some(r=>r.code==='PRODUCTO_NO_VERIFICADO'));
+  assert.match(reply.answer,/No se preparó ninguna propuesta/);
+ }
+});
 test('a price lookup during a modification request continues into proposal preparation',async t=>{
  const context=setup(),store=new Store(':memory:');t.after(()=>store.close());let prepared;
  const decisions=[{action:'precio_venta',args:{producto:'ABC/1'}},{action:'preparar_cambio',args:{accion:'precioLista',registro:'1',precio:'90',basePrecio:'millar'}}];

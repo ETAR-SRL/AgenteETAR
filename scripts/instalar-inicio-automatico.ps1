@@ -31,7 +31,7 @@ while ($null -ne $ancestor) {
     $ancestor = $ancestor.Parent
 }
 foreach ($file in @('.env', 'package.json')) { Grant-ServiceAccess (Join-Path $root $file) '(R)' }
-foreach ($directory in @('src', 'scripts', 'config', 'node_modules', '.venv-voice')) {
+foreach ($directory in @('src', 'public', 'scripts', 'config', 'node_modules', '.venv-voice')) {
     Grant-ServiceAccess (Join-Path $root $directory) '(OI)(CI)(RX)'
 }
 Grant-ServiceAccess $data '(OI)(CI)(M)'

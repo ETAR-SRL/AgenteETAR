@@ -5,7 +5,7 @@ const text=value=>typeof value==='string'?value.trim():'';
 const genericList=value=>/^(?:(?:la|una|las)\s+)?listas?(?:\s+de\s+(?:precios?|venta))?$/.test(text(value).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());
 const state=value=>{const label=(value?.descripcion||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();return ['si','activo','activa','yes','sim'].includes(label)?'activo':['no','inactivo','inactiva','nao'].includes(label)?'inactivo':'sin_confirmar';};
 const amount=value=>{try{return new Decimal(value).toSignificantDigits(15).toFixed().replace('.',',');}catch{return 'sin importe';}};
-export function createBusinessTools({read,executeRead,kaiqen,branch,metadata}){
+export function createBusinessTools({read,executeRead,kaiqen,branch,metadata,reportCurrencyRequested=true}){
  const query=(resource,filters={})=>read(resource,new URLSearchParams({...filters,sucursal:branch,limit:String(filters.limit||25)}));
  async function resolve(resource,term){
    assert(text(term).length>=2&&term.length<=120,400,'TERMINO_REQUERIDO','Indicar código o nombre');
@@ -65,13 +65,22 @@ export function createBusinessTools({read,executeRead,kaiqen,branch,metadata}){
        if(result.data.length>1||result.meta?.hasMore)return {...result,kind:'clarification',message:'Encontré varias coincidencias. Elegí la que corresponde o agregá una característica para acotar la búsqueda.',candidates:result.data};return result;
      }
      if(action==='precio_venta')return prices(args);
+     if(action==='resumir'){
+       const reports={ventas:'resumenVentas',compras:'resumenCompras',remitosPendientes:'resumenRemitosPendientes',pedidosVenta:'resumenPedidosVenta',pedidosCompra:'resumenPedidosCompra'};
+       assert(Object.hasOwn(reports,args.recurso),400,'RECURSO_INVALIDO','Resumen no disponible');
+       args={...args,recurso:reports[args.recurso]};action='consultar_erp';
+     }
      if(action==='consultar_erp'){
        assert(Object.hasOwn(metadata.entities,args.recurso)||['remitos','entregas'].includes(args.recurso),400,'RECURSO_INVALIDO','Recurso inválido');
        assert(!args.filtros||typeof args.filtros==='object'&&!Array.isArray(args.filtros),400,'FILTROS_INVALIDOS','Filtros inválidos');
        const filters=args.filtros||{};assert(!Object.hasOwn(filters,'sucursal')||filters.sucursal===branch,403,'SUCURSAL_NO_AUTORIZADA','No se cambia el alcance de sucursal desde la IA');
        for(const value of Object.values(filters))assert(typeof value==='string'&&value.length<=256,400,'FILTROS_INVALIDOS','Valores de filtro deben ser texto');
        assert(!filters.limit||Number(filters.limit)<=100,400,'LIMITE_IA','La IA consulta hasta 100 filas por llamada');
-       return executeRead({resource:args.recurso,filters:{...filters,sucursal:branch,limit:filters.limit||'25'}});
+       const nonempty=Object.fromEntries(Object.entries(filters).filter(([,value])=>value.trim()!==''));
+       // El modelo suele copiar moneda 1 de las reglas de ALTAS al resumir.
+       // Una consulta general conserva todas las monedas salvo petición del usuario.
+       if(metadata.entities[args.recurso]?.aggregate&&!reportCurrencyRequested)delete nonempty.moneda;
+       return executeRead({resource:args.recurso,filters:{...nonempty,sucursal:branch,limit:filters.limit||'25'}});
      }
      if(action==='proyectos'){
        const search=text(args.texto),sourceNames=['kaiqen','kaiquen','todos','todos los proyectos','proyectos'];

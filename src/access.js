@@ -6,13 +6,18 @@ const passwordOptions={N:32768,r:8,p:3,maxmem:64*1024*1024};
 export const denied='Esto no podés leerlo.';
 export const domains={catalogo:'Productos, estructuras y catálogos',clientes:'Clientes y sus datos',proveedores:'Proveedores y sus datos',costos:'Costos y valuación de existencias',preciosVenta:'Precios de venta y listas',preciosCompra:'Precios de compra y listas',ventas:'Pedidos y documentos de venta',compras:'Solicitudes, pedidos y documentos de compra',produccion:'Producción y pendientes de fabricación',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN',aprobaciones:'Circuitos e historial de aprobaciones'};
 export const resourceDomains={
+ comprobantesVentas:['ventas','clientes','preciosVenta','catalogo'],resumenVentas:['ventas','clientes','preciosVenta','catalogo'],
+ comprobantesCompras:['compras','proveedores','preciosCompra','catalogo'],resumenCompras:['compras','proveedores','preciosCompra','catalogo'],
+ remitosEmitidos:['ventas','clientes','preciosVenta','catalogo'],remitosPendientes:['ventas','clientes','preciosVenta','catalogo'],resumenRemitosPendientes:['ventas','clientes','preciosVenta','catalogo'],
+ pedidosVentaPendientes:['ventas','clientes','preciosVenta','catalogo'],resumenPedidosVenta:['ventas','clientes','preciosVenta','catalogo'],
+ pedidosCompraPendientes:['compras','proveedores','preciosCompra','catalogo'],resumenPedidosCompra:['compras','proveedores','preciosCompra','catalogo'],
  productos:['catalogo'],estructuras:['catalogo'],depositos:['catalogo'],centrosCosto:['catalogo'],condicionesPago:['catalogo'],compradores:['compras'],
  clientes:['clientes'],proveedores:['proveedores'],costos:['costos','catalogo'],produccion:['produccion','catalogo'],
  listasPreciosClientes:['preciosVenta'],preciosClientes:['preciosVenta','catalogo'],productoCliente:['clientes','catalogo'],
  listasPreciosProveedores:['preciosCompra','proveedores'],preciosProveedores:['preciosCompra','proveedores','catalogo'],productoProveedor:['proveedores','catalogo'],
  ventas:['ventas','clientes','preciosVenta'],itemsVentas:['ventas','clientes','preciosVenta','catalogo'],
- documentosSalida:['ventas','clientes','preciosVenta'],itemsDocumentosSalida:['ventas','clientes','preciosVenta','catalogo'],remitos:['ventas','clientes','preciosVenta'],entregas:['ventas'],
- compras:['compras','proveedores','preciosCompra','catalogo'],entradasCompras:['compras','proveedores','preciosCompra','catalogo'],solicitudesCompra:['compras','preciosCompra','catalogo'],
+ documentosSalida:['ventas','clientes','preciosVenta','compras','proveedores','preciosCompra'],itemsDocumentosSalida:['ventas','clientes','preciosVenta','catalogo','compras','proveedores','preciosCompra'],remitos:['ventas','clientes','preciosVenta'],entregas:['ventas'],
+ compras:['compras','proveedores','preciosCompra','catalogo'],entradasCompras:['compras','proveedores','preciosCompra','catalogo','ventas','clientes','preciosVenta'],solicitudesCompra:['compras','preciosCompra','catalogo'],
  cotizaciones:['ventas','clientes','preciosVenta'],itemsCotizaciones:['ventas','clientes','preciosVenta','catalogo'],
  proyectos:['proyectos','clientes'],calidad:['calidad'],aprobacionesCompras:['aprobaciones','compras','preciosCompra','proveedores','catalogo']
 };

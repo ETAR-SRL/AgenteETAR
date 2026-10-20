@@ -31,6 +31,8 @@ Las sucursales restringen las consultas y operaciones ERP. KAIQEN conserva el al
 
 ## API, chat y memoria
 
+Los nuevos comprobantes, pendientes y resúmenes declaran las áreas de ventas o compras, terceros, precios y catálogo. Los recursos antiguos sin clasificación `documentosSalida`, `itemsDocumentosSalida` y `entradasCompras` requieren ambas áreas: contienen también notas de crédito en sentido inverso. Para un rol de una sola área usar los recursos clasificados descritos en [consultas comerciales](consultas-comerciales.md).
+
 El servidor verifica permisos antes de llamar al conector, incluyendo búsquedas, alias, consultas combinadas y herramientas de la IA. Ante una lectura denegada devuelve HTTP 403 `LECTURA_DENEGADA`, con **«Esto no podés leerlo.»**. El chat detiene la búsqueda ante esa denegación, descarta los resultados parciales de esa respuesta y no pide al modelo que busque una alternativa para eludirla.
 
 Las conversaciones, conocimientos guardados y propuestas tienen identidad de usuario y revisión de permisos. Al modificar el usuario o su rol, los historiales anteriores no vuelven a alimentar al modelo y las propuestas anteriores dejan de estar disponibles para esa identidad. Los registros de auditoría y ejecución se conservan. Las conversaciones anónimas de la versión anterior no se asignan automáticamente al administrador.

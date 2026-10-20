@@ -32,7 +32,7 @@ test('administrator setup is single-use, passwords hashed and sessions stored as
 });
 test('users may only query permitted resources, including aliases and combined endpoints',async t=>{
  const f=await fixture(t);
- for(const path of ['/api/erp/costos?sucursal=0101','/api/erp/preciosClientes?sucursal=0101','/api/erp/remitos?sucursal=0101','/api/kaiqen/projects','/api/kaiqen/quality','/api/overview/projects/P1','/api/approvals/automation']){
+ for(const path of ['/api/erp/resumenVentas?sucursal=0101','/api/erp/resumenCompras?sucursal=0101','/api/erp/remitosPendientes?sucursal=0101','/api/erp/pedidosCompraPendientes?sucursal=0101','/api/erp/comprobantesVentas?sucursal=0101','/api/erp/comprobantesCompras?sucursal=0101','/api/erp/costos?sucursal=0101','/api/erp/preciosClientes?sucursal=0101','/api/erp/remitos?sucursal=0101','/api/kaiqen/projects','/api/kaiqen/quality','/api/overview/projects/P1','/api/approvals/automation']){
   const r=await f.request(path);assert.equal(r.status,403,path);assert.equal(r.data.error.message,denied);
  }
  assert.equal(f.calls.length,0);

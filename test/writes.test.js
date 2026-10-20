@@ -54,7 +54,7 @@ function fixture(action='pedidoVenta',options={}){
  }
  const db={query,async transaction(callback){const before=structuredClone({row:state.row,SC9:state.SC9,SD2:state.SD2,header:state.header,product:state.product});try{const result=await callback({query});if(options.unknown)throw Object.assign(new Error('commit lost'),{outcomeUnknown:true,code:'RESULTADO_INCIERTO'});state.commits++;return result;}catch(e){if(!e.outcomeUnknown){Object.assign(state,before);state.rollbacks++;}throw e;}}};
  const writes=createWriter({db,catalog,getWriteDb:async()=>db,enabled:options.enabled??true});
- const erp={writes,metadata:()=>({entities:{[p.resource]:{filters:{registro:''}}}}),list:async()=>({data:[{registro:row.R_E_C_N_O_}],meta:{}})};
+ const erp={writes,metadata:()=>({entities:{[p.resource]:{filters:{registro:''}}}}),list:async(resource)=>({data:resource==='productos'?[{codigo:'ZTEST',nombre:'Producto prueba SB1'}]:[{registro:row.R_E_C_N_O_,productoCodigo:'ZTEST',numero:'001',item:'001'}],meta:{}})};
  const input={action,target:{sucursal:'0101',registro:row.R_E_C_N_O_},changes:p.quantity?{precioUnitario:'80',cantidadPedida:'2.5'}:{precio:'90'},priceUnit:'millar',...(p.quantity?{quantityUnit:'millares'}:{})};
  const proposal=async()=>({action,target:input.target,input,writePlan:await writes.prepare(action,input)});
  return {p,state,catalog,db,writes,erp,input,proposal};

@@ -55,7 +55,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     assert(/^[1-9]\d*$/.test(page) && Number(page)<=100000 && /^[1-9]\d*$/.test(limit) && Number(limit)<=500,400,'PAGINACION_INVALIDA','page 1..100000; limit 1..500');
     for(const key of params.keys())assert(params.getAll(key).length===1,400,'FILTRO_DUPLICADO','Filtro repetido');
     const result=await erp.list(resource,params);
-    return {...result,source:{system:'protheus',mode,fetchedAt:new Date().toISOString(),companyScope:'configured_database'},limitations:['Consulta paginada; no representa un total global','Saldo técnico no prueba entrega física']};
+    return {...result,source:{system:'protheus',mode,fetchedAt:new Date().toISOString(),companyScope:'configured_database'},limitations:result.limitations||['Consulta paginada; no representa un total global','Saldo técnico no prueba entrega física']};
   }
   const changes=new Changes({erp,store,read});
   async function executeRead(command){
