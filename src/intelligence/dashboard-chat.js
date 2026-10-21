@@ -9,6 +9,8 @@ function command(text){
  if(/^(?:deshac[eé]|deshacer|revert[ií]) (?:la )?(?:eliminaci[oó]n|borrado)(?: de (?:mis |los )?filtros)?$/i.test(s))return {action:'presetRestore'};
  const renamePreset=/^(?:renombr[aá](?:me|r)?|cambi[aá](?:me|r)? (?:el )?nombre (?:de|a)) (?:el |los |mis |mi )?filtros?(?: guardados)?(?: del? historial)?\s*(.*)$/i.exec(s);
  if(renamePreset){const ambiguousSyntax=!/^["«]/.test(renamePreset[1].trim())&&(renamePreset[1].match(/\s+(?:a|como|por)\s+/gi)||[]).length>1;const m=/^(?:"([^"\n]+)"|«([^»]+)»|(.+?))\s+(?:a|como|por)\s+(.+)$/i.exec(renamePreset[1]);return {action:'presetRename',ambiguousSyntax,name:clean(m?m[1]||m[2]||m[3]:renamePreset[1]),newName:m?clean(m[4]):''};}
+ const editPreset=/^(?:modific[aá](?:me|r)?|actualiz[aá](?:me|r)?|cambi[aá](?:me|r)?) (?:el |los |mis |mi )?filtros?(?: guardados)?(?: del? historial)?\s*(.*)$/i.exec(s);
+ if(editPreset){const m=/^(?:"([^"\n]+)"|«([^»]+)»|(.+?))(?:\s*:\s*|\s+(?:con|para)\s+)(.+)$/i.exec(editPreset[1]);return {action:'presetEdit',name:clean(m?m[1]||m[2]||m[3]:editPreset[1]),editText:m?m[4]:''};}
  const deletePreset=/^(?:elimin[aá](?:me|r)?|borr[aá](?:me|r)?|quit[aá](?:me|r)?) (?:el |los |mis |mi )?filtros?(?: guardados)?(?: del? historial)?\s*(.*)$/i.exec(s);
  if(deletePreset)return {action:'presetRemove',name:clean(deletePreset[1])};
  if(/^(?:mostrame|mostrar|ver|lista|listar) (?:mis |los )?filtros(?: guardados)?(?: de historial)?$/i.test(s))return {action:'presetList'};
@@ -89,7 +91,8 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
    const n=/^(?:opci[oó]n |el |la )?(\d+)[.!]?$/i.exec(text.trim()),q=norm(text).replace(/^(?:el |la )?(?:usuario|rol)[: ]+/,''),matches=draft.choices.filter(c=>norm(c.label).includes(q));
    const selected=n?draft.choices[Number(n[1])-1]:matches.length===1?matches[0]:null;
    if(!selected)return reply('Elegí una de estas opciones para continuar.',draft.choices.map((c,i)=>({label:`${i+1}. ${c.label}`,text:`Opción ${i+1}`})));
-   if(draft.wait==='preset')draft.presetId=selected.id;
+   if(draft.wait?.startsWith('edit:')){const key=draft.wait.slice(5);draft.patch[key]=selected.id;delete draft.filterNames[key];}
+   else if(draft.wait==='preset')draft.presetId=selected.id;
    else if(draft.wait==='dashboard')draft.dashboardId=selected.id;
    else if(draft.wait==='accessUser')draft.userId=selected.id;
    else if(['historyUser','historyRole','historyAuthor','historyDestination'].includes(draft.wait)){const key={historyUser:'usuario',historyRole:'rol',historyAuthor:'autor',historyDestination:'destinatario'}[draft.wait];draft.filters[key]=selected.id;delete draft.filterNames[key];}
@@ -98,6 +101,7 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
   }else if(draft.wait==='name'){draft.name=clean(text.replace(/^(?:llam[aá]lo|ponele|que se llame|con (?:el )?nombre)\s+/i,''));delete draft.wait;}
   else if(draft.wait==='recipientCorrection'){draft.parts=[...recipientParts(text),...draft.parts.slice(1)];delete draft.wait;}
   else if(draft.wait==='recipients'){draft.parts=recipientParts(text);delete draft.wait;}
+  else if(draft.wait==='presetChanges'){draft.editText=text;delete draft.wait;}
   else if(draft.wait==='presetNewName'){draft.newName=clean(text);delete draft.wait;}
   else if(draft.wait==='presetName'){draft.name=clean(text);delete draft.wait;}
   else if(draft.wait==='dashboard'){draft.reference=clean(text);delete draft.wait;}
@@ -109,10 +113,27 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
    let period=draft.fixed?'fijo':history.period||'fijo';if(!draft.fixed&&!history.period)for(const name of ['hoy','ayer','este mes','mes pasado','este año','año pasado']){let range;if(['hoy','ayer'].includes(name)){const d=new Date(today+'T12:00:00Z');if(name==='ayer')d.setUTCDate(d.getUTCDate()-1);range={desde:d.toISOString().slice(0,10),hasta:d.toISOString().slice(0,10)};}else range=reportPeriod(name,today);if(history.filters?.desde===range.desde&&history.filters?.hasta===range.hasta){period=name;break;}}
    const saved=dashboards.saveHistoryFilters(p,{name:draft.name,dashboardId:history.id,filters:history.filters||{},period});delete conversation.dashboardDraft;return reply(`Guardé para vos **${saved.name}**, del historial de **${saved.dashboardName}**. Período: ${period==='fijo'?'fechas fijas':period}. Para consultarlo o descargarlo decime «aplicá los filtros ${saved.name}». Se verifican tus permisos cada vez.`);
   }
-  if(['presetApply','presetRename','presetRemove'].includes(draft.action)){
+  if(['presetApply','presetRename','presetRemove','presetEdit'].includes(draft.action)){
    if(draft.action==='presetRename'&&draft.ambiguousSyntax){delete conversation.dashboardDraft;return reply('El nombre anterior y el nuevo pueden interpretarse de varias maneras. Ponelos entre comillas, por ejemplo: renombrá el filtro «Nombre anterior» a «Nombre nuevo». No cambié ningún filtro.');}
-   if(!draft.presetId){const q=norm(draft.name);let rows=dashboards.listHistoryFilters(p);if(q){const exact=rows.filter(r=>norm(r.name)===q);rows=exact.length?exact:rows.filter(r=>norm(r.name).includes(q));}if(rows.length===1)draft.presetId=rows[0].id;else if(rows.length)return choose('¿Qué filtros guardados querés '+(draft.action==='presetRename'?'renombrar':draft.action==='presetRemove'?'eliminar':'aplicar')+'?',rows.map(r=>({id:r.id,label:`${r.name} · ${r.dashboardName} · ${r.period}`})),'preset');else{draft.wait='presetName';return reply('No encontré filtros guardados disponibles con ese nombre. ¿Cómo se llaman?');}}
+   if(!draft.presetId){const q=norm(draft.name);let rows=dashboards.listHistoryFilters(p);if(q){const exact=rows.filter(r=>norm(r.name)===q);rows=exact.length?exact:rows.filter(r=>norm(r.name).includes(q));}if(rows.length===1)draft.presetId=rows[0].id;else if(rows.length)return choose('¿Qué filtros guardados querés '+(draft.action==='presetRename'?'renombrar':draft.action==='presetRemove'?'eliminar':draft.action==='presetEdit'?'modificar':'aplicar')+'?',rows.map(r=>({id:r.id,label:`${r.name} · ${r.dashboardName} · ${r.period}`})),'preset');else{draft.wait='presetName';return reply('No encontré filtros guardados disponibles con ese nombre. ¿Cómo se llaman?');}}
    const saved=dashboards.getHistoryFilters(p,draft.presetId);
+   if(draft.action==='presetEdit'){
+    if(!draft.editText&&!draft.patch){draft.wait='presetChanges';return reply(`¿Qué querés modificar de **${saved.name}**? Podés indicar autor, usuario o rol destinatario, fechas y tipo de cambio.`);}
+    if(!draft.patch){const remove={},source=draft.editText.replace(/\bsin (?:filtro de )?(autor|usuario(?: destinatario)?|destinatario|rol|fechas|tipo(?: de cambio)?)\b/gi,(_,key)=>{if(/fechas/i.test(key)){remove.desde=null;remove.hasta=null;}else remove[/autor/i.test(key)?'autor':/rol/i.test(key)?'rol':/tipo/i.test(key)?'tipo':'destinatario']=null;return ' ';}).replace(/\b(autor|usuario(?: destinatario)?|destinatario(?: usuario| rol)?|rol)\s+(?:a|por)\s+/gi,'$1 '),parsed=historyFilterText(source,today);
+     assert(!parsed.reference.replace(/\b(?:y|con|para|el|los|a)\b/gi,'').trim(),400,'CAMBIO_NO_IDENTIFICADO','No identifiqué todos los cambios. Indicá los criterios concretos, sin texto adicional.');
+     for(const key of Object.keys(remove))assert(!Object.hasOwn(parsed.filters,key)&&!parsed.names[key],400,'CAMBIOS_AMBIGUOS','No mezcles quitar y asignar el mismo criterio.');
+     draft.patch={...remove,...parsed.filters};draft.filterNames=parsed.names;draft.editPeriod=parsed.period||(Object.hasOwn(remove,'desde')?'fijo':undefined);
+     if(draft.editPeriod&&draft.editPeriod!=='fijo'){delete draft.patch.desde;delete draft.patch.hasta;}
+    }
+    const subjects=dashboards.historySubjects(p,saved.dashboardId);
+    for(const key of ['autor','destinatario','rol'])if(draft.filterNames?.[key]){const q=norm(draft.filterNames[key]),pool=key==='autor'?subjects.authors:key==='destinatario'?subjects.destinations:subjects.roles,aliases=r=>[...(r.aliases||[]),r.name].flatMap(n=>[norm(n),norm(n.replace(/\s*\([^)]*\)\s*$/,'')),norm(/\(([^)]+)\)$/.exec(n)?.[1])]),exact=pool.filter(r=>aliases(r).includes(q)),matches=exact.length?exact:pool.filter(r=>aliases(r).some(n=>n.includes(q)));
+     if(matches.length>1)return choose(`¿Qué ${key} querés guardar en estos filtros?`,matches.map(r=>({id:r.id,label:r.name})),'edit:'+key);
+     if(!matches.length){delete conversation.dashboardDraft;return reply(`No encontré «${draft.filterNames[key]}» en el historial de este dashboard. No modifiqué los filtros guardados.`);}draft.patch[key]=matches[0].id;delete draft.filterNames[key];
+    }
+    const updated=dashboards.updateHistoryFilters(p,draft.presetId,{filters:draft.patch,...(draft.editPeriod?{period:draft.editPeriod}:{})});delete conversation.dashboardDraft;
+    const labels=Object.entries(updated.filters).map(([k,v])=>`${k}: ${k==='autor'?subjects.authors.find(r=>r.id===v)?.name||v:k==='destinatario'?subjects.destinations.find(r=>r.id===v)?.name||v:k==='rol'?subjects.roles.find(r=>r.id===v)?.name||v:v}`).join(' · ');
+    return reply(`Actualicé tus filtros **${updated.name}**, conservando la misma configuración y dashboard.\n\n${labels||'Sin criterios adicionales.'} · Período: ${updated.period==='fijo'?'fechas fijas':updated.period}.\n\nPara consultar o exportar, decime «aplicá los filtros ${updated.name}».`);
+   }
    if(draft.action==='presetRename'){if(!draft.newName){draft.wait='presetNewName';return reply(`¿Qué nombre querés ponerle a **${saved.name}**?`);}const renamed=dashboards.renameHistoryFilters(p,draft.presetId,{name:draft.newName});delete conversation.dashboardDraft;return reply(`Renombré tus filtros **${saved.name}** a **${renamed.name}**. Se conservaron los criterios y el dashboard.`);}
    if(draft.action==='presetRemove'){const removed=dashboards.removeHistoryFilters(p,draft.presetId);conversation.removedHistoryFilter={id:removed.id};delete conversation.dashboardDraft;return reply(`Eliminé tus filtros **${removed.name}**. No cambié el dashboard ni los filtros de otros usuarios. Podés decir «deshacé la eliminación» para recuperarlos.`);}
    draft={action:'history',branch:saved.branch,dashboardId:saved.dashboardId,filters:saved.filters,period:saved.period,filterNames:{}};conversation.dashboardDraft=draft;branch=saved.branch;

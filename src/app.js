@@ -195,7 +195,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       const presetMatch=/^\/api\/history-filters\/([a-f0-9-]{36})$/.exec(url.pathname);
       if(presetMatch){
         if(req.method==='GET')return send(res,200,dashboards.getHistoryFilters(principal,presetMatch[1]));
-        if(req.method==='PATCH')return send(res,200,dashboards.renameHistoryFilters(principal,presetMatch[1],await body(req)));
+        if(req.method==='PATCH'){const input=await body(req);assert(input&&typeof input==='object'&&!Array.isArray(input),400,'FILTROS_INVALIDOS','Objeto JSON requerido.');return send(res,200,Object.hasOwn(input,'filters')||Object.hasOwn(input,'period')?dashboards.updateHistoryFilters(principal,presetMatch[1],input):dashboards.renameHistoryFilters(principal,presetMatch[1],input));}
         if(req.method==='DELETE')return send(res,200,dashboards.removeHistoryFilters(principal,presetMatch[1]));
       }
       const restorePreset=/^\/api\/history-filters\/([a-f0-9-]{36})\/restore$/.exec(url.pathname);
