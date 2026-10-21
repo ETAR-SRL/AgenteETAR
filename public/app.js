@@ -66,24 +66,49 @@ function renderResult(where,envelope,heading,{append=false}={}){
   if(limitations.length){const details=node('details');details.append(node('summary','','Ver alcance y limitaciones'),node('p','',limitations.join(' · ')));notes.append(details);}
   card.append(notes);if(append)where.append(card);else where.replaceChildren(card);return card;
 }
-function renderDashboard(where,envelope,heading,{append=false}={}){
+function reportCurrency(row){return row.monedaNombre?`${row.monedaNombre}${row.monedaISO?' ('+row.monedaISO+')':''}`:`Moneda ${row.moneda||'sin identificar'}`;}
+function reportNumber(value){const match=/^(-?)(\d+)(?:\.(\d+))?$/.exec(String(value));if(!match)return visual(value);const fraction=(match[3]||'').replace(/0+$/,'');return match[1]+BigInt(match[2]).toLocaleString('es-AR')+(fraction?','+fraction:'');}
+function dashboardRows(rows){return rows.map(row=>{const {monedaNombre,monedaISO,cantidadMillares,...rest}=row;return {...rest,moneda:reportCurrency(row),codigoMoneda:row.moneda,...(row.unidad==='UN'&&cantidadMillares!==undefined?{unidad:'millares',cantidad:cantidadMillares,cantidadUnidades:row.cantidad}:{})};});}
+function printReport(card){document.querySelectorAll('.printing-report').forEach(e=>e.classList.remove('printing-report'));card.classList.add('printing-report');document.body.classList.add('printing-dashboard');window.print();}
+function comparisonChart(comparison){
+  const box=node('section','result-card comparison-card'),header=node('div','result-header');header.append(node('h3','',comparison.label||'Comparación de períodos'));
+  const csv=node('button','secondary','↓ CSV');csv.disabled=!comparison.rows?.length;csv.onclick=()=>downloadRows(comparison.rows||[],'comparacion');header.append(csv);const print=node('button','secondary','Imprimir / PDF');print.onclick=()=>printReport(box);header.append(print);box.append(header);
+  box.append(node('p','metrics-note',`Consultado: ${comparison.current.desde} a ${comparison.current.hasta} · Referencia: ${comparison.previous.desde} a ${comparison.previous.hasta}`));
+  if(comparison.available===false){box.append(node('p','empty',comparison.message));return box;}
+  if(!comparison.rows?.length){box.append(node('p','empty','Sin movimientos en ambos períodos.'));return box;}
+  for(const row of comparison.rows){
+    const group=node('div','comparison-group');group.append(node('h4','',row.monedaUnidad));
+    const panels=node('div','comparison-panels');
+    for(const spec of [{title:'Importe neto · '+reportCurrency(row),current:row.importeActual,previous:row.importeAnterior},{title:'Cantidad · '+(row.unidadCantidad||row.unidad),current:row.cantidadActual,previous:row.cantidadAnterior}]){
+      if(spec.current===undefined||spec.previous===undefined)continue;
+      const panel=node('div','comparison-panel'),max=Math.max(Math.abs(Number(spec.current)),Math.abs(Number(spec.previous)),1);panel.append(node('h5','',spec.title));
+      for(const [key,label] of [['current','Consultado'],['previous','Referencia']]){const value=String(spec[key]),line=node('div','comparison-line'),bar=node('div','comparison-bar '+key);line.append(node('span','',label),node('strong','',reportNumber(value)));bar.style.width=`${Math.abs(Number(value))/max*100}%`;bar.classList.toggle('negative',Number(value)<0);line.append(bar);panel.append(line);}panels.append(panel);
+    }
+    group.append(panels,node('p','metrics-note',`Diferencia de importe: ${reportNumber(row.diferencia)} · ${row.variacionPorcentual===null?'Sin porcentaje: referencia cero':reportNumber(row.variacionPorcentual)+' %'}${row.diferenciaCantidad!==undefined?' · Diferencia de cantidad: '+reportNumber(row.diferenciaCantidad)+' '+row.unidadCantidad:''}`));box.append(group);
+  }
+  const details=node('details','dashboard-values');details.append(node('summary','','Ver tabla comparativa'),table(comparison.rows));box.append(details);return box;
+}
+function renderDashboard(where,envelope,heading,{append=false,comparison=true}={}){
   const card=node('article','result-card'),header=node('div','result-header'),rows=envelope.data||[];
   card.classList.add('dashboard-card');
   header.append(node('h3','',heading));
-  const exportButton=node('button','secondary','↓ CSV');exportButton.onclick=()=>downloadRows(rows,'resumen');header.append(exportButton);
-  const printButton=node('button','secondary','Imprimir / PDF');printButton.onclick=()=>{document.querySelectorAll('.printing-report').forEach(e=>e.classList.remove('printing-report'));card.classList.add('printing-report');document.body.classList.add('printing-dashboard');window.print();};header.append(printButton);
+  const exportButton=node('button','secondary','↓ CSV');exportButton.onclick=()=>downloadRows(dashboardRows(rows),'resumen');header.append(exportButton);
+  const printButton=node('button','secondary','Imprimir / PDF');printButton.onclick=()=>printReport(card);header.append(printButton);
   card.append(header,node('p','result-meta',`Protheus · ${stamp(envelope.source?.fetchedAt)} · ${envelope.scope.desde} a ${envelope.scope.hasta} · sucursal ${envelope.scope.sucursal}`));
   if(Object.keys(envelope.scope.filtros||{}).length)card.append(node('p','metrics-note','Filtros aplicados: '+visual(envelope.scope.filtros)));
   const metrics=node('div','metrics');
   for(const row of rows.filter(r=>r.agrupacion==='total')){
-    const metric=node('div','metric');metric.append(node('span','',`Moneda ${row.moneda} · ${row.unidad}`),node('strong','',visual(String(row.importeNeto))),node('span','',`${row.documentos} documentos · ${row.lineas} ítems · ${visual(String(row.cantidad))} ${row.unidad}${row.cantidadMillares!==undefined?' / '+visual(String(row.cantidadMillares))+' millares':''}`));metrics.append(metric);
+    const quantity=row.unidad==='UN'&&row.cantidadMillares!==undefined?`${reportNumber(row.cantidadMillares)} millares`:`${reportNumber(row.cantidad)} ${row.unidad}`;
+    const metric=node('div','metric');metric.append(node('span','',reportCurrency(row)),node('strong','',reportNumber(row.importeNeto)),node('span','',quantity),node('span','',`${row.documentos} documentos · ${row.lineas} ítems`));metrics.append(metric);
   }
   card.append(metrics,node('p','metrics-note','Totales del alcance completo. Monedas y unidades separadas; los importes no incluyen automáticamente impuestos ni fletes.'));
   if(!rows.length)card.append(node('p','empty','No hay movimientos para estos filtros.'));
+  if(comparison&&envelope.comparison)card.append(comparisonChart(envelope.comparison));
   const groups=new Map();
   for(const row of rows.filter(r=>r.agrupacion==='detalle')){
-    const key=`Moneda ${row.moneda} · ${row.unidad}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);
+    const key=`${reportCurrency(row)} · ${row.unidad==='UN'?'millares':row.unidad}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);
   }
+  if(comparison&&envelope.comparison?.available&&envelope.scope.agrupar==='mes')groups.clear();
   for(const [key,items] of groups){
     if(envelope.scope.agrupar!=='mes')items.sort((a,b)=>Number(b.importeNeto)-Number(a.importeNeto));
     card.append(node('h4','',key));
@@ -96,7 +121,7 @@ function renderDashboard(where,envelope,heading,{append=false}={}){
     }
     card.append(chart);if(items.length>24)card.append(node('p','metrics-note',envelope.scope.agrupar==='mes'?'Gráfico: primeros 24 meses. Tabla y CSV incluyen todo el período.':'Gráfico: las 24 agrupaciones con mayor importe neto. Tabla y CSV incluyen todas.'));
   }
-  if(rows.length){const details=node('details','dashboard-values');details.append(node('summary','','Ver tabla completa'),table(rows));card.append(details);}
+  if(rows.length){const details=node('details','dashboard-values');details.append(node('summary','','Ver tabla completa'),table(dashboardRows(rows)));card.append(details);}
   if(envelope.limitations?.length){const details=node('details');details.append(node('summary','','Cómo se calculó'),node('p','result-notes',envelope.limitations.join(' ')));card.append(details);}
   if(append)where.append(card);else where.replaceChildren(card);return card;
 }
@@ -142,12 +167,12 @@ function renderAnswer(where,response){
   if(response.learningNotice)card.append(node('p','learning-notice',response.learningNotice));
   if(response.batch)renderImportBatch(where,response.batch,{api,capabilities});
   if(response.proposal)renderProposal(where,response.proposal);
-  if(response.comparison){const c=response.comparison,box=node('article','result-card');box.append(node('h3','','Comparación de períodos'),node('p','result-meta',`${c.current.desde} a ${c.current.hasta} frente a ${c.previous.desde} a ${c.previous.hasta}`));if(c.rows.length)box.append(table(c.rows));else box.append(node('p','empty','Sin movimientos en ambos períodos.'));where.append(box);}
+  if(response.comparison)where.append(comparisonChart(response.comparison));
   if(response.choices?.length){const choices=node('div','choice-list');for(const choice of response.choices){const button=node('button','secondary',choice.label);button.type='button';button.onclick=()=>query(choice.text);choices.append(button);}card.append(choices);}
   for(const evidence of response.evidence||[]){
     const result=evidence.result,heading=evidence.id+' · '+(evidence.action==='precio_venta'?(result.kind==='prices'?'Precios de lista verificados':'Consulta de precios'):labels[evidence.args.recurso]||evidence.action);
     const details=node('details','evidence');details.append(node('summary','',heading));
-    if(result.kind==='dashboard'){renderDashboard(where,result,result.title||heading,{append:true});continue;}
+    if(result.kind==='dashboard'){renderDashboard(where,result,result.title||heading,{append:true,comparison:!response.comparison});continue;}
     if(result.kind==='prices'){renderResult(where,{...result,data:result.data.map(r=>({producto:r.productoCodigo,descripcion:r.productoNombre,lista:r.listaCodigo,clienteLista:r.listaNombre,moneda:r.moneda,precioPorUnidad:r.precio,precioPorMillar:r.precioPorMillar,unidad:r.unidadMedida,elegibilidad:r.elegibilidad}))},heading,{append:true});continue;}
     if(result.kind==='priceAdjustment'){renderResult(where,result,heading,{append:true});if(result.excluded?.length)renderResult(where,{data:result.excluded},'Registros excluidos: sin vigencia activa',{append:true});if(result.failures?.length)renderResult(where,{data:result.failures},'Registros que requieren revisión',{append:true});continue;}
     if(result.kind==='proposal'){renderProposal(where,result.proposal);continue;}

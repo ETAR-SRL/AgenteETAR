@@ -1,6 +1,8 @@
 import Decimal from 'decimal.js';
 import {ApiError, identifier as q} from './config.js';
 import {pagination} from './service.js';
+import {currencyIdentity,currencyTitle,previousMonthRange,compareReports} from '../report-metrics.js';
+const D=Decimal.clone({precision:50});
 
 // Especie + sentido del documento: una NC de compra sale por SD2; una NC
 // de venta entra por SD1. No clasificar todo SD2 como venta ni todo SD1 como compra.
@@ -137,18 +139,25 @@ export class Commercial {
       FROM grupos GROUP BY GROUPING SETS ((moneda,unidad),(moneda,unidad,dimension))
       ORDER BY GROUPING(dimension) DESC,moneda,unidad,dimension`};
   }
-  async list(resource,params) {
+  async currencies(branch){
+    if(!this.catalog.tables.has('SX6')||!['X6_VAR','X6_CONTEUD','X6_FIL','D_E_L_E_T_'].every(f=>this.catalog.table('SX6').columns.has(f)))return {};
+    const rows=await this.db.query(`SELECT [X6_VAR],[X6_CONTEUD] FROM ${this.catalog.name('SX6')} WHERE [X6_FIL]=@branch AND [X6_VAR] IN ('MV_MOEDA1','MV_MOEDA2','MV_MOEDA3','MV_MOEDA4','MV_MOEDA5')${this.catalog.deleted('SX6',true)}`,{branch:this.catalog.branch('SX6',branch)}),map={};
+    for(const row of rows){const code=String(row.X6_VAR).trim().slice(-1);if(Object.hasOwn(map,code))throw new ApiError(503,'TRADUCCION_AMBIGUA','La configuración de moneda está duplicada.');map[code]=String(row.X6_CONTEUD||'').trim();}return map;
+  }
+  async list(resource,params,{compare=true,currencies}={}) {
     const {text:sql,bindings,spec}=this.build(resource,params);
     let rows=await this.db.query(sql,bindings);
     if (rows.some(r=>spec.summary?Number(r.cabecerasInvalidas)>0:Number(r.cabeceras)!==1)) throw new ApiError(503,'CABECERA_AMBIGUA_O_AUSENTE','No se puede determinar una cabecera única y su moneda; no se publicaron importes');
     if(spec.summary && rows.length>5000) throw new ApiError(422,'RESUMEN_EXTENSO','Hay más de 5000 grupos; acotá filtros o agrupá por mes');
     const more=!spec.summary&&rows.length>spec.limit;
     if(!spec.summary) rows=rows.slice(0,spec.limit);
+    if(spec.summary)currencies ||= await this.currencies(spec.filters.sucursal);
     const data=rows.map(row=>{
       const r=Object.fromEntries(Object.entries(row).map(([k,v])=>[k,typeof v==='string'?v.trim():v]));
       delete r.cabeceras;delete r.cabecerasInvalidas;delete r.documentoClave;
       if(r.fecha?.length===8)r.fecha=`${r.fecha.slice(0,4)}-${r.fecha.slice(4,6)}-${r.fecha.slice(6,8)}`;
-      if(r.unidad==='UN' && r.cantidad!=null)r.cantidadMillares=new Decimal(r.cantidad).div(1000).toFixed();
+      if(r.unidad==='UN' && r.cantidad!=null)r.cantidadMillares=new D(r.cantidad).div(1000).toFixed();
+      if(spec.summary)Object.assign(r,currencyIdentity(r.moneda,currencies[r.moneda]));
       return r;
     });
     const pending=!spec.emitted&&!['ventas','compras'].includes(spec.scope);
@@ -168,8 +177,13 @@ export class Commercial {
     if(spec.summary) {
       const totals=data.filter(r=>r.agrupacion==='total');
       result.verifiedSummary=`${spec.label}, del ${scope.desde} al ${scope.hasta}, sucursal ${scope.sucursal}.${Object.keys(filters).length?' Filtros: '+JSON.stringify(filters)+'.':''}\n`+
-        (totals.length?totals.map(r=>`Moneda ${r.moneda||'sin determinar'} · ${r.unidad||'unidad no informada'}: ${r.documentos} documentos, ${r.lineas} ítems, ${pending?'importe pendiente estimado':'NF + ND − NC'} ${r.importeNeto}; cantidad ${r.cantidad}${r.cantidadMillares!==undefined?' ('+r.cantidadMillares+' millares)':''}.`).join('\n'):'No encontré movimientos en el período y alcance consultados.')+
+        (totals.length?totals.map(r=>`${currencyTitle(r)}: ${r.documentos} documentos, ${r.lineas} ítems, ${pending?'importe pendiente estimado':'NF + ND − NC'} ${r.importeNeto}; cantidad ${r.cantidadMillares!==undefined?r.cantidadMillares+' millares':r.cantidad+' '+(r.unidad||'unidad no informada')}.`).join('\n'):'No encontré movimientos en el período y alcance consultados.')+
         '\nImportes netos de ítems, sin sumar monedas distintas. Podés ver el detalle y descargarlo abajo.';
+      const prior=compare&&previousMonthRange(scope);
+      if(prior){
+        try{const previous=await this.list(resource,new URLSearchParams({...spec.filters,...prior}),{compare:false,currencies});result.comparison={...compareReports(result,previous),label:'Mismo tramo del mes anterior',fetchedAt:new Date().toISOString()};}
+        catch(error){result.comparison={available:false,current:{desde:scope.desde,hasta:scope.hasta},previous:prior,message:'No se pudo verificar el mes anterior. Los valores actuales están disponibles; no se interpreta la comparación como cero.',code:error.code||'FUENTE_NO_DISPONIBLE'};}
+      }
     }
     return result;
   }

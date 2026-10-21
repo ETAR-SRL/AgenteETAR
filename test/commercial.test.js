@@ -74,6 +74,23 @@ test('summary preserves decimal amounts and only converts UN quantities to milla
   assert.equal(result.data[1].cantidadMillares,undefined);assert.equal(result.data[0].importeNeto,rows[0].importeNeto);
   assert.match(result.verifiedSummary,/12345678901234567890.123456/);
 });
+test('dashboards resolve SX6 currencies and compare the same filters in the prior month',async()=>{
+ const {service,c}=fixture(),calls=[];
+ c.tables.set('SX6',{schema:'dbo',name:'SX6010',columns:new Map(['X6_VAR','X6_CONTEUD','X6_FIL','D_E_L_E_T_'].map(k=>[k,{}]))});c.config.branches.SX6={'0101':'01'};
+ service.db.query=async(sql,bindings)=>{calls.push({sql,bindings});if(sql.includes('[X6_VAR]'))return [{X6_VAR:'MV_MOEDA1',X6_CONTEUD:'PESOS'},{X6_VAR:'MV_MOEDA2',X6_CONTEUD:'DOLAR'}];return ['1','2'].map(moneda=>({agrupacion:'total',moneda,unidad:'UN',cantidad:'2000.125',importeNeto:bindings.desde==='20260901'?'80':'100',cabecerasInvalidas:'0'}));};
+ const result=await service.list('resumenVentas',params({cliente:'C1',producto:'Z1'}));
+ assert.equal(result.data[0].monedaNombre,'Pesos');assert.equal(result.data[1].monedaISO,'USD');assert.match(result.verifiedSummary,/Dólares \(USD\)/);assert.doesNotMatch(result.verifiedSummary,/Moneda 1/);
+ assert.equal(calls.filter(q=>q.sql.includes('[X6_VAR]')).length,1);assert.equal(calls.find(q=>q.sql.includes('[X6_VAR]')).bindings.branch,'01');
+ const prior=calls.find(q=>q.bindings.desde==='20260901');assert.equal(prior.bindings.hasta,'20260920');assert.equal(prior.bindings.cliente,'C1');assert.equal(prior.bindings.producto,'Z1');assert.equal(prior.bindings.branchSD2,'0101');
+ assert.equal(result.comparison.available,true);assert.equal(result.comparison.rows[0].diferencia,'20');assert.equal(result.comparison.rows[0].variacionPorcentual,'25.00');assert.equal(result.comparison.rows[0].cantidadActual,'2.000125');
+});
+test('a failed comparison is unavailable rather than a fabricated zero; duplicate currency names cannot be used',async()=>{
+ const {service,c}=fixture();service.db.query=async(sql,b)=>{if(b.desde==='20260901')throw Object.assign(new Error('timeout'),{code:'ETIMEOUT'});return [{agrupacion:'total',moneda:'1',unidad:'UN',cantidad:'1000',importeNeto:'50',cabecerasInvalidas:'0'}];};
+ const result=await service.list('resumenVentas',params());assert.equal(result.data[0].importeNeto,'50');assert.equal(result.comparison.available,false);assert.equal(result.comparison.rows,undefined);assert.equal(result.comparison.code,'ETIMEOUT');
+ c.tables.set('SX6',{schema:'dbo',name:'SX6010',columns:new Map(['X6_VAR','X6_CONTEUD','X6_FIL','D_E_L_E_T_'].map(k=>[k,{}]))});c.config.branches.SX6={'0101':'01'};
+ service.db.query=async sql=>sql.includes('[X6_VAR]')?[{X6_VAR:'MV_MOEDA1',X6_CONTEUD:'PESOS'},{X6_VAR:'MV_MOEDA1',X6_CONTEUD:'DOLAR'}]:[];
+ await assert.rejects(service.list('resumenVentas',params()),{code:'TRADUCCION_AMBIGUA'});
+});
 test('every commercial resource declares domain permissions; raw mixed ledgers need both domains',()=>{
   for(const resource of Object.keys(commercialResources))assert.ok(resourceDomains[resource]?.includes('catalogo'),resource);
   for(const resource of ['documentosSalida','itemsDocumentosSalida','entradasCompras']){

@@ -1,5 +1,4 @@
-import Decimal from 'decimal.js';
-const D=Decimal.clone({precision:50});
+import {compareReports} from '../report-metrics.js';
 const norm=s=>String(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[¿?!. ,]+/g,' ').trim();
 const iso=d=>d.toISOString().slice(0,10);
 export function reportPeriod(name,today=new Date().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'})){
@@ -50,15 +49,9 @@ export async function reportChat({text,conversation={},branch,executeRead,today}
  if(!match&&old){
   const previous=await executeRead({resource,filters:{...old.filters,sucursal:branch}});
   evidence.push({id:'F2',action:'consultar_erp',args:{recurso:resource,filtros:old.filters},result:previous});
-  const totals=r=>new Map(r.data.filter(x=>x.agrupacion==='total').map(x=>[`${x.moneda} · ${x.unidad}`,x]));
-  const a=totals(result),b=totals(previous),lines=[],rows=[];
-  for(const key of new Set([...a.keys(),...b.keys()])){
-   const current=new D(a.get(key)?.importeNeto||0),before=new D(b.get(key)?.importeNeto||0),diff=current.minus(before);
-   rows.push({monedaUnidad:key,importeActual:current.toFixed(),importeAnterior:before.toFixed(),diferencia:diff.toFixed(),variacionPorcentual:before.isZero()?null:diff.div(before.abs()).mul(100).toFixed(2)});
-   lines.push(`Moneda ${key}: ${current.toFixed()} frente a ${before.toFixed()}; diferencia ${diff.gt(0)?'+':''}${diff.toFixed()}${before.isZero()?' (sin porcentaje: base anterior cero)':` (${diff.div(before.abs()).mul(100).toFixed(2)}%)`}.`);
-  }
+  comparison=compareReports({...result,scope:filters},{...previous,scope:old.filters});
+  const lines=comparison.rows.map(r=>`${r.monedaUnidad}: ${r.importeActual} frente a ${r.importeAnterior}; diferencia ${Number(r.diferencia)>0?'+':''}${r.diferencia}${r.variacionPorcentual===null?' (sin porcentaje: base anterior cero)':` (${r.variacionPorcentual}%)`}.`);
   answer=`Comparé ${filters.desde} a ${filters.hasta} con ${old.filters.desde} a ${old.filters.hasta}.\n\n${lines.join('\n')||'No encontré movimientos en ninguno de los dos períodos.'}\n\nEl mes/año actual llega hasta hoy; los períodos pasados están completos. Importes netos de ítems, por moneda y unidad. Ambos períodos se volvieron a consultar.`;
-  comparison={current:{desde:filters.desde,hasta:filters.hasta},previous:{desde:old.filters.desde,hasta:old.filters.hasta},rows};
  }
  conversation.reportContext={branch,resource,filters:Object.fromEntries(Object.entries(filters).filter(([k])=>k!=='sucursal'))};
  return {answer,evidence,...(comparison?{comparison}:{}),trace:evidence.map(e=>({action:'consultar_erp',status:'ok',sourceId:e.id}))};
