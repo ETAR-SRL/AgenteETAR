@@ -36,7 +36,10 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   const send=(res,status,value)=>{if(context.getStore())principalNow();return rawSend(res,status,value);};
   const guard=resource=>{const p=principalNow();assertRead(p,resource);return p;};
   const branchGuard=branch=>{const p=principalNow();assert(p?.unrestricted||p?.branches.includes(branch),403,'LECTURA_DENEGADA',denied);};
-  const dashboards=savedDashboards(store,{authorize:(_p,resource,branch)=>{guard(resource);branchGuard(branch);assert(branches.includes(branch),403,'LECTURA_DENEGADA',denied);}});
+  const dashboards=savedDashboards(store,{authorize:(_p,resource,branch)=>{guard(resource);branchGuard(branch);assert(branches.includes(branch),403,'LECTURA_DENEGADA',denied);},recipients:(resource,branch)=>{
+    const eligible=p=>p&&canRead(p,resource)&&p.branches.includes(branch);
+    return {users:access.db.prepare('SELECT id,name,username FROM access_users WHERE active=1 ORDER BY name').all().filter(u=>eligible(access.principal(u.id))).map(({id,name,username})=>({id,name:`${name} (${username})`})),roles:access.db.prepare('SELECT id,name,permissions,branches FROM access_roles ORDER BY name').all().filter(r=>eligible({admin:r.id==='admin',permissions:JSON.parse(r.permissions),branches:JSON.parse(r.branches)})).map(({id,name})=>({id,name}))};
+  }});
   const rawErp=erp,rawKaiqen=kaiqen;
   erp={...rawErp,list:async(resource,params)=>{guard(resource);branchGuard(params.get('sucursal'));const value=await rawErp.list(resource,params);principalNow();return value;}};
   if(rawErp.writes){erp.writes={...rawErp.writes};for(const method of ['prepare','check','execute'])erp.writes[method]=async(...args)=>{
@@ -180,6 +183,11 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       if(url.pathname==='/api/dashboards'){
         if(req.method==='GET')return send(res,200,{data:dashboards.list(principal)});
         if(req.method==='POST')return send(res,201,dashboards.save(principal,await body(req)));
+      }
+      const shareMatch=/^\/api\/dashboards\/([a-f0-9-]{36})\/sharing$/.exec(url.pathname);
+      if(shareMatch){
+        if(req.method==='GET')return send(res,200,dashboards.sharing(principal,shareMatch[1]));
+        if(req.method==='PUT')return send(res,200,dashboards.share(principal,shareMatch[1],await body(req)));
       }
       const savedMatch=/^\/api\/dashboards\/([a-f0-9-]{36})$/.exec(url.pathname);
       if(savedMatch){

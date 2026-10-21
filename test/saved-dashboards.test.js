@@ -31,3 +31,34 @@ test('HTTP endpoints require personal login, isolate users and reopen fresh ERP 
  assert.deepEqual((await(await request('/api/dashboards',b)).json()).data,[]);assert.equal((await request('/api/dashboards/'+saved.id,b)).status,404);assert.equal((await request('/api/dashboards',b,'POST',input)).status,403);
  const current=await(await request('/api/dashboards/'+saved.id,a)).json();for(let i=1;i<=2;i++){const r=await request('/api/agent/chat',a,'POST',{text:'Abrir dashboard guardado',dashboard:current.dashboard,context:{sucursal:'0101'}});assert.equal(r.status,200);const result=await r.json();assert.equal(result.evidence[0].result.data[0].importeNeto,String(i));}assert.equal(reads,2);
 });
+
+test('sharing grants configuration only, supports users and current roles, owner-only management and immediate revocation',t=>{
+ const store=new Store(':memory:');t.after(()=>store.close());const owner={userId:'owner',roleId:'owners',allowed:true},user={userId:'viewer',roleId:'sales',allowed:true},other={userId:'other',roleId:'none',allowed:true};
+ const options={users:[{id:'viewer',name:'Viewer'}],roles:[{id:'sales',name:'Sales'}]};const d=savedDashboards(store,{authorize,recipients:()=>options}),saved=d.save(owner,input);
+ assert.deepEqual(d.list(user),[]);assert.throws(()=>d.sharing(user,saved.id),{status:404});
+ d.share(owner,saved.id,{targets:[{kind:'user',target:'viewer'}]});assert.equal(d.open(user,saved.id).owned,false);assert.equal(d.list(user).length,1);assert.equal(d.open(owner,saved.id).owned,true);
+ assert.throws(()=>d.share(user,saved.id,{targets:[]}),{status:404});assert.throws(()=>d.remove(user,saved.id),{status:404});assert.throws(()=>d.open(other,saved.id),{status:404});
+ assert.deepEqual(d.list({...user,allowed:false}),[]);assert.throws(()=>d.open({...user,allowed:false},saved.id),{status:403});
+ for(const targets of [[{kind:'user',target:'nonexistent'}],[{kind:'all',target:'sales'}],[{kind:'role',target:'sales',owner:true}],[{kind:'role',target:'sales'},{kind:'role',target:'sales'}]])assert.throws(()=>d.share(owner,saved.id,{targets}));assert.equal(d.open(user,saved.id).owned,false,'invalid share update cannot remove prior grants');
+ d.share(owner,saved.id,{targets:[{kind:'role',target:'sales'}]});assert.equal(d.list(user).length,1);assert.deepEqual(d.list({...user,roleId:'changed'}),[]);assert.throws(()=>d.open({...user,roleId:'changed'},saved.id),{status:404});
+ d.share(owner,saved.id,{targets:[]});assert.deepEqual(d.list(user),[]);assert.throws(()=>d.open(user,saved.id),{status:404});
+ d.share(owner,saved.id,{targets:[{kind:'role',target:'sales'}]});d.remove(owner,saved.id);assert.equal(store.db.prepare('SELECT count(*) n FROM dashboard_shares').get().n,0);
+});
+
+test('HTTP sharing directory excludes denied users/roles, rechecks actual permissions and roles before opening',async t=>{
+ const store=new Store(':memory:'),access=new Access(store,['0101','0201']);const admin=await access.setup({username:'admin',name:'Admin',password:'Clave-de-prueba-123'}),permissions=['read:ventas','read:clientes','read:preciosVenta','read:catalogo'];
+ const role=access.saveRole(admin.principal,{name:'Ventas',permissions,branches:['0101']});const denied=access.saveRole(admin.principal,{name:'Sin ventas',permissions:['read:catalogo'],branches:['0101']}),otherBranch=access.saveRole(admin.principal,{name:'Otra sucursal',permissions,branches:['0201']});
+ const viewer=await access.saveUser(admin.principal,{username:'viewer',name:'Viewer',roleId:role.id,active:true,password:'Clave-de-prueba-123'});await access.saveUser(admin.principal,{username:'blocked',name:'Blocked',roleId:denied.id,active:true,password:'Clave-de-prueba-123'});await access.saveUser(admin.principal,{username:'disabled',name:'Disabled',roleId:role.id,active:false,password:'Clave-de-prueba-123'});
+ const server=createApp({erp:createDemoErp(),kaiqen:createDemoKaiqen(),store,branches:['0101','0201'],mode:'demo',readKey:'r'.repeat(40),planKey:'p'.repeat(40)});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();store.close();});const origin=`http://127.0.0.1:${server.address().port}`;
+ const headers=p=>({origin,'content-type':'application/json',Authorization:'Bearer '+access.session(p)}),a=headers(admin.principal.userId),v=headers(viewer.id),request=(path,h,method='GET',value)=>fetch(origin+path,{headers:h,method,...(value?{body:JSON.stringify(value)}:{})});
+ const saved=await(await request('/api/dashboards',a,'POST',input)).json(),path='/api/dashboards/'+saved.id;
+ let options=await(await request(path+'/sharing',a)).json();assert.ok(options.users.some(u=>u.id===viewer.id));assert.ok(options.users.every(u=>Object.keys(u).sort().join(',')==='id,name'));assert.ok(!options.users.some(u=>/Blocked|Disabled/.test(u.name)));assert.ok(options.roles.some(r=>r.id===role.id));assert.ok(!options.roles.some(r=>[denied.id,otherBranch.id].includes(r.id)));
+ assert.equal((await request(path+'/sharing',v)).status,404);assert.equal((await request(path+'/sharing',a,'PUT',{targets:[{kind:'role',target:otherBranch.id}]})).status,400);
+ assert.equal((await request(path+'/sharing',a,'PUT',{targets:[{kind:'role',target:role.id}]})).status,200);assert.equal((await request(path,v)).status,200);assert.equal((await request(path,v,'DELETE')).status,404);assert.equal((await request(path+'/sharing',v,'PUT',{targets:[]})).status,404);
+ access.saveRole(admin.principal,{name:'Ventas restringidas',permissions:['read:catalogo'],branches:['0101']},role.id);assert.equal((await request(path,v)).status,403);assert.deepEqual((await(await request('/api/dashboards',v)).json()).data,[]);
+ access.saveRole(admin.principal,{name:'Ventas',permissions,branches:['0101']},role.id);assert.equal((await request(path,v)).status,200);
+ access.saveRole(admin.principal,{name:'Ventas otra sucursal',permissions,branches:['0201']},role.id);assert.equal((await request(path,v)).status,403);
+ access.saveRole(admin.principal,{name:'Ventas',permissions,branches:['0101']},role.id);
+ await request(path+'/sharing',a,'PUT',{targets:[]});assert.equal((await request(path,v)).status,404);
+ await request(path+'/sharing',a,'PUT',{targets:[{kind:'user',target:viewer.id}]});assert.equal((await request(path,v)).status,200);
+});

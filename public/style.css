@@ -53,3 +53,5 @@ button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible
 @media print{body.printing-dashboard .printing-report button.comparison-line,body.printing-dashboard .printing-report button.summary-bar{display:grid!important;cursor:default}}
 
 .saved-dashboard-dialog{width:min(720px,92vw);max-height:85vh;overflow:auto;border:1px solid #cbd5e1;border-radius:18px;padding:24px}.saved-dashboard-dialog::backdrop{background:#0f172a80}.saved-dashboard-dialog label{display:grid;gap:8px}.saved-dashboard-dialog input,.saved-dashboard-dialog select{min-height:44px;max-width:100%}
+
+.share-recipient{display:flex!important;align-items:center;gap:10px;padding:8px}.share-recipient input{min-height:auto}.saved-dashboard-dialog fieldset{margin:16px 0;border:1px solid #cbd5e1;border-radius:10px}
