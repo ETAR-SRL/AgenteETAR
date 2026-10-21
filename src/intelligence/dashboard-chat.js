@@ -6,6 +6,16 @@ const fingerprint=r=>JSON.stringify(r&&{branch:r.branch,resource:r.resource,filt
 function command(text){
  const s=text.trim().replace(/^(?:(?:che|por favor|porfa|ahora|perfecto|bueno)[, ]+|(?:quiero|necesito|podes|podés)\s+)+/i,'');
  if(/^(?:mostrame|mostrar|ver|lista|listar)\s+(?:mis |los )?dashboards(?: guardados| compartidos)?[?!.]*$/i.test(s))return {action:'list'};
+ const revoke=/^(?:dej[aá](?:r)? de compartir|no (?:lo )?compartas(?: m[aá]s)?|quit[aá](?:le|les|r)? (?:el )?acceso|sac[aá](?:le|les|r)? (?:el )?acceso|revoc[aá](?:r)? (?:el )?acceso)(?=\s|$)\s*(.*)$/i.exec(s);
+ if(revoke){
+  const parts=(' '+revoke[1]).split(/\s+(?:con|a|al)\s+/i);
+  let reference=clean(parts[0]),recipientText=parts.slice(1).join(' con ');
+  if(/^(?:quit|sac|revoc)/i.test(s)){
+   const m=/^(.+?)\s+(?:en|del|de este|de ese)\s+(?:el )?(?:dashboard|informe|reporte)?\s*(.*)$/i.exec(recipientText);
+   if(m){recipientText=m[1];reference=m[2];}
+  }
+  return {action:'unshare',reference:clean(reference.replace(/^(?:el |mi |este |ese )?(?:dashboard|informe|reporte)(?: guardado)?\s*/i,'')),recipientText};
+ }
  let m=/^(?:guard[aá](?:me|lo)?|guardar|salv[aá](?:me|lo)?)(?=\s|$)\s*(.*)$/i.exec(s);
  if(m&&(/dashboard|informe|reporte|resumen|grafico|gráfico|como|nombre/i.test(m[1])||!m[1]||/^(?:esto|este|ese)$/i.test(m[1])))return {action:'save',name:clean(((/\b(?:como|con (?:el )?nombre)\s+(.+)$/i.exec(m[1])||[])[1]||'').replace(/\s+(?:con )?fechas (?:fijas|exactas)$/i,'')),fixed:/fechas (?:fijas|exactas)/i.test(m[1])};
  if(/^abr[ií]lo[.!]?$/i.test(s))return {action:'open',reference:''};
@@ -62,14 +72,14 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
    const reference=norm(draft.reference),contextual=!reference||/^(?:este|ese|esto|el mismo|lo)$/.test(reference);
    if(contextual&&conversation.dashboardFocus&&conversation.dashboardFocus.fingerprint===fingerprint(conversation.reportContext))draft.dashboardId=conversation.dashboardFocus.id;
    else{
-    let rows=available();if(draft.action==='share')rows=rows.filter(r=>r.owned);
+    let rows=available();if(['share','unshare'].includes(draft.action))rows=rows.filter(r=>r.owned);
     if(!contextual){const exact=rows.filter(r=>norm(r.name)===reference);rows=exact.length?exact:rows.filter(r=>norm(r.name).includes(reference));}
     if(contextual&&conversation.reportContext){
      const same=rows.filter(r=>{const opened=dashboards.open(p,r.id),current=conversation.reportContext;return opened.dashboard.resource===current.resource&&opened.dashboard.filters.sucursal===current.branch&&Object.entries(opened.dashboard.filters).every(([k,v])=>k==='sucursal'||current.filters[k]===v);});if(same.length)rows=same;
     }
     if(rows.length===1)draft.dashboardId=rows[0].id;
-    else if(rows.length)return choose('¿Qué dashboard querés '+(draft.action==='share'?'compartir':'abrir')+'?',rows.map(r=>({id:r.id,label:`${r.name} · ${r.owned?'propio':'compartido'} · sucursal ${r.dashboard.filters.sucursal}`})),'dashboard');
-    else{draft.wait='dashboard';return reply('No encontré un dashboard disponible con ese nombre. ¿Cómo se llama el que querés '+(draft.action==='share'?'compartir':'abrir')+'?');}
+    else if(rows.length)return choose('¿Qué dashboard querés '+(draft.action==='share'?'compartir':draft.action==='unshare'?'dejar de compartir':'abrir')+'?',rows.map(r=>({id:r.id,label:`${r.name} · ${r.owned?'propio':'compartido'} · sucursal ${r.dashboard.filters.sucursal}`})),'dashboard');
+    else{draft.wait='dashboard';return reply('No encontré un dashboard disponible con ese nombre. ¿Cómo se llama el que querés '+(draft.action==='share'?'compartir':draft.action==='unshare'?'dejar de compartir':'abrir')+'?');}
    }
   }
   if(draft.action==='open'){
@@ -79,16 +89,23 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
    conversation.dashboardFocus={id:saved.id,fingerprint:fingerprint(conversation.reportContext)};delete conversation.dashboardDraft;
    return {...report,selectedBranch:savedBranch,answer:`**${saved.name}** · datos actualizados\n\n${report.answer}`};
   }
-  const options=dashboards.sharing(p,draft.dashboardId); // Reauthorize ownership before looking up any recipient.
+  const revoking=draft.action==='unshare';
+  const assigned=revoking?dashboards.revocation(p,draft.dashboardId).assigned:null;
+  const options=revoking?{users:assigned.filter(t=>t.kind==='user').map(t=>({id:t.target,name:t.name})),roles:assigned.filter(t=>t.kind==='role').map(t=>({id:t.target,name:t.name})),selected:assigned.map(({kind,target})=>({kind,target}))}:dashboards.sharing(p,draft.dashboardId); // Reauthorize ownership before looking up any recipient.
+  if(revoking&&!assigned.length){delete conversation.dashboardDraft;return reply('Este dashboard ya no está compartido con ningún usuario ni rol. No cambié nada.');}
   draft.parts ||= recipientParts(draft.recipientText);
-  if(!draft.parts.length&&!draft.targets.length){draft.wait='recipients';return reply('¿Con qué usuario o rol querés compartirlo? Podés decirme varios nombres.');}
+  if(!draft.parts.length&&!draft.targets.length){draft.wait='recipients';return reply(revoking?'¿Con qué usuario o rol querés dejar de compartirlo? Podés decirme varios nombres.':'¿Con qué usuario o rol querés compartirlo? Podés decirme varios nombres.');}
   while(draft.parts.length){
    const part=draft.parts[0],pool=[...options.users.map(r=>({...r,kind:'user'})),...options.roles.map(r=>({...r,kind:'role'}))].filter(r=>!part.kind||r.kind===part.kind),q=norm(part.text);
    const aliases=r=>[norm(r.name),norm(r.name.replace(/\s*\([^)]*\)\s*$/,'')),norm(/\(([^)]+)\)$/.exec(r.name)?.[1])];
    const exact=pool.filter(r=>aliases(r).includes(q)),matches=exact.length?exact:pool.filter(r=>aliases(r).some(a=>a.includes(q)));
    if(matches.length===1){draft.targets.push({kind:matches[0].kind,target:matches[0].id});draft.parts.shift();}
    else if(matches.length)return choose(`Encontré varias coincidencias para «${part.text}». ¿Cuál querés?`,matches.map(r=>({label:`${r.kind==='user'?'Usuario':'Rol'}: ${r.name}`,target:{kind:r.kind,target:r.id}})),'recipient');
-   else{draft.wait='recipientCorrection';return reply(`No encontré «${part.text}» entre los usuarios o roles habilitados para este dashboard. Decime el destinatario correcto. Conservé los que ya identifiqué.`);}
+   else{if(revoking){delete conversation.dashboardDraft;return reply(`No encontré una asignación compartida para «${part.text}» en este dashboard. No quité ningún acceso.`);}draft.wait='recipientCorrection';return reply(`No encontré «${part.text}» entre los usuarios o roles habilitados para este dashboard. Decime el destinatario correcto. Conservé los que ya identifiqué.`);}
+  }
+  if(revoking){
+   const targets=[...new Map(draft.targets.map(t=>[t.kind+':'+t.target,t])).values()],names=targets.map(t=>(t.kind==='user'?options.users:options.roles).find(r=>r.id===t.target)?.name||t.target),result=dashboards.unshare(p,draft.dashboardId,{targets});delete conversation.dashboardDraft;
+   return reply(result.removed?`Dejé de compartir el dashboard con **${names.join(', ')}**. Conservé las asignaciones de los demás.${targets.some(t=>t.kind==='user')&&options.roles.length?' Si esa persona también recibe acceso por un rol que sigue compartido, conservará ese acceso.':''}`:'Esas asignaciones ya se habían quitado. Conservé las de los demás.');
   }
   const targets=[...new Map([...options.selected,...draft.targets].map(t=>[t.kind+':'+t.target,t])).values()];
   dashboards.share(p,draft.dashboardId,{targets});const names=draft.targets.map(t=>(t.kind==='user'?options.users:options.roles).find(r=>r.id===t.target)?.name).filter(Boolean);delete conversation.dashboardDraft;

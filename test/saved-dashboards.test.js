@@ -61,4 +61,14 @@ test('HTTP sharing directory excludes denied users/roles, rechecks actual permis
  access.saveRole(admin.principal,{name:'Ventas',permissions,branches:['0101']},role.id);
  await request(path+'/sharing',a,'PUT',{targets:[]});assert.equal((await request(path,v)).status,404);
  await request(path+'/sharing',a,'PUT',{targets:[{kind:'user',target:viewer.id}]});assert.equal((await request(path,v)).status,200);
+ await request(path+'/sharing',a,'PUT',{targets:[{kind:'user',target:viewer.id},{kind:'role',target:role.id}]});
+ assert.equal((await request(path+'/unshare',v,'POST',{targets:[{kind:'role',target:role.id}]})).status,404);
+ assert.equal((await request(path+'/unshare',a,'POST',{targets:[]})).status,400);
+ let removed=await request(path+'/unshare',a,'POST',{targets:[{kind:'role',target:role.id}]});assert.equal(removed.status,200);assert.equal((await removed.json()).removed,1);assert.equal((await request(path,v)).status,200,'direct user assignment remains after role removal');
+ removed=await request(path+'/unshare',a,'POST',{targets:[{kind:'role',target:role.id}]});assert.equal((await removed.json()).removed,0);
+ // Disabled users remain resolvable for revocation, without adding them to the eligible directory.
+ await access.saveUser(admin.principal,{username:'viewer',name:'Viewer',roleId:role.id,active:false},viewer.id);
+ const chat=await request('/api/agent/chat',a,'POST',{text:'Dejá de compartir el dashboard Ventas mensuales con usuario viewer',context:{sucursal:'0101'}});assert.equal(chat.status,200);assert.match((await chat.json()).answer,/Dejé de compartir/);
+ assert.deepEqual((await(await request(path+'/sharing',a)).json()).selected,[]);
+
 });

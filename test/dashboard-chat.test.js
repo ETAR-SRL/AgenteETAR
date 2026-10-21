@@ -6,9 +6,10 @@ import {createDashboardChat} from '../src/intelligence/dashboard-chat.js';
 function setup(t){
  const store=new Store(':memory:');t.after(()=>store.close());let p={userId:'owner',roleId:'admin',actor:'owner',allowed:true};const authorize=(p,r,b)=>{if(!p.allowed||b!=='0101'){const e=new Error('Esto no podés leerlo.');e.status=403;e.code='LECTURA_DENEGADA';throw e;}};
  const options={users:[{id:'ana',name:'Ana Pérez (ana.perez)'},{id:'ana2',name:'Ana Ruiz (ana.ruiz)'},{id:'luis',name:'Luis (luis)'}],roles:[{id:'ventas',name:'Ventas'},{id:'ambos',name:'Ventas y Compras'}]};
- const dashboards=savedDashboards(store,{authorize,recipients:()=>options}),conversation={messages:[],reportContext:{branch:'0101',resource:'resumenVentas',filters:{desde:'2026-10-01',hasta:'2026-10-21',agrupar:'mes',producto:'Z1'}}};let reads=0;
+ const names=new Map([...options.users.map(r=>['user:'+r.id,r.name]),...options.roles.map(r=>['role:'+r.id,r.name])]);
+ const dashboards=savedDashboards(store,{authorize,recipients:()=>options,assignedNames:targets=>targets.map(t=>({...t,name:names.get(t.kind+':'+t.target)||t.target}))}),conversation={messages:[],reportContext:{branch:'0101',resource:'resumenVentas',filters:{desde:'2026-10-01',hasta:'2026-10-21',agrupar:'mes',producto:'Z1'}}};let reads=0;
  const chat=createDashboardChat({dashboards,principal:()=>p,clock:()=>new Date('2026-10-21T12:00:00Z'),authorizeRead:r=>authorize(p,r,'0101'),read:async()=>({data:[{codigo:'Z1'}]}),executeRead:async({resource,filters})=>{reads++;authorize(p,resource,filters.sucursal);return {kind:'dashboard',verifiedSummary:'Lectura '+reads,data:[],meta:{recurso:resource},scope:{sucursal:filters.sucursal,desde:filters.desde,hasta:filters.hasta,agrupar:filters.agrupar,filtros:{producto:filters.producto}}};}});
- return {dashboards,conversation,ask:text=>chat({text,conversation,branch:'0101'}),setPrincipal:value=>{p=value;},reads:()=>reads};
+ return {dashboards,conversation,options,ask:text=>chat({text,conversation,branch:'0101'}),setPrincipal:value=>{p=value;},reads:()=>reads};
 }
 test('save, named and contextual open consult fresh data without model, preserve filters and rolling periods',async t=>{
  const f=setup(t);assert.match((await f.ask('Che, guardá este dashboard como "Ventas del mes"')).answer,/Guardé/);const saved=f.dashboards.list({userId:'owner',allowed:true})[0];assert.equal(saved.name,'Ventas del mes');assert.equal(saved.period,'este mes');
@@ -51,4 +52,25 @@ test('end-to-end authenticated chat saves, shares and opens through live reads w
  r=await ask(viewer.id,'Abrí el dashboard Ventas del equipo');assert.equal(r.evidence[0].result.data[0].importeNeto,'2');assert.equal(models,0);
  r=await ask(viewer.id,'Compartilo con Ana',r.conversationId);assert.equal(r.evidence.length,0);assert.match(r.answer,/No encontré ese dashboard/);
  access.saveRole(admin.principal,{name:'Ventas restringidas',permissions:['read:catalogo'],branches:['0101']},role.id);r=await ask(viewer.id,'Abrí el dashboard Ventas del equipo');assert.equal(r.evidence.length,0);assert.equal(reads,2);
+});
+
+test('unsharing removes only named users or roles, preserves other grants and explains role access',async t=>{
+ const f=setup(t);await f.ask('guardalo como Ventas');await f.ask('compartilo con ana.perez, ana.ruiz, luis, rol Ventas');const owner={userId:'owner',allowed:true},id=f.dashboards.list(owner)[0].id;
+ let r=await f.ask('dejá de compartir este dashboard con usuario ana.perez');assert.match(r.answer,/Dejé de compartir/);assert.match(r.answer,/rol/);assert.deepEqual(f.dashboards.sharing(owner,id).selected.map(t=>t.target).sort(),['ana2','luis','ventas']);
+ r=await f.ask('quitale el acceso al rol Ventas');assert.match(r.answer,/Dejé de compartir/);assert.deepEqual(f.dashboards.sharing(owner,id).selected.map(t=>t.target).sort(),['ana2','luis']);
+ r=await f.ask('no lo compartas más con luis');assert.match(r.answer,/Luis/);assert.deepEqual(f.dashboards.sharing(owner,id).selected.map(t=>t.target),['ana2']);
+ r=await f.ask('dejá de compartir con luis');assert.match(r.answer,/No encontré una asignación/);assert.equal(f.dashboards.sharing(owner,id).selected.length,1);
+ r=await f.ask('sacale el acceso a ana.ruiz del dashboard Ventas');assert.match(r.answer,/Dejé de compartir/);assert.equal(f.dashboards.sharing(owner,id).selected.length,0);
+});
+test('revocation resolves ambiguity only among assigned recipients and keeps concurrent additions',async t=>{
+ const f=setup(t);await f.ask('guardalo como Ventas');await f.ask('compartilo con ana.perez, ana.ruiz');const owner={userId:'owner',allowed:true},id=f.dashboards.list(owner)[0].id;
+ let r=await f.ask('dejá de compartir con Ana');assert.equal(r.choices.length,2);assert.equal(f.dashboards.sharing(owner,id).selected.length,2);
+ f.dashboards.share(owner,id,{targets:[...f.dashboards.sharing(owner,id).selected,{kind:'user',target:'luis'}]});r=await f.ask('Ana Pérez');assert.match(r.answer,/Dejé de compartir/);assert.deepEqual(f.dashboards.sharing(owner,id).selected.map(t=>t.target).sort(),['ana2','luis']);
+ r=await f.ask('dejá de compartir con ana.ruiz y persona inexistente');assert.match(r.answer,/No quité ningún acceso/);assert.equal(f.dashboards.sharing(owner,id).selected.length,2);
+});
+test('revocation can remove no-longer-eligible recipients, but never bypasses owner or current permissions',async t=>{
+ const f=setup(t);await f.ask('guardalo como Ventas');await f.ask('compartilo con luis, rol Ventas');const owner={userId:'owner',allowed:true},id=f.dashboards.list(owner)[0].id;
+ f.options.users.splice(f.options.users.findIndex(r=>r.id==='luis'),1);let r=await f.ask('dejá de compartir con Luis');assert.match(r.answer,/Dejé de compartir/);assert.deepEqual(f.dashboards.sharing(owner,id).selected.map(t=>t.target),['ventas']);
+ f.setPrincipal({userId:'reader',roleId:'ventas',allowed:true});await assert.rejects(()=>f.ask('quitale el acceso al rol Ventas'),{status:404});
+ f.setPrincipal({userId:'owner',allowed:false});await assert.rejects(()=>f.ask('dejá de compartir con rol Ventas'),{status:403});assert.equal(f.dashboards.sharing(owner,id).selected.length,1);
 });
