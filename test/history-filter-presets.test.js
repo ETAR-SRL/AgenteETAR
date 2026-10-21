@@ -47,6 +47,21 @@ test('ambiguous rename separators cannot silently change the wrong preset',async
 });
 
 function seedHistory(f){f.store.db.prepare('INSERT INTO dashboard_history(dashboard_id,at,body) VALUES(?,?,?)').run(f.saved.id,'2026-10-21T12:00:00Z',JSON.stringify({who:{id:'owner',name:'Dueña'},added:[{kind:'user',target:'ana',name:'Ana Pérez'},{kind:'user',target:'ana2',name:'Ana Ruiz'},{kind:'role',target:'sales',name:'Ventas'}],removed:[]}));}
+test('undo persists, restores exact criteria and relative period in the same preset once, with current permissions',t=>{
+ const f=setup(t);seedHistory(f);const saved=f.d.saveHistoryFilters(f.p,{name:'Control',dashboardId:f.saved.id,filters:{tipo:'quitados',autor:'owner'},period:'este mes'});
+ assert.throws(()=>f.d.undoHistoryFilters(f.p,saved.id),{status:409});f.d.updateHistoryFilters(f.p,saved.id,{filters:{tipo:'agregados',autor:null,desde:'2026-10-10'}});
+ assert.throws(()=>f.d.undoHistoryFilters({...f.p,userId:'other'},saved.id),{status:404});assert.throws(()=>f.d.undoHistoryFilters({...f.p,allowed:false},saved.id),{status:403});assert.throws(()=>f.d.undoHistoryFilters({...f.p,branches:['0201']},saved.id),{status:403});
+ const restarted=savedDashboards(f.store,f.config);assert.equal(restarted.lastHistoryFilterEdit(f.p).id,saved.id);f.d.renameHistoryFilters(f.p,saved.id,{name:'Renombrado'});f.now('2026-11-04T12:00:00Z');const restored=restarted.undoHistoryFilters(f.p,saved.id);assert.equal(restored.id,saved.id);assert.equal(restored.name,'Renombrado');assert.equal(restored.period,'este mes');assert.equal(restored.filters.desde,'2026-11-01');assert.equal(restored.filters.autor,'owner');assert.equal(restored.filters.tipo,'quitados');assert.equal(f.d.listHistoryFilters(f.p).length,1);assert.throws(()=>restarted.undoHistoryFilters(f.p,saved.id),{status:409});
+ f.d.updateHistoryFilters(f.p,saved.id,{filters:{tipo:'agregados'}});f.d.updateHistoryFilters(f.p,saved.id,{filters:{tipo:'sin_cambios'}});assert.equal(f.d.undoHistoryFilters(f.p,saved.id).filters.tipo,'agregados');assert.throws(()=>f.d.undoHistoryFilters(f.p,saved.id),{status:409});
+ f.d.updateHistoryFilters(f.p,saved.id,{filters:{tipo:'quitados'}});f.d.removeHistoryFilters(f.p,saved.id);assert.throws(()=>f.d.undoHistoryFilters(f.p,saved.id),{status:404});
+});
+test('chat undoes the latest personal edit across conversations or a named preset, never another user',async t=>{
+ const f=setup(t);seedHistory(f);const save=name=>f.d.saveHistoryFilters(f.p,{name,dashboardId:f.saved.id,filters:{tipo:'quitados'}}),a=save('Control'),b=save('Otro');
+ await f.chat({messages:[]})('Modificá el filtro Control con solo accesos agregados');await f.chat({messages:[]})('Modificá el filtro Otro con solo accesos sin cambios');
+ let r=await f.chat({messages:[]})('Deshacé la última modificación');assert.match(r.answer,/Deshice/);assert.equal(f.d.getHistoryFilters(f.p,b.id).filters.tipo,'quitados');assert.equal(f.d.getHistoryFilters(f.p,a.id).filters.tipo,'agregados');
+ r=await f.chat({messages:[]})('Revertí el último cambio del filtro Control');assert.match(r.answer,/Deshice/);assert.equal(f.d.getHistoryFilters(f.p,a.id).filters.tipo,'quitados');assert.equal(f.d.listHistoryFilters(f.p).length,2);
+ f.setPrincipal({...f.p,userId:'other'});await assert.rejects(()=>f.chat({messages:[]})('Deshacé la última modificación'),{status:409});
+});
 test('criteria editing updates the same preset only, preserves omitted fields and supports removal and period changes',t=>{
  const f=setup(t);seedHistory(f);const saved=f.d.saveHistoryFilters(f.p,{name:'Control',dashboardId:f.saved.id,filters:{tipo:'quitados',rol:'sales'},period:'este mes'}),before=f.d.listHistoryFilters(f.p).length;
  let updated=f.d.updateHistoryFilters(f.p,saved.id,{filters:{autor:'owner',destinatario:'ana',tipo:'agregados'}});assert.equal(updated.id,saved.id);assert.equal(updated.name,'Control');assert.equal(updated.dashboardId,f.saved.id);assert.equal(updated.filters.rol,'sales');assert.equal(updated.filters.autor,'owner');assert.equal(updated.period,'este mes');assert.equal(f.d.listHistoryFilters(f.p).length,before);

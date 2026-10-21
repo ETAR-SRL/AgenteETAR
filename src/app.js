@@ -198,6 +198,8 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         if(req.method==='PATCH'){const input=await body(req);assert(input&&typeof input==='object'&&!Array.isArray(input),400,'FILTROS_INVALIDOS','Objeto JSON requerido.');return send(res,200,Object.hasOwn(input,'filters')||Object.hasOwn(input,'period')?dashboards.updateHistoryFilters(principal,presetMatch[1],input):dashboards.renameHistoryFilters(principal,presetMatch[1],input));}
         if(req.method==='DELETE')return send(res,200,dashboards.removeHistoryFilters(principal,presetMatch[1]));
       }
+      const undoPreset=/^\/api\/history-filters\/([a-f0-9-]{36})\/undo$/.exec(url.pathname);
+      if(undoPreset&&req.method==='POST')return send(res,200,dashboards.undoHistoryFilters(principal,undoPreset[1]));
       const restorePreset=/^\/api\/history-filters\/([a-f0-9-]{36})\/restore$/.exec(url.pathname);
       if(restorePreset&&req.method==='POST')return send(res,200,dashboards.restoreHistoryFilters(principal,restorePreset[1]));
       const historyMatch=/^\/api\/dashboards\/([a-f0-9-]{36})\/history(\.xlsx)?$/.exec(url.pathname);
