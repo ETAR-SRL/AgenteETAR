@@ -47,8 +47,11 @@ function historyFilterText(text,today){
  const date=value=>{if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value;const [d,m,y]=value.split('/');return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;};
  remaining=remaining.replace(/\b(desde|hasta)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})/gi,(_,k,v)=>{assert(!Object.hasOwn(filters,k.toLowerCase()),400,'FILTRO_DUPLICADO','Indicá una sola fecha '+k+'.');filters[k.toLowerCase()]=date(v);return ' ';});
  remaining=remaining.replace(/\b(este mes|mes pasado|este a[nñ]o|a[nñ]o pasado|hoy|ayer)\b/gi,(_,p)=>{assert(!filters.desde&&!filters.hasta,400,'FECHAS_AMBIGUAS','Usá un período relativo o fechas exactas, sin mezclarlos.');if(/hoy|ayer/i.test(p)){const d=new Date(today+'T12:00:00Z');if(/ayer/i.test(p))d.setUTCDate(d.getUTCDate()-1);filters.desde=filters.hasta=d.toISOString().slice(0,10);}else Object.assign(filters,reportPeriod(norm(p).replace('ano','año'),today));return ' ';});
- remaining=remaining.replace(/(?:\b(?:del?|por|para)\s+(?:el )?)?\b(usuario|rol)\s+(?:"([^"]+)"|«([^»]+)»|(.+?))(?=\s+(?:(?:y )?(?:(?:del?|por|para) (?:el )?)?(?:usuario|rol)\b)|$)/gi,(_,k,q,a,v)=>{assert(!Object.hasOwn(names,k.toLowerCase()),400,'FILTRO_DUPLICADO','Indicá un solo '+k+' para filtrar.');names[k.toLowerCase()]=clean(q||a||v).replace(/\s+y$/i,'');return ' ';});
- assert(!/\b(usuario|rol|desde|hasta|tipo)\b/i.test(remaining),400,'FILTRO_INCOMPLETO','Completá el usuario o rol, o indicá las fechas como DD/MM/AAAA o AAAA-MM-DD. No apliqué un filtro incompleto.');
+ remaining=remaining.replace(/\b(?:realizados|realizadas|hechos|hechas|efectuados|efectuadas)\s+por\s+(?:el usuario )?/gi,'autor ');
+ const keyPattern='autor|usuario(?: destinatario)?|destinatario(?: usuario| rol)?|rol(?: destinatario)?';
+ const subjects=new RegExp('(?:(?:\\by\\s+)?(?:el\\s+)?)?(?:\\b(?:del?|por|para)\\s+(?:el )?)?\\b('+keyPattern+')\\s+(?:"([^\"]+)"|«([^»]+)»|(.+?))(?=\\s+(?:(?:y )?(?:(?:del?|por|para) )?(?:el )?(?:'+keyPattern+')\\b)|$)','gi');
+ remaining=remaining.replace(subjects,(_,k,q,a,v)=>{const key=/autor/i.test(k)?'autor':/rol/i.test(k)?'rol':'destinatario';assert(!Object.hasOwn(names,key),400,'FILTRO_DUPLICADO','Indicá un solo '+key+' para filtrar.');names[key]=clean(q||a||v).replace(/\s+y$/i,'');return ' ';});
+ assert(!/\b(autor|destinatario|usuario|rol|desde|hasta|tipo)\b/i.test(remaining),400,'FILTRO_INCOMPLETO','Completá el autor o destinatario, o indicá las fechas como DD/MM/AAAA o AAAA-MM-DD. No apliqué un filtro incompleto.');
  remaining=remaining.replace(/\s+/g,' ').replace(/(?:\s+|^)(?:y|por|para|del?|el)$/gi,'').trim();
  return {reference:remaining,filters,names};
 }
@@ -68,14 +71,14 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
   const today=clock().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'});
   if(intent?.action==='list'){delete conversation.dashboardDraft;const rows=available();return reply(rows.length?'Estos son tus dashboards disponibles:':'Todavía no tenés dashboards guardados ni compartidos.',rows.map(r=>({label:`${r.name} · ${r.owned?'propio':'compartido'} · ${r.dashboard.filters.sucursal}`,text:`Abrí el dashboard "${r.name}"`})) );}
   // A new command replaces an unfinished one. Plain replies only fill the outstanding slot.
-  if(intent){draft={...intent,branch,targets:[]};if(intent.action==='history'){const parsed=historyFilterText(intent.reference||'',today);draft.reference=parsed.reference;draft.filters={...(intent.inheritFilters||intent.page?conversation.dashboardHistory?.filters:{}),...parsed.filters};draft.filterNames=parsed.names;}conversation.dashboardDraft=draft;}
+  if(intent){draft={...intent,branch,targets:[]};if(intent.action==='history'){const parsed=historyFilterText(intent.reference||'',today);draft.reference=parsed.reference;draft.filters={...(intent.inheritFilters||intent.page?conversation.dashboardHistory?.filters:{}),...parsed.filters};draft.filterNames=parsed.names;if(parsed.names.destinatario)delete draft.filters.usuario;}conversation.dashboardDraft=draft;}
   else if(draft.choices){
    const n=/^(?:opci[oó]n |el |la )?(\d+)[.!]?$/i.exec(text.trim()),q=norm(text).replace(/^(?:el |la )?(?:usuario|rol)[: ]+/,''),matches=draft.choices.filter(c=>norm(c.label).includes(q));
    const selected=n?draft.choices[Number(n[1])-1]:matches.length===1?matches[0]:null;
    if(!selected)return reply('Elegí una de estas opciones para continuar.',draft.choices.map((c,i)=>({label:`${i+1}. ${c.label}`,text:`Opción ${i+1}`})));
    if(draft.wait==='dashboard')draft.dashboardId=selected.id;
    else if(draft.wait==='accessUser')draft.userId=selected.id;
-   else if(draft.wait==='historyUser'||draft.wait==='historyRole'){const key=draft.wait==='historyUser'?'usuario':'rol';draft.filters[key]=selected.id;delete draft.filterNames[key];}
+   else if(['historyUser','historyRole','historyAuthor','historyDestination'].includes(draft.wait)){const key={historyUser:'usuario',historyRole:'rol',historyAuthor:'autor',historyDestination:'destinatario'}[draft.wait];draft.filters[key]=selected.id;delete draft.filterNames[key];}
    else{draft.targets.push(selected.target);draft.parts.shift();}
    delete draft.choices;delete draft.wait;
   }else if(draft.wait==='name'){draft.name=clean(text.replace(/^(?:llam[aá]lo|ponele|que se llame|con (?:el )?nombre)\s+/i,''));delete draft.wait;}
@@ -114,15 +117,15 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
   }
   if(draft.action==='history'){
    const subjects=dashboards.historySubjects(p,draft.dashboardId);
-   for(const key of ['usuario','rol'])if(draft.filterNames?.[key]){const q=norm(draft.filterNames[key]),pool=key==='usuario'?subjects.users:subjects.roles,aliases=r=>[...(r.aliases||[]),r.name].flatMap(n=>[norm(n),norm(n.replace(/\s*\([^)]*\)\s*$/,'')),norm(/\(([^)]+)\)$/.exec(n)?.[1])]),exact=pool.filter(r=>aliases(r).includes(q)),matches=exact.length?exact:pool.filter(r=>aliases(r).some(n=>n.includes(q)));
-    if(matches.length>1)return choose(`¿Qué ${key} querés usar para filtrar el historial?`,matches.map(r=>({id:r.id,label:r.name})),key==='usuario'?'historyUser':'historyRole');
+   for(const key of ['autor','destinatario','usuario','rol'])if(draft.filterNames?.[key]){const q=norm(draft.filterNames[key]),pool=key==='autor'?subjects.authors:key==='destinatario'?subjects.destinations:key==='usuario'?subjects.users:subjects.roles,aliases=r=>[...(r.aliases||[]),r.name].flatMap(n=>[norm(n),norm(n.replace(/\s*\([^)]*\)\s*$/,'')),norm(/\(([^)]+)\)$/.exec(n)?.[1])]),exact=pool.filter(r=>aliases(r).includes(q)),matches=exact.length?exact:pool.filter(r=>aliases(r).some(n=>n.includes(q)));
+    if(matches.length>1)return choose(`¿Qué ${key} querés usar para filtrar el historial?`,matches.map(r=>({id:r.id,label:r.name})),{autor:'historyAuthor',destinatario:'historyDestination',usuario:'historyUser',rol:'historyRole'}[key]);
     if(!matches.length){delete conversation.dashboardDraft;return reply(`No encontré «${draft.filterNames[key]}» entre las identidades registradas en el historial de este dashboard. No apliqué otro filtro en su lugar.`);}
     draft.filters[key]=matches[0].id;delete draft.filterNames[key];
    }
    const report=dashboards.history(p,draft.dashboardId,{page:draft.page||1,filters:draft.filters||{}}),format=ts=>new Date(ts).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires',dateStyle:'short',timeStyle:'medium'}),label=t=>`${t.kind==='user'?'usuario':'rol'} ${t.name}`;
    const lines=report.data.map(e=>e.legacy?`• ${format(e.at)} · auditoría anterior (${e.event==='dashboard.sharing.updated'?'cambio de destinatarios':'solicitud de revocación'}). Autor: ${e.who.name}${e.who.currentName?' (nombre actual; no conservado en el evento)':''}. Sin detalle histórico verificable de los destinatarios ni del resultado.`:`• ${format(e.at)} · **${e.who.name}**: ${[e.added.length?'compartió con '+e.added.map(label).join(', '):'',e.removed.length?'quitó acceso a '+e.removed.map(label).join(', '):''].filter(Boolean).join('; ')||'sin cambios en los accesos'}.`);
    conversation.dashboardFocus={id:report.id,fingerprint:fingerprint(conversation.reportContext)};conversation.dashboardHistory={id:report.id,page:report.page,branch,filters:report.filters};delete conversation.dashboardDraft;
-   const filterLabel=Object.entries(report.filters||{}).map(([k,v])=>`${k}: ${k==='usuario'?subjects.users.find(r=>r.id===v)?.name||v:k==='rol'?subjects.roles.find(r=>r.id===v)?.name||v:k==='tipo'?v==='sin_cambios'?'sin cambios':'accesos '+v:v}`).join(' · ');
+   const filterLabel=Object.entries(report.filters||{}).map(([k,v])=>`${k==='destinatario'?'usuario destinatario':k==='rol'?'rol destinatario':k==='usuario'?'usuario (autor o destinatario)':k}: ${k==='autor'?subjects.authors.find(r=>r.id===v)?.name||v:k==='destinatario'?subjects.destinations.find(r=>r.id===v)?.name||v:k==='usuario'?subjects.users.find(r=>r.id===v)?.name||v:k==='rol'?subjects.roles.find(r=>r.id===v)?.name||v:k==='tipo'?v==='sin_cambios'?'sin cambios':'accesos '+v:v}`).join(' · ');
    return {...reply(`**Historial de ${report.name}**${filterLabel?' · '+filterLabel:''}\n\n${lines.join('\n')||(Object.keys(report.filters||{}).length?'No hay eventos que coincidan con estos filtros.':'No hay cambios de acceso registrados para este dashboard.')}\n\nPágina ${report.page} · ${report.total} evento(s). Horarios de Argentina.\n\n${report.limitations.join(' ')}`,report.hasMore?[{label:'Ver más historial',text:'Mostrame más historial de este dashboard'}]:undefined),historyExport:{id:report.id,filters:report.filters||{}}};
   }
   if(draft.action==='inspect'){

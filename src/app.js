@@ -190,7 +190,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       }
       const historyMatch=/^\/api\/dashboards\/([a-f0-9-]{36})\/history(\.xlsx)?$/.exec(url.pathname);
       if(historyMatch&&req.method==='GET'){
-        assert([...url.searchParams.keys()].every(k=>['page','usuario','rol','desde','hasta','tipo'].includes(k)&&url.searchParams.getAll(k).length===1),400,'FILTROS_INVALIDOS','Filtros inválidos o repetidos.');
+        assert([...url.searchParams.keys()].every(k=>['page','usuario','autor','destinatario','rol','desde','hasta','tipo'].includes(k)&&url.searchParams.getAll(k).length===1),400,'FILTROS_INVALIDOS','Filtros inválidos o repetidos.');
         const filters=Object.fromEntries([...url.searchParams].filter(([k])=>k!=='page'));
         if(historyMatch[2]){assert(!url.searchParams.has('page'),400,'PAGINACION_INVALIDA','El Excel incluye todo el filtro.');const buffer=await historyExcel({dashboards,principal,id:historyMatch[1],filters});principalNow();res.writeHead(200,{'content-type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','content-disposition':'attachment; filename="historial-dashboard.xlsx"','cache-control':'no-store','x-content-type-options':'nosniff'});res.end(buffer);return;}
         return send(res,200,dashboards.history(principal,historyMatch[1],{page:Number(url.searchParams.get('page')||'1'),filters}));
