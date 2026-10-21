@@ -1,6 +1,7 @@
 {
   "schema": "dbo",
   "tables": {
+    "SE2": "dbo.SE2010",
     "SE1": "dbo.SE1010",
     "SM2": "dbo.SM2010",
     "SX7": "dbo.SX7010",
@@ -45,6 +46,7 @@
     "SAI": "dbo.SAI010"
   },
   "branches": {
+    "SE2": {"0101": "0101"},
     "SE1": {"0101": "0101"},
     "SM2": {"0101": ""},
     "SF1": {"0101": "0101"},
@@ -150,6 +152,128 @@
     }
   },
   "entities": {
+    "saldosProveedores": {
+      "alias": "SE2",
+      "branch": "E2_FILIAL",
+      "required": [
+        "E2_FORNECE",
+        "E2_LOJA",
+        "E2_TIPO",
+        "E2_MOEDA",
+        "E2_SALDO",
+        "E2_NUM",
+        "E2_PREFIXO",
+        "E2_PARCELA"
+      ],
+      "nonZeroField": "E2_SALDO",
+      "dateField": "E2_VENCTO",
+      "fields": {
+        "E2_FORNECE": "proveedorCodigo",
+        "E2_LOJA": "proveedorTienda",
+        "E2_PREFIXO": "prefijo",
+        "E2_NUM": "numero",
+        "E2_PARCELA": "cuota",
+        "E2_TIPO": "tipoTitulo",
+        "E2_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "E2_VENCTO": {
+          "output": "fechaVencimiento",
+          "type": "date"
+        },
+        "E2_VENCREA": {
+          "output": "fechaVencimientoReal",
+          "type": "date"
+        },
+        "E2_VALOR": {
+          "output": "valorOriginal",
+          "type": "decimal"
+        },
+        "E2_SALDO": {
+          "output": "saldoPendiente",
+          "type": "decimal"
+        },
+        "E2_MOEDA": {
+          "output": "moneda",
+          "currencyParameters": true
+        }
+      },
+      "filters": {
+        "proveedor": "E2_FORNECE",
+        "tienda": "E2_LOJA",
+        "tipo": "E2_TIPO",
+        "moneda": "E2_MOEDA",
+        "numero": "E2_NUM"
+      },
+      "warnings": [
+        "Saldo almacenado SE2 distinto de cero, por tipo y moneda; no equivale al saldo de pedidos.",
+        "No netear anticipos, créditos, impuestos, intereses o compensaciones como deuda.",
+        "Sólo lectura; no reconstruye estados financieros históricos."
+      ]
+    },
+    "recepcionesCompras": {
+      "alias": "SD1",
+      "branch": "D1_FILIAL",
+      "required": [
+        "D1_FORNECE",
+        "D1_LOJA",
+        "D1_DOC",
+        "D1_SERIE",
+        "D1_ITEM",
+        "D1_COD",
+        "D1_UM",
+        "D1_QUANT",
+        "D1_ESPECIE",
+        "D1_TIPO",
+        "D1_EMISSAO"
+      ],
+      "fixedFilters": {
+        "D1_ESPECIE": "NF",
+        "D1_TIPO": "N"
+      },
+      "dateField": "D1_EMISSAO",
+      "fields": {
+        "D1_FORNECE": "proveedorCodigo",
+        "D1_LOJA": "proveedorTienda",
+        "D1_DOC": "numero",
+        "D1_SERIE": "serie",
+        "D1_ITEM": "item",
+        "D1_COD": "productoCodigo",
+        "D1_UM": "unidadMedida",
+        "D1_QUANT": {
+          "output": "cantidadRegistrada",
+          "type": "decimal"
+        },
+        "D1_LOCAL": "deposito",
+        "D1_ESPECIE": "especie",
+        "D1_TIPO": "tipoEntrada",
+        "D1_TIPODOC": "tipoDocumento",
+        "D1_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "D1_DTDIGIT": {
+          "output": "fechaRegistro",
+          "type": "date"
+        },
+        "D1_PEDIDO": "pedidoCompra",
+        "D1_ITEMPC": "itemPedidoCompra"
+      },
+      "filters": {
+        "proveedor": "D1_FORNECE",
+        "tienda": "D1_LOJA",
+        "producto": "D1_COD",
+        "numero": "D1_DOC",
+        "pedido": "D1_PEDIDO"
+      },
+      "warnings": [
+        "Entradas documentales SD1 NF/N verificadas en esta base; excluye NCC y NDP.",
+        "No confirma recepción física ni es un remito proveedor independiente. No suma órdenes, facturas y recepciones entre sí.",
+        "El pedido y su ítem se muestran sólo cuando el documento guarda D1_PEDIDO/D1_ITEMPC; no se infieren."
+      ]
+    },
+
     "saldosClientes": {
       "alias": "SE1",
       "branch": "E1_FILIAL",

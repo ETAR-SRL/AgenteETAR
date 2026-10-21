@@ -2,6 +2,8 @@
 
 Repositorio oficial: https://github.com/ETAR-SRL/AgenteETAR · desarrollo exclusivamente en `main`.
 
+Recorrido integral por proveedor: «Analizá el proveedor STILMAR» reúne precios AIA/AIB, compras, pedidos pendientes, entradas documentales SD1 y saldos SE2. Continúa con «sus compras», «sus recepciones» o «sus saldos», conservando proveedor y tienda. Ver [alcance y permisos](docs/proveedor-integral.md).
+
 Recorrido integral por cliente: «Analizá el cliente MILORDI» reúne lista asignada, ventas, pedidos, remitos y títulos financieros SE1. Permite continuar con «sus ventas», «sus remitos» o «sus saldos», conservando cliente y tienda, con permisos por sección. Ver [alcance y permiso financiero](docs/cliente-integral.md).
 
 Recorrido integral de producto: «Analizá el producto Z1304003» reúne listas por millar, clientes vinculados, ventas, últimos comprobantes, costos por depósito y pedidos pendientes. Permite seguir con «sus ventas», «y los costos» o «mostrame sus pedidos», releyendo datos actuales y permisos sin esperar al modelo. Ver [alcance y ejemplos](docs/producto-integral.md).

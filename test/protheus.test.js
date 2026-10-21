@@ -12,7 +12,7 @@ function fakeCatalog({branches=true}={}) {
   const c=new Catalog({},cfg);
   for (const e of Object.values(cfg.entities)) c.tables.set(e.alias,{
     schema:'dbo',name:`${e.alias}010`,
-    columns:new Map(['R_E_C_N_O_','D_E_L_E_T_',e.branch,...Object.keys(e.fields)].map(f=>[f,{type:e.fields[f]?.type==='decimal'?'decimal':'varchar'}]))
+    columns:new Map([...(c.tables.get(e.alias)?.columns||[]),...['R_E_C_N_O_','D_E_L_E_T_',e.branch,...Object.keys(e.fields)].map(f=>[f,{type:e.fields[f]?.type==='decimal'?'decimal':'varchar'}])])
   });
   return c;
 }
@@ -35,6 +35,10 @@ test('SQL values are bound, deletion and stable recno ordering are enforced',()=
 });
 test('customer financial balances bind customer/store and preserve SE1 identity, nonzero filter, filial and decimals',()=>{
  const c=fakeCatalog(),entity=config.entities.saldosClientes;const bad="'; DROP TABLE SE1010;--",q=buildQuery(c,entity,new URLSearchParams({sucursal:'0101',cliente:bad,tienda:'01'}));assert.match(q.text,/\[E1_SALDO\] <> 0/);assert.match(q.text,/\[E1_CLIENTE\] = @f/);assert.match(q.text,/\[E1_LOJA\] = @f/);assert.equal(q.bindings.branch,'01');assert.ok(Object.values(q.bindings).includes(bad));assert.ok(!q.text.includes(bad));assert.match(q.text,/CONVERT\(varchar\(80\),\[E1_SALDO\]/);assert.match(q.text,/\[D_E_L_E_T_\] = ' '/);c.table('SE1').columns.delete('E1_SALDO');assert.throws(()=>buildQuery(c,entity,new URLSearchParams({sucursal:'0101'})),/Falta|Saldo financiero/);
+});
+test('supplier balances and receipts bind supplier/store and exclude deleted, zero, credit and debit entry rows',()=>{
+ const c=fakeCatalog(),bad="'; DROP TABLE SD1010;--";const bal=buildQuery(c,config.entities.saldosProveedores,new URLSearchParams({sucursal:'0101',proveedor:bad,tienda:'01'}));assert.match(bal.text,/\[E2_SALDO\] <> 0/);assert.match(bal.text,/\[E2_FORNECE\] = @f/);assert.match(bal.text,/\[E2_LOJA\] = @f/);assert.ok(Object.values(bal.bindings).includes(bad));assert.ok(!bal.text.includes(bad));assert.equal(bal.bindings.branch,'01');
+ const receipt=buildQuery(c,config.entities.recepcionesCompras,new URLSearchParams({sucursal:'0101',proveedor:bad,tienda:'01',pedido:'000123',orden:'reciente'}));assert.match(receipt.text,/\[D1_ESPECIE\]=@fixed/);assert.match(receipt.text,/\[D1_TIPO\]=@fixed/);assert.ok(Object.values(receipt.bindings).includes('NF'));assert.ok(Object.values(receipt.bindings).includes('N'));assert.ok(Object.values(receipt.bindings).includes('000123'));assert.ok(!receipt.text.includes(bad));assert.match(receipt.text,/\[D_E_L_E_T_\] = ' '/);assert.ok(!receipt.text.includes('D1_TOTAL'));assert.match(receipt.text,/\[D1_PEDIDO\]/);assert.throws(()=>buildQuery(c,config.entities.recepcionesCompras,new URLSearchParams({sucursal:'0101',especie:'NCC'})),/inválido/);c.table('SD1').columns.delete('D1_TIPO');assert.throws(()=>buildQuery(c,config.entities.recepcionesCompras,new URLSearchParams({sucursal:'0101'})),/Falta/);
 });
 
 test('name search binds each term, escapes wildcards and stays within branch/deletion scope',()=>{

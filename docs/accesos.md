@@ -184,3 +184,6 @@ El [recorrido integral de producto](producto-integral.md) reutiliza permisos por
 
 
 El [recorrido integral por cliente](cliente-integral.md) autoriza cada sección por los dominios existentes y conserva cliente+tienda+sucursal. Nuevo recurso `saldosClientes` (SE1): requiere `read:finanzasClientes` y `read:clientes`. Es de sólo lectura y no se concede automáticamente a roles comerciales existentes. Una denegación no adjunta saldos ni los envía al modelo. SE1 usa filial explícita, filtros parametrizados de cliente/tienda/tipo/moneda y saldo distinto de cero; no confundirlo con saldos de cantidad SC6/SD2. El contexto no concede permisos ni reutiliza importes previos.
+
+
+El [recorrido integral por proveedor](proveedor-integral.md) mantiene proveedor+tienda+sucursal y autoriza cada fuente por separado. `saldosProveedores` (SE2) exige `read:finanzasProveedores` y `read:proveedores`, sin concederlo automáticamente a roles existentes. `recepcionesCompras` (entradas documentales SD1 NF/N, sin importes) exige `read:compras`, `read:proveedores` y `read:catalogo`; excluye NC/ND mediante condiciones SQL fijas, parametrizadas e inalterables desde la consulta. Las lecturas no habilitan pagos, altas, cambios ni confirmación de recepción física. Un rechazo no adjunta datos de esa sección; cada seguimiento relee identidad y permisos.

@@ -36,6 +36,8 @@ export function loadConfig(path = process.env.CONFIG_PATH || 'config/mapping.jso
     for (const field of Object.values(e.filters || {})) identifier(field);
     for (const field of e.required || []) identifier(field);
     if (e.dateField) identifier(e.dateField);
+    if(e.nonZeroField)identifier(e.nonZeroField);
+    for(const [field,value]of Object.entries(e.fixedFilters||{})){identifier(field);if(typeof value!=='string'||!value||value.length>256)throw new Error('Condición fija inválida');}
     if (e.pending) {
       identifier(e.pending.ordered); identifier(e.pending.applied);
       if (names.has('saldoTecnico')) throw new Error('Salida saldoTecnico reservada');
