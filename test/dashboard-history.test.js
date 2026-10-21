@@ -23,3 +23,24 @@ test('chat resolves dashboard context, ambiguous names and more history locally,
  r=await ask('¿Quién quitó accesos de este dashboard?');assert.match(r.answer,/Historial/);
  d.save(p,input);r=await ask('mostrame el historial del dashboard Ventas');assert.equal(r.choices.length,2);r=await ask('Opción 1');assert.match(r.answer,/Historial/);
 });
+
+test('history filters match actor or recipient and role by identity, inclusive Argentina dates and all pages',t=>{
+ const {d,p,store}=fixture(t),saved=d.save(p,input);d.share(p,saved.id,{targets:[{kind:'user',target:'u'}]});d.share(p,saved.id,{targets:[{kind:'user',target:'u'},{kind:'role',target:'r'}]});d.unshare(p,saved.id,{targets:[{kind:'role',target:'r'}]});
+ assert.equal(d.history(p,saved.id,{filters:{usuario:'u'}}).total,1);assert.equal(d.history(p,saved.id,{filters:{usuario:'owner'}}).total,3);assert.equal(d.history(p,saved.id,{filters:{rol:'r'}}).total,2);assert.equal(d.history(p,saved.id,{filters:{usuario:'u',rol:'r'}}).total,0);
+ assert.equal(d.history(p,saved.id,{filters:{desde:'2026-10-21',hasta:'2026-10-21'}}).total,3);assert.equal(d.history(p,saved.id,{filters:{hasta:'2026-10-20'}}).total,0);
+ for(const f of [{desde:'2026-02-30'},{desde:'2026-10-22',hasta:'2026-10-21'},{sql:'x'},{usuario:{id:'u'}}])assert.throws(()=>d.history(p,saved.id,{filters:f}));
+ store.db.prepare('UPDATE dashboard_history SET at=? WHERE seq=(SELECT min(seq) FROM dashboard_history)').run('2026-10-21T02:59:59.999Z');assert.equal(d.history(p,saved.id,{filters:{hasta:'2026-10-20'}}).total,1);assert.equal(d.history(p,saved.id,{filters:{desde:'2026-10-21'}}).total,2);
+});
+test('chat preserves combined filters across pagination and Excel requests, resolves identities and dates',async t=>{
+ const {d,p}=fixture(t),saved=d.save(p,input);for(let i=0;i<30;i++){d.share(p,saved.id,{targets:[{kind:'user',target:'u'}]});d.unshare(p,saved.id,{targets:[{kind:'user',target:'u'}]});}
+ const conversation={messages:[]},chat=createDashboardChat({dashboards:d,principal:()=>p,clock:()=>new Date('2026-10-21T12:00:00Z')}),ask=text=>chat({text,conversation,branch:'0101'});
+ let r=await ask('Mostrame el historial del dashboard Ventas del usuario Ana desde 21/10/2026 hasta 21/10/2026');assert.equal(r.historyExport.filters.usuario,'u');assert.equal(r.historyExport.filters.desde,'2026-10-21');assert.match(r.answer,/60 evento/);
+ r=await ask('Mostrame más historial de este dashboard');assert.match(r.answer,/Página 2/);assert.equal(r.historyExport.filters.usuario,'u');r=await ask('descargalo en Excel');assert.equal(r.historyExport.filters.hasta,'2026-10-21');assert.equal(r.historyExport.filters.usuario,'u');
+ await assert.rejects(()=>ask('filtralo desde 2026/10/01'),{status:400});
+ r=await ask('Exportá el historial del dashboard Ventas este mes en Excel');assert.equal(r.historyExport.filters.desde,'2026-10-01');assert.equal(r.historyExport.filters.usuario,undefined);
+});
+test('Excel is a real workbook, contains all filtered pages and treats untrusted names as literal text',async t=>{
+ const {historyExcel}=await import('../src/history-excel.js'),{default:ExcelJS}=await import('exceljs');const {d,p,names}=fixture(t),saved=d.save(p,input);names.set('u','=HYPERLINK("https://example.com")');for(let i=0;i<30;i++){d.share(p,saved.id,{targets:[{kind:'user',target:'u'}]});d.unshare(p,saved.id,{targets:[{kind:'user',target:'u'}]});}
+ const buffer=await historyExcel({dashboards:d,principal:p,id:saved.id,filters:{usuario:'u'}}),workbook=new ExcelJS.Workbook();await workbook.xlsx.load(buffer);const sheet=workbook.getWorksheet('Historial');assert.equal(sheet.rowCount,67);assert.equal(sheet.getCell('E8').value,'=HYPERLINK("https://example.com")');assert.equal(sheet.getCell('E8').formula,undefined);assert.match(sheet.getCell('B3').value,/usuario/);assert.equal(workbook.worksheets.length,2);assert.equal(sheet.views[0].ySplit,7);
+ await assert.rejects(()=>historyExcel({dashboards:d,principal:{...p,userId:'other'},id:saved.id,filters:{}}),{status:404});
+});

@@ -187,6 +187,7 @@ function renderAnswer(where,response){
   if(response.batch)renderImportBatch(where,response.batch,{api,capabilities});
   if(response.proposal)renderProposal(where,response.proposal);
   if(response.comparison)where.append(comparisonChart(response.comparison));
+  if(response.historyExport){const target=response.historyExport,button=node('button','secondary','Descargar historial en Excel');button.onclick=async()=>{button.disabled=true;try{const query=new URLSearchParams(target.filters||{}),r=await fetch('/api/dashboards/'+encodeURIComponent(target.id)+'/history.xlsx?'+query,{credentials:'same-origin',cache:'no-store'});if(!r.ok){const problem=await r.json();throw new Error(problem.error?.message||'No se pudo descargar el historial.');}const url=URL.createObjectURL(await r.blob()),a=document.createElement('a');a.href=url;a.download='historial-dashboard.xlsx';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(error){notice(error.message);}finally{button.disabled=false;}};card.append(button);}
   if(response.choices?.length){const choices=node('div','choice-list');for(const choice of response.choices){const button=node('button','secondary',choice.label);button.type='button';button.onclick=()=>query(choice.text);choices.append(button);}card.append(choices);}
   for(const evidence of response.evidence||[]){
     const result=evidence.result,heading=evidence.id+' · '+(evidence.action==='precio_venta'?(result.kind==='prices'?'Precios de lista verificados':'Consulta de precios'):labels[evidence.args.recurso]||evidence.action);

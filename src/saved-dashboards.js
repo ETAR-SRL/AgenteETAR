@@ -1,3 +1,4 @@
+import {historyFilters,historyWhere} from './history-filters.js';
 import {randomUUID} from 'node:crypto';
 import {assert} from './errors.js';
 import {dashboardInput} from './intelligence/report-input.js';
@@ -29,13 +30,19 @@ export function savedDashboards(store,{authorize,clock=()=>new Date(),recipients
   save(p,input){const user=owner(p),value=validate(p,input);assert(store.db.prepare('SELECT count(*) n FROM saved_dashboards WHERE owner=?').get(user).n<100,400,'LIMITE_DASHBOARDS','Podés guardar hasta 100 dashboards.');const id=randomUUID();store.db.prepare('INSERT INTO saved_dashboards VALUES(?,?,?,?,?)').run(id,user,value.name,JSON.stringify(value),clock().toISOString());return {id,...value};},
   list(p){const user=owner(p);return store.db.prepare(`SELECT id FROM saved_dashboards d WHERE owner=? OR EXISTS(SELECT 1 FROM dashboard_shares s WHERE s.dashboard_id=d.id AND ((s.kind='user' AND s.target=?) OR (s.kind='role' AND s.target=?))) ORDER BY created DESC`).all(user,user,p.roleId||'').flatMap(r=>{try{return [get(p,r.id)];}catch(e){if(e.status===403||e.statusCode===403||e.code==='LECTURA_DENEGADA')return [];throw e;}});},
   sharing,
-  history(p,id,{page=1}={}){
+  history(p,id,{page=1,filters={}}={}){
    const value=get(p,id,true);assert(Number.isInteger(page)&&page>=1&&page<=100000,400,'PAGINACION_INVALIDA','Página de historial inválida.');
    const combined=`SELECT seq AS seq,audit_id AS ord,at,0 AS legacy,body,NULL AS actor,NULL AS event FROM dashboard_history WHERE dashboard_id=? UNION ALL SELECT a.id AS seq,a.id AS ord,a.at,1 AS legacy,NULL AS body,a.actor,a.event FROM audit a LEFT JOIN dashboard_history h ON h.audit_id=a.id WHERE h.seq IS NULL AND ((a.event='dashboard.sharing.updated' AND a.reference=?) OR (a.event='dashboard.sharing.revoked' AND CASE WHEN json_valid(a.reference) THEN json_extract(a.reference,'$.dashboard') END=?))`;
-   const args=[id,id,id],total=store.db.prepare('SELECT count(*) n FROM ('+combined+')').get(...args).n,limit=25;
-   const rows=store.db.prepare('SELECT * FROM ('+combined+') ORDER BY at DESC,ord DESC LIMIT ? OFFSET ?').all(...args,limit+1,(page-1)*limit);
+   filters=historyFilters(filters);const where=historyWhere(filters),filtered='SELECT * FROM ('+combined+')'+where.sql;
+   const args=[id,id,id,...where.args],total=store.db.prepare('SELECT count(*) n FROM ('+filtered+')').get(...args).n,limit=25;
+   const rows=store.db.prepare('SELECT * FROM ('+filtered+') ORDER BY at DESC,ord DESC LIMIT ? OFFSET ?').all(...args,limit+1,(page-1)*limit);
    const events=rows.slice(0,limit).map(r=>r.legacy?{key:'audit:'+r.seq,at:r.at,legacy:true,who:legacyActor(r.actor),event:r.event}:{key:'history:'+r.seq,at:r.at,legacy:false,...JSON.parse(r.body)});
-   return {id,name:value.name,page,hasMore:rows.length>limit,total,data:events,limitations:['El detalle exacto de destinatarios se registra desde esta versión. Los eventos anteriores se muestran como auditoría incompleta; no acreditan quién recibió o perdió acceso.','Los nombres de los eventos nuevos son los registrados al ejecutar el cambio; no se reemplazan por nombres actuales.','No reconstruye cambios de rol, pertenencia o permisos generales: registra asignaciones de este dashboard.']};
+   return {id,name:value.name,page,filters,hasMore:rows.length>limit,total,data:events,limitations:['El detalle exacto de destinatarios se registra desde esta versión. Los eventos anteriores se muestran como auditoría incompleta; no acreditan quién recibió o perdió acceso.','Los nombres de los eventos nuevos son los registrados al ejecutar el cambio; no se reemplazan por nombres actuales.','No reconstruye cambios de rol, pertenencia o permisos generales: registra asignaciones de este dashboard.']};
+  },
+  historySubjects(p,id){get(p,id,true);const users=new Map(),roles=new Map();const add=(map,id,name)=>{if(!id)return;const old=map.get(id);map.set(id,{id,name,aliases:[...new Set([...(old?.aliases||[]),name])]});};
+   for(const row of store.db.prepare('SELECT body FROM dashboard_history WHERE dashboard_id=? ORDER BY seq').all(id)){const e=JSON.parse(row.body);add(users,e.who.id,e.who.name);for(const t of [...e.added,...e.removed])add(t.kind==='user'?users:roles,t.target,t.name);}
+   for(const row of store.db.prepare("SELECT actor FROM audit WHERE (event='dashboard.sharing.updated' AND reference=?) OR (event='dashboard.sharing.revoked' AND CASE WHEN json_valid(reference) THEN json_extract(reference,'$.dashboard') END=?)").all(id,id)){const who=legacyActor(row.actor),uid=/^user:([^:]+)/.exec(row.actor)?.[1];if(uid)add(users,uid,who.name);}
+   return {users:[...users.values()],roles:[...roles.values()]};
   },
   inspect(p,id){const value=get(p,id,true),targets=store.db.prepare('SELECT kind,target FROM dashboard_shares WHERE dashboard_id=? ORDER BY kind,target').all(id);return {id,name:value.name,branch:value.dashboard.filters.sucursal,...accessReport({resource:value.dashboard.resource,branch:value.dashboard.filters.sucursal,targets,ownerId:p.userId})};},
   revocation(p,id){get(p,id,true);return {assigned:assignedNames(store.db.prepare('SELECT kind,target FROM dashboard_shares WHERE dashboard_id=? ORDER BY kind,target').all(id))};},
