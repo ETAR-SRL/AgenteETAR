@@ -6,6 +6,7 @@ const passwordOptions={N:32768,r:8,p:3,maxmem:64*1024*1024};
 export const denied='Esto no podés leerlo.';
 export const domains={finanzasProveedores:'Saldos financieros de proveedores',finanzasClientes:'Saldos financieros de clientes',catalogo:'Productos, estructuras y catálogos',clientes:'Clientes y sus datos',proveedores:'Proveedores y sus datos',costos:'Costos y valuación de existencias',preciosVenta:'Precios de venta y listas',preciosCompra:'Precios de compra y listas',ventas:'Pedidos y documentos de venta',compras:'Solicitudes, pedidos y documentos de compra',produccion:'Producción y pendientes de fabricación',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN',aprobaciones:'Circuitos e historial de aprobaciones'};
 export const resourceDomains={
+ atencionVentas:['ventas','clientes','preciosVenta','catalogo'],atencionCompras:['compras','proveedores','preciosCompra','catalogo'],atencionRemitos:['ventas','clientes','preciosVenta','catalogo'],
  liberacionesVentas:['ventas','clientes','preciosVenta','catalogo'],documentosPedidoVenta:['ventas','clientes','preciosVenta','catalogo'],
  saldosProveedores:['finanzasProveedores','proveedores'],recepcionesCompras:['compras','proveedores','catalogo'],
  saldosClientes:['finanzasClientes','clientes'],

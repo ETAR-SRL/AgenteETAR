@@ -101,6 +101,28 @@ export class Changes {
     this.store.audit(actor,'proposal.checked',id);
     return {id,unchanged:true,executionEnabled:false,message:'Comparación vigente; adaptador de escritura todavía no homologado'};
   }
+  async renewAttention(actor,id){
+    const old=this.store.get(id,actor);
+    assert(old&&old.origin?.attention&&['pedidoVenta','pedidoCompra'].includes(old.action)&&old.input,404,'PROPUESTA_NO_EXISTE','No hay una propuesta de pedido del seguimiento para revisar.');
+    assert(old.status!=='superseded',409,'PROPUESTA_REEMPLAZADA','Usá el resumen más reciente.');
+    const receipt=this.store.execution(id,actor);
+    const retryable=r=>!r||r.status==='failed'&&['CONFLICTO_CONCURRENCIA','PROPUESTA_CAMBIO'].includes(r.result?.code);
+    assert(retryable(receipt),409,'EJECUCION_NO_REPETIBLE','Consultá el resultado anterior; no se repite la operación.');
+    const {row}=await this.current(changePolicies[old.action],old.target),input=structuredClone(old.input);
+    // Keep the target, currency/identity and absolute requested values. Only the
+    // read preconditions are refreshed. The writer verifies all dependencies again.
+    if(input.expectedPrice!==undefined)input.expectedPrice=String(row.precioUnitario);
+    if(input.expectedQuantity!==undefined)input.expectedQuantity=String(row.cantidadPedida);
+    const next=await this.preview(actor,input);
+    this.store.db.exec('BEGIN IMMEDIATE');
+    try{
+      assert(retryable(this.store.execution(id,actor)),409,'EJECUCION_NO_REPETIBLE','La operación anterior cambió de estado. Consultá su resultado.');
+      const current=this.store.get(id,actor);assert(current.status!=='superseded',409,'PROPUESTA_REEMPLAZADA','Usá el resumen más reciente.');
+      this.store.db.prepare('UPDATE proposals SET body=? WHERE id=? AND actor=?').run(JSON.stringify({...current,status:'superseded',replacedBy:next.id}),id,actor);
+      this.store.audit(actor,'attention.proposal.renewed',next.id);this.store.db.exec('COMMIT');
+    }catch(e){this.store.db.exec('ROLLBACK');const saved=this.store.get(next.id,actor);this.store.db.prepare('UPDATE proposals SET body=? WHERE id=? AND actor=?').run(JSON.stringify({...saved,status:'superseded'}),next.id,actor);throw e;}
+    return {proposal:next,reconfirmationRequired:true,message:'Los valores cambiaron. Revisá este resumen actualizado y confirmalo de nuevo. Conservé el valor absoluto propuesto; para recalcular un porcentaje, volvé a pedir el ajuste. No se ejecutó el cambio.'};
+  }
   public(proposal){const {writePlan,input,actor,...visible}=proposal;return visible;}
   status(actor,id){const proposal=this.store.get(id,actor);assert(proposal,404,'PROPUESTA_NO_EXISTE','Propuesta inexistente');return {proposal:this.public(proposal),execution:this.store.execution(id,actor)};}
   async execute(actor,id,confirmation){

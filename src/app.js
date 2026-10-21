@@ -1,3 +1,5 @@
+import {createAttention} from './attention.js';
+import {createAttentionChat} from './intelligence/attention-chat.js';
 import {historyExcel} from './history-excel.js';
 import {dashboardAccess} from './dashboard-access.js';
 import {createDashboardChat} from './intelligence/dashboard-chat.js';
@@ -31,7 +33,7 @@ async function body(req,maxBytes=16384){
   for await(const chunk of req){bytes+=chunk.length;assert(bytes<=maxBytes,413,'CUERPO_GRANDE','Solicitud demasiado grande');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new HttpError(400,'JSON_INVALIDO','JSON inválido');}
 }
-export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,voice=createVoice(),documents=createDocumentReader(),model,modelSettings,network=createNetworkAccess()}){
+export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,attentionOptions={},voice=createVoice(),documents=createDocumentReader(),model,modelSettings,network=createNetworkAccess()}){
   assert(readKey?.length>=32 && planKey?.length>=32 && readKey!==planKey,500,'CLAVES_INVALIDAS','Configurar dos claves distintas de al menos 32 caracteres');
   assert(!writeKey || (writeKey.length>=32 && writeKey!==readKey && writeKey!==planKey),500,'CLAVES_INVALIDAS','La clave de escritura debe ser distinta y de al menos 32 caracteres');
   const access=new Access(store,branches),context=new AsyncLocalStorage();
@@ -117,7 +119,9 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   model=model||aiSettings.model;
   const attachmentChat=createAttachmentChat({imports:priceImports,authorize:authorizeImport,model:model||createModel()});
   const dashboardChat=createDashboardChat({dashboards,principal:principalNow,executeRead,read,authorizeRead:guard});
-  const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,dashboardChat,model,attachmentChat,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
+  const attention=createAttention({store,principal:principalNow,read,kaiqen,users:()=>access.db.prepare('SELECT id FROM access_users WHERE active=1 ORDER BY id').all().map(u=>access.principal(u.id)),runAs:async(id,fn)=>{const p=access.principal(id);if(p)return context.run(p,fn);},...attentionOptions});
+  const attentionChat=createAttentionChat({attention,read,executeRead,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),metadata:()=>erp.metadata(),kaiqen});
+  const intelligence=createIntelligence({attentionChat,erp,kaiqen,store,read,executeRead,branches,dashboardChat,model,attachmentChat,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
   const federated=createFederatedLogin({access,ui});
   const server=http.createServer(async(req,res)=>{
     try{
@@ -228,6 +232,16 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         if(req.method==='GET')return send(res,200,dashboards.open(principal,savedMatch[1]));
         if(req.method==='DELETE')return send(res,200,dashboards.remove(principal,savedMatch[1]));
       }
+      if(url.pathname.startsWith('/api/attention')){
+        assert(principal.userId,403,'USUARIO_REQUERIDO','Ingresá con tu usuario para ver tus avisos.');
+        const branch=url.searchParams.get('sucursal')||principal.branches[0];branchGuard(branch);
+        if(req.method==='GET'&&url.pathname==='/api/attention')return send(res,200,attention.list({branch,following:url.searchParams.get('following')==='true',all:url.searchParams.get('all')==='true'}));
+        if(req.method==='POST'&&url.pathname==='/api/attention/review'){void attention.run();return send(res,202,{queued:true,message:'La revisión sigue en segundo plano.'});}
+        const alert=/^\/api\/attention\/([a-f0-9-]{36})(\/action)?$/.exec(url.pathname);
+        if(alert&&req.method==='GET'&&!alert[2])return send(res,200,{item:attention.get(alert[1])});
+        if(alert&&req.method==='POST'&&alert[2])return send(res,200,await attention.act(alert[1],await body(req)));
+        throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
+      }
       if(req.method==='GET'&&url.pathname==='/api/agent/status')return send(res,200,await intelligence.status());
       if(req.method==='POST'&&url.pathname==='/api/agent/chat')return send(res,200,await intelligence.query(principal.actor,await body(req),{canPlan:['planner','writer'].includes(principal.role),allowedBranches:principal.branches||branches}));
       if(url.pathname==='/api/agent/knowledge'){
@@ -280,6 +294,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere clave de planificación');
         const input=await body(req);assertAction(principal,input.action);return send(res,201,await changes.preview(principal.actor,input));
       }
+      if(req.method==='POST' && (match=/^\/api\/changes\/([a-f0-9-]{36})\/renew-attention$/.exec(url.pathname))){const p=store.get(match[1],principal.actor);assert(p,404,'PROPUESTA_NO_EXISTE','Propuesta inexistente');assertAction(principalNow(),p.action);assert(p.origin?.attention&&['pedidoVenta','pedidoCompra'].includes(p.action),404,'PROPUESTA_NO_EXISTE','No hay una propuesta del seguimiento para revisar.');const item=attention.get(p.origin.attention);assert(item.branch===p.target.sucursal&&item.snapshot.rows?.some(r=>r.registro===p.target.registro)&&((p.action==='pedidoVenta'&&item.kind==='sale')||(p.action==='pedidoCompra'&&item.kind==='purchase')),403,'LECTURA_DENEGADA',denied);return send(res,200,await changes.renewAttention(principal.actor,p.id));}
       if(req.method==='POST' && (match=/^\/api\/changes\/([a-f0-9-]{36})\/check$/.exec(url.pathname))){assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere clave de planificación');return send(res,200,await changes.check(principal.actor,match[1]));}
       if(req.method==='GET' && (match=/^\/api\/changes\/([a-f0-9-]{36})$/.exec(url.pathname))){assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere permiso de planificación');const saved=store.get(match[1],principal.actor);if(saved)assertAction(principal,saved.action);return send(res,200,changes.status(principal.actor,match[1]));}
       if(req.method==='POST' && (match=/^\/api\/changes\/([a-f0-9-]{36})\/execute$/.exec(url.pathname))){assert(principal.role==='writer',403,'ROL_INSUFICIENTE','Se requiere permiso de escritura');return send(res,200,await changes.execute(principal.actor,match[1],await body(req)));}
@@ -291,5 +306,6 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     }
   });
   server.requestTimeout=20_000;server.headersTimeout=10_000;
+  server.attention=attention;
   return server;
 }

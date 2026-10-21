@@ -2,6 +2,8 @@
 
 Repositorio oficial: https://github.com/ETAR-SRL/AgenteETAR · desarrollo exclusivamente en `main`.
 
+**Necesita tu atención** reúne pedidos vencidos, remitos pendientes de facturar y problemas KAIQEN con producto verificado. Permite investigar, seguir, posponer y consultar cambios por chat o voz, con revisión persistente en segundo plano y permisos personales. No modifica automáticamente el ERP. Ver [uso, fuentes y límites](docs/atencion-operativa.md).
+
 Recorrido integral por pedido de venta: «Analizá el pedido de venta 129713» reúne cliente, productos, precios por unidad/millar, cantidades, liberaciones, remitos y facturas. Continúa con «sus precios», «sus liberaciones» o «sus facturas», releyendo datos y permisos. Ver [alcance y vínculos documentales](docs/pedido-venta-integral.md).
 
 Recorrido integral por proveedor: «Analizá el proveedor STILMAR» reúne precios AIA/AIB, compras, pedidos pendientes, entradas documentales SD1 y saldos SE2. Continúa con «sus compras», «sus recepciones» o «sus saldos», conservando proveedor y tienda. Ver [alcance y permisos](docs/proveedor-integral.md).

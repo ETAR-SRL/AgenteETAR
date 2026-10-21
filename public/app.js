@@ -1,3 +1,4 @@
+import {installAttention} from './attention-ui.js';
 import {accessReady,loadAccessPanel} from './access-ui.js';
 import {installPriceImports} from './import-ui.js';
 import {renderImportBatch,formatAnswer} from './import-batch-ui.js';
@@ -6,7 +7,7 @@ const $=s=>document.querySelector(s);
 const labels={liberacionesVentas:'Liberaciones del pedido · SC9',documentosPedidoVenta:'Remitos y facturas del pedido',saldosProveedores:'Saldos financieros de proveedores · SE2',saldosClientes:'Saldos financieros de clientes · SE1',recepcionesCompras:'Entradas registradas de proveedores · SD1',comprobantesVentas:'Ventas facturadas · NF/NC/ND',comprobantesCompras:'Compras facturadas · NF/NC/ND',remitosEmitidos:'Remitos emitidos',remitosPendientes:'Remitos pendientes de facturar',pedidosVentaPendientes:'Pedidos de venta pendientes',pedidosCompraPendientes:'Pedidos de compra pendientes',resumenVentas:'Resumen de ventas facturadas',resumenCompras:'Resumen de compras',resumenRemitosPendientes:'Resumen de remitos pendientes',resumenPedidosVenta:'Resumen de pedidos de venta',resumenPedidosCompra:'Resumen de pedidos de compra',condicionesPago:'Condiciones de pago',depositos:'Depósitos',centrosCosto:'Centros de costo',solicitudesCompra:'Solicitudes de compra',costos:'Costos',compras:'Órdenes de compra',produccion:'Producción',ventas:'Pedidos de venta',itemsVentas:'Ítems de ventas / pendientes',documentosSalida:'Documentos de salida',itemsDocumentosSalida:'Ítems de documentos de salida',remitos:'Remitos',entregas:'Entregas físicas',clientes:'Clientes',proveedores:'Proveedores',productos:'Productos',listasPreciosClientes:'Listas de precios de clientes',preciosClientes:'Precios de clientes · DA1',listasPreciosProveedores:'Listas de precios de proveedores',preciosProveedores:'Precios de proveedores',productoProveedor:'Productos por proveedor',productoCliente:'Productos por cliente',entradasCompras:'Entradas de compras',estructuras:'Estructuras',cotizaciones:'Cotizaciones',itemsCotizaciones:'Ítems de cotizaciones',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN'};
 const fieldLabels={monedaVista:'Moneda',importe:'Importe',fecha:'Fecha',clase:'Tipo',tercero:'Cliente / proveedor',serie:'Serie',item:'Ítem',precioPorMillar:'Precio por millar',cantidadMillares:'Cantidad en millares',registro:'Registro',codigo:'Código',descripcion:'Descripción',sucursal:'Sucursal',producto:'Producto',cliente:'Cliente',proveedor:'Proveedor',nombre:'Nombre',tienda:'Tienda',numero:'Número',lista:'Lista',precio:'Precio',desde:'Desde',hasta:'Hasta',pendiente:'Pendientes',status_name:'Estado registrado',phase_no:'Fase',name:'Nombre',code:'Código',customer:'Cliente',current_phase_name:'Fase actual',planned_start:'Inicio previsto',planned_end:'Fin previsto',actual_start:'Inicio real',actual_end:'Fin real',updated_at:'Actualizado',part_number:'N.º de pieza',part_name:'Pieza',sin_ia_externa:'Restricción IA externa',sin_ia_externa_por_cliente:'Restricción IA del cliente'};
 let capabilities,selectedProject=null,projectOffset=0,projectQuery='',page=1,activeParams=null,activeResource=null,deferredInstall;
-let conversationId=localStorage.getItem('central-conversation-id')||undefined,attachments;
+let conversationId=localStorage.getItem('central-conversation-id')||undefined,attachments,attention;
 const node=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
 function notice(text){$('#notice').textContent=text;$('#notice').classList.toggle('hidden',!text);}
 function busy(where,text='Consultando la fuente…'){where.replaceChildren(node('div','loading',text));}
@@ -160,19 +161,20 @@ function renderQuality(where,envelope,append=false){
 }
 function switchView(view){
   if(view==='access')loadAccessPanel();
+  if(view==='attention')attention?.load();
   document.querySelectorAll('.view').forEach(el=>el.classList.toggle('hidden',el.id!==view));document.querySelectorAll('.nav').forEach(el=>{el.classList.toggle('active',el.dataset.view===view);el.setAttribute('aria-current',el.dataset.view===view?'page':'false');});
-  $('#page-name').textContent={assistant:'Asistente',explorer:'Explorar ERP',projects:'Proyectos y calidad',sources:'Conexiones',access:'Usuarios y roles'}[view];
+  $('#page-name').textContent={attention:'Necesita tu atención',assistant:'Asistente',explorer:'Explorar ERP',projects:'Proyectos y calidad',sources:'Conexiones',access:'Usuarios y roles'}[view];
   if(view==='projects'&&!$('#project-list').children.length)loadProjects();if(view==='sources')renderSources();
 }
 document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>switchView(el.dataset.view));
-async function query(text,dashboard){
+async function query(text,dashboard,extraContext={}){
   if(!text.trim()||$('#send').disabled)return;
   if(attachments?.busy){notice('Esperá a que termine la lectura del archivo.');return;}
   if(attachments?.id)document.dispatchEvent(new CustomEvent('attachment-revised',{detail:attachments.id}));
   attachments?.setChatBusy(true);
   switchView('assistant');const conversation=$('#conversation'),q=node('div','question');q.append(node('span','',text));conversation.append(q);const result=node('div');conversation.append(result);busy(result);
   $('#send').disabled=true;$('#new-chat').disabled=true;const started=Date.now();const timer=setInterval(()=>{const loading=result.querySelector('.loading');if(loading)loading.textContent=`Interpretando y consultando las fuentes · ${Math.round((Date.now()-started)/1000)} s`;},1000);
-  try{const response=await api('/api/agent/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,conversationId,...(dashboard?{dashboard}:{}),attachmentId:dashboard?undefined:attachments?.id,topic:$('#topic').value,context:{sucursal:$('#branch').value,...(selectedProject?{proyecto:selectedProject.id}:{})}})});
+  try{const response=await api('/api/agent/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,conversationId,...(dashboard?{dashboard}:{}),attachmentId:dashboard?undefined:attachments?.id,topic:$('#topic').value,context:{sucursal:$('#branch').value,...extraContext,...(selectedProject?{proyecto:selectedProject.id}:{})}})});
     if(response.selectedBranch)$('#branch').value=response.selectedBranch;
     attachments?.receive(response.attachment);
     conversationId=response.conversationId;localStorage.setItem('central-conversation-id',conversationId);renderAnswer(result,response);
@@ -180,10 +182,13 @@ async function query(text,dashboard){
   }catch(error){if(error.code==='CONVERSACION_NO_EXISTE'){conversationId=undefined;localStorage.removeItem('central-conversation-id');}showError(result,error);}finally{attachments?.setChatBusy(false);clearInterval(timer);$('#send').disabled=false;$('#new-chat').disabled=false;result.scrollIntoView({behavior:'smooth',block:'nearest'});}
 }
 function renderAnswer(where,response){
-  const metadata=response.attachment?`${response.attachment.name} · ${response.batch?'Comparación con registros de Protheus':'Lectura local del adjunto'}`:`${response.model||'Modelo local'} · ${response.evidence?.length||0} fuentes consultadas en este turno`;
+  const metadata=response.attention?'Lectura estructurada · fuente y última verificación en cada tarjeta':response.attachment?`${response.attachment.name} · ${response.batch?'Comparación con registros de Protheus':'Lectura local del adjunto'}`:`${response.model||'Modelo local'} · ${response.evidence?.length||0} fuentes consultadas en este turno`;
   const card=node('article','answer-card');card.append(node('div','eyebrow',response.local===false?'CENTRAL · IA EXTERNA':'CENTRAL · ASISTENTE'),formatAnswer(response.answer),node('div','result-meta',metadata));where.replaceChildren(card);
   if(response.learnedExpressions?.length)card.append(node('p','result-meta','Usé tus expresiones aprendidas: '+response.learnedExpressions.join(', ')+'.'));
   if(response.learningNotice)card.append(node('p','learning-notice',response.learningNotice));
+  if(response.attention)attention?.render(where,response.attention);
+  if(response.investigation)attention?.renderInvestigation(where,response.investigation);
+  if(response.attentionChanges)attention?.renderChanges(where,response.attentionChanges);
   if(response.batch)renderImportBatch(where,response.batch,{api,capabilities});
   if(response.proposal)renderProposal(where,response.proposal);
   if(response.comparison)where.append(comparisonChart(response.comparison));
@@ -192,6 +197,8 @@ function renderAnswer(where,response){
   for(const evidence of response.evidence||[]){
     const result=evidence.result,heading=evidence.id+' · '+(evidence.action==='precio_venta'?(result.kind==='prices'?'Precios de lista verificados':'Consulta de precios'):labels[evidence.args.recurso]||evidence.action);
     const details=node('details','evidence');details.append(node('summary','',heading));
+    if(response.investigation&&result.kind==='dashboard'){renderDashboard(details,result,result.title||heading,{append:true});where.append(details);continue;}
+    if(response.investigation&&result.kind==='commercial'){renderDocuments(details,result,labels[evidence.args.recurso]||'Documentos vinculados');where.append(details);continue;}
     if(result.kind==='dashboard'){renderDashboard(where,result,result.title||heading,{append:true,comparison:!response.comparison});continue;}
     if(result.kind==='commercial'){const detail=node('section');where.append(detail);renderDocuments(detail,result,labels[evidence.args.recurso]||'Documentos del importe');continue;}
     if(result.kind==='prices'){renderResult(where,{...result,data:result.data.map(r=>({producto:r.productoCodigo,descripcion:r.productoNombre,lista:r.listaCodigo,clienteLista:r.listaNombre,moneda:r.moneda,precioPorUnidad:r.precio,precioPorMillar:r.precioPorMillar,unidad:r.unidadMedida,elegibilidad:r.elegibilidad}))},heading,{append:true});continue;}
@@ -309,10 +316,12 @@ const canExecuteAction=action=>capabilities?.canExecute&&(capabilities.user?.adm
 async function start(){
   try{const user=await accessReady();if(localStorage.getItem('central-access-actor')!==user.actor){conversationId=undefined;for(const key of Object.keys(localStorage))if(key.startsWith('central-'))localStorage.removeItem(key);localStorage.setItem('central-access-actor',user.actor);}await session();capabilities=await api('/api/capabilities');if(capabilities.user?.admin)loadAiSettings();renderAutomationStatus(capabilities.approvalAutomation);$('#automation-refresh').disabled=!capabilities.canExecute;$('#connection').textContent=capabilities.mode==='live'?'Servicio real':'Modo DEMO';$('#connection').classList.toggle('warn',capabilities.mode!=='live');
     capabilities.branches.forEach(v=>{const o=node('option','',v);o.value=v;$('#branch').append(o);});
-    const resources=Object.keys(capabilities.erp.entities||{});for(const key of [...resources,...(resources.includes('documentosSalida')&&!resources.includes('remitosEmitidos')?['remitos']:[]),...(resources.includes('ventas')?['entregas']:[])]){const o=node('option','',labels[key]||key);o.value=key;$('#resource').append(o);}$('#resource').value=resources.includes('costos')?'costos':resources[0]||'';if(resources.length)buildFilters();
+    const resources=Object.keys(capabilities.erp.entities||{}).filter(k=>!capabilities.erp.entities[k].operational);for(const key of [...resources,...(resources.includes('documentosSalida')&&!resources.includes('remitosEmitidos')?['remitos']:[]),...(resources.includes('ventas')?['entregas']:[])]){const o=node('option','',labels[key]||key);o.value=key;$('#resource').append(o);}$('#resource').value=resources.includes('costos')?'costos':resources[0]||'';if(resources.length)buildFilters();
     $('#voice-status').textContent=capabilities.voice.available?'Dictado en español · transcripción local · hasta 45 segundos':'Transcripción local no instalada. Las consultas por texto están disponibles.';
     api('/api/agent/status').then(status=>{if(status.languageLearningVersion)languageButton.classList.remove('hidden');if(status.priceContextVersion<3||!status.priceContextVersion)notice('Está activo el servicio anterior. Reiniciá Central para aplicar las correcciones del chat y del contexto de precios.');$('#ai-status').textContent=status.available?(status.local===false?'IA externa configurada · ':'IA local activa · ')+status.model:'Motor de IA no disponible';}).catch(()=>{$('#ai-status').textContent='No se pudo verificar el modelo';});
     if(conversationId){try{const history=await api('/api/agent/conversations/'+conversationId);const conversation=$('#conversation');for(const message of history.messages){if(message.role==='user'){const q=node('div','question');q.append(node('span','',message.content));conversation.append(q);}else{let saved;try{saved=JSON.parse(message.content);}catch{continue;}const a=node('article','answer-card');a.append(node('div','result-meta','Conversación anterior · valores históricos, consultá nuevamente para actualizarlos'),formatAnswer(saved.answer));conversation.append(a);}}}catch{conversationId=undefined;localStorage.removeItem('central-conversation-id');}}
+    attention=installAttention({api,branch:()=>$('#branch').value,switchView,notice,revision:capabilities.user?.revision,canPrepare:kind=>Boolean(capabilities.proposalActions?.[kind==='sale'?'pedidoVenta':kind==='purchase'?'pedidoCompra':'']),ask:(text,id,targetBranch)=>{if(targetBranch)$('#branch').value=targetBranch;return query(text,undefined,{attentionId:id});}});void attention.load();
+    $('#branch').addEventListener('change',()=>attention?.load());
     attachments=installPriceImports({api,capabilities});
     $('#branch').addEventListener('change',()=>attachments?.clear());
     await restoreProposal();
@@ -368,8 +377,8 @@ function renderProposal(where,proposal,{append=true}={}){
   execute.onclick=async()=>{
     if(terminal||!check.checked)return;terminal=true;execute.disabled=true;check.disabled=true;busy(result,'Actualizando y verificando el registro…');
     localStorage.setItem('central-last-proposal',proposal.id);
-    try{status(await api('/api/changes/'+proposal.id+'/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,fingerprint:proposal.fingerprint})},false));}
-    catch(e){showError(result,e);result.append(node('p','','Consultá el estado con el botón de esta tarjeta. No se reenvía automáticamente el UPDATE.'));}
+    try{if(proposal.origin?.attention)await api('/api/changes/'+proposal.id+'/check',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},false);status(await api('/api/changes/'+proposal.id+'/execute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true,fingerprint:proposal.fingerprint})},false));}
+    catch(e){if(proposal.origin?.attention&&['CONFLICTO_CONCURRENCIA','PROPUESTA_CAMBIO'].includes(e.code)){try{const renewed=await api('/api/changes/'+proposal.id+'/renew-attention',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'},false);result.replaceChildren(node('p','notice',renewed.message));renderProposal(result,renewed.proposal,{append:true});return;}catch(error){showError(result,error);return;}}showError(result,e);result.append(node('p','','Consultá el estado con el botón de esta tarjeta. No se reenvía automáticamente el UPDATE.'));}
   };
   if(append)where.append(card);else where.replaceChildren(card);
   return {status};

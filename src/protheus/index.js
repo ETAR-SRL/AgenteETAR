@@ -1,3 +1,4 @@
+import {AttentionReader,attentionResources} from './attention.js';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { connect } from './database.js';
@@ -16,12 +17,13 @@ export async function createErp({ env = process.env, configPath } = {}) {
     await catalog.init();
     const service = new Service(db, catalog, config);
     const commercial = new Commercial(db,catalog);
+    const attention=new AttentionReader(db,catalog);
     let writeDbPromise;
     const writes=createWriter({db,catalog,enabled:env.ERP_WRITE_ENABLED==='true',allowedBranches:(env.ERP_BRANCHES||'0101').split(','),triggerHashes:config.writeTriggerHashes||{},getWriteDb:()=>writeDbPromise??=connect(env,{writable:true}).catch(error=>{writeDbPromise=undefined;throw error;})});
     return {
       writes,
-      list: (name, params) => Object.hasOwn(commercialResources,name)?commercial.list(name,params):service.list(name, params),
-      metadata: () => {const meta=service.metadata();return {...meta,entities:{...meta.entities,...commercial.metadata()}};},
+      list: (name, params) => Object.hasOwn(attentionResources,name)?attention.list(name,params):Object.hasOwn(commercialResources,name)?commercial.list(name,params):service.list(name, params),
+      metadata: () => {const meta=service.metadata();return {...meta,entities:{...meta.entities,...commercial.metadata(),...attention.metadata()}};},
       close: async()=>{await db.close();if(writeDbPromise)await (await writeDbPromise).close();}
     };
   } catch (error) {
