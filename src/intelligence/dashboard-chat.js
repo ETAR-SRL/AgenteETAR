@@ -6,6 +6,11 @@ const reply=(answer,choices)=>({answer,evidence:[],trace:[],...(choices?.length?
 const fingerprint=r=>JSON.stringify(r&&{branch:r.branch,resource:r.resource,filters:r.filters});
 function command(text){
  const s=text.trim().replace(/^[¿¡]/,'').replace(/[?!.]+$/,'').replace(/^(?:(?:che|por favor|porfa|ahora|perfecto|bueno)[, ]+|(?:quiero|necesito|podes|podés)\s+)+/i,'');
+ if(/^(?:deshac[eé]|deshacer|revert[ií]) (?:la )?(?:eliminaci[oó]n|borrado)(?: de (?:mis |los )?filtros)?$/i.test(s))return {action:'presetRestore'};
+ const renamePreset=/^(?:renombr[aá](?:me|r)?|cambi[aá](?:me|r)? (?:el )?nombre (?:de|a)) (?:el |los |mis |mi )?filtros?(?: guardados)?(?: del? historial)?\s*(.*)$/i.exec(s);
+ if(renamePreset){const ambiguousSyntax=!/^["«]/.test(renamePreset[1].trim())&&(renamePreset[1].match(/\s+(?:a|como|por)\s+/gi)||[]).length>1;const m=/^(?:"([^"\n]+)"|«([^»]+)»|(.+?))\s+(?:a|como|por)\s+(.+)$/i.exec(renamePreset[1]);return {action:'presetRename',ambiguousSyntax,name:clean(m?m[1]||m[2]||m[3]:renamePreset[1]),newName:m?clean(m[4]):''};}
+ const deletePreset=/^(?:elimin[aá](?:me|r)?|borr[aá](?:me|r)?|quit[aá](?:me|r)?) (?:el |los |mis |mi )?filtros?(?: guardados)?(?: del? historial)?\s*(.*)$/i.exec(s);
+ if(deletePreset)return {action:'presetRemove',name:clean(deletePreset[1])};
  if(/^(?:mostrame|mostrar|ver|lista|listar) (?:mis |los )?filtros(?: guardados)?(?: de historial)?$/i.test(s))return {action:'presetList'};
  const contextualPreset=/^guard[aá]los(?: como (.*))?$/i.exec(s);if(contextualPreset)return {action:'presetSave',name:clean((contextualPreset[1]||'').replace(/\s+(?:con )?fechas (?:fijas|exactas)$/i,'')),fixed:/fechas (?:fijas|exactas)/i.test(s)};
  let presetMatch=/^(?:guard[aá](?:me|lo|los)?|guardar) (?:estos |los |mis )?filtros(?: del? historial)?(?: como | con (?:el )?nombre )?(.*)$/i.exec(s);
@@ -75,6 +80,7 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
   const p=principal();
   const available=()=>dashboards.list(p);
   const today=clock().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'});
+  if(intent?.action==='presetRestore'){const previous=conversation.removedHistoryFilter;if(!previous){delete conversation.dashboardDraft;return reply('No hay una eliminación de filtros para deshacer en esta conversación.');}const result=dashboards.restoreHistoryFilters(p,previous.id);delete conversation.removedHistoryFilter;delete conversation.dashboardDraft;return reply(`Restauré tus filtros **${result.name}**.`);}
   if(intent?.action==='presetList'){delete conversation.dashboardDraft;const rows=dashboards.listHistoryFilters(p);return reply(rows.length?'Estos son tus filtros de historial guardados:':'Todavía no guardaste filtros de historial.',rows.map(r=>({label:`${r.name} · ${r.dashboardName} · ${r.period}`,text:`Aplicá los filtros "${r.name}"`})) );}
   if(intent?.action==='list'){delete conversation.dashboardDraft;const rows=available();return reply(rows.length?'Estos son tus dashboards disponibles:':'Todavía no tenés dashboards guardados ni compartidos.',rows.map(r=>({label:`${r.name} · ${r.owned?'propio':'compartido'} · ${r.dashboard.filters.sucursal}`,text:`Abrí el dashboard "${r.name}"`})) );}
   // A new command replaces an unfinished one. Plain replies only fill the outstanding slot.
@@ -92,6 +98,7 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
   }else if(draft.wait==='name'){draft.name=clean(text.replace(/^(?:llam[aá]lo|ponele|que se llame|con (?:el )?nombre)\s+/i,''));delete draft.wait;}
   else if(draft.wait==='recipientCorrection'){draft.parts=[...recipientParts(text),...draft.parts.slice(1)];delete draft.wait;}
   else if(draft.wait==='recipients'){draft.parts=recipientParts(text);delete draft.wait;}
+  else if(draft.wait==='presetNewName'){draft.newName=clean(text);delete draft.wait;}
   else if(draft.wait==='presetName'){draft.name=clean(text);delete draft.wait;}
   else if(draft.wait==='dashboard'){draft.reference=clean(text);delete draft.wait;}
   else if(!intent){delete conversation.dashboardDraft;return null;}
@@ -102,9 +109,13 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
    let period=draft.fixed?'fijo':history.period||'fijo';if(!draft.fixed&&!history.period)for(const name of ['hoy','ayer','este mes','mes pasado','este año','año pasado']){let range;if(['hoy','ayer'].includes(name)){const d=new Date(today+'T12:00:00Z');if(name==='ayer')d.setUTCDate(d.getUTCDate()-1);range={desde:d.toISOString().slice(0,10),hasta:d.toISOString().slice(0,10)};}else range=reportPeriod(name,today);if(history.filters?.desde===range.desde&&history.filters?.hasta===range.hasta){period=name;break;}}
    const saved=dashboards.saveHistoryFilters(p,{name:draft.name,dashboardId:history.id,filters:history.filters||{},period});delete conversation.dashboardDraft;return reply(`Guardé para vos **${saved.name}**, del historial de **${saved.dashboardName}**. Período: ${period==='fijo'?'fechas fijas':period}. Para consultarlo o descargarlo decime «aplicá los filtros ${saved.name}». Se verifican tus permisos cada vez.`);
   }
-  if(draft.action==='presetApply'){
-   if(!draft.presetId){const q=norm(draft.name);let rows=dashboards.listHistoryFilters(p);if(q){const exact=rows.filter(r=>norm(r.name)===q);rows=exact.length?exact:rows.filter(r=>norm(r.name).includes(q));}if(rows.length===1)draft.presetId=rows[0].id;else if(rows.length)return choose('¿Qué filtros guardados querés aplicar?',rows.map(r=>({id:r.id,label:`${r.name} · ${r.dashboardName} · ${r.period}`})),'preset');else{draft.wait='presetName';return reply('No encontré filtros guardados disponibles con ese nombre. ¿Cómo se llaman?');}}
-   const saved=dashboards.getHistoryFilters(p,draft.presetId);draft={action:'history',branch:saved.branch,dashboardId:saved.dashboardId,filters:saved.filters,period:saved.period,filterNames:{}};conversation.dashboardDraft=draft;branch=saved.branch;
+  if(['presetApply','presetRename','presetRemove'].includes(draft.action)){
+   if(draft.action==='presetRename'&&draft.ambiguousSyntax){delete conversation.dashboardDraft;return reply('El nombre anterior y el nuevo pueden interpretarse de varias maneras. Ponelos entre comillas, por ejemplo: renombrá el filtro «Nombre anterior» a «Nombre nuevo». No cambié ningún filtro.');}
+   if(!draft.presetId){const q=norm(draft.name);let rows=dashboards.listHistoryFilters(p);if(q){const exact=rows.filter(r=>norm(r.name)===q);rows=exact.length?exact:rows.filter(r=>norm(r.name).includes(q));}if(rows.length===1)draft.presetId=rows[0].id;else if(rows.length)return choose('¿Qué filtros guardados querés '+(draft.action==='presetRename'?'renombrar':draft.action==='presetRemove'?'eliminar':'aplicar')+'?',rows.map(r=>({id:r.id,label:`${r.name} · ${r.dashboardName} · ${r.period}`})),'preset');else{draft.wait='presetName';return reply('No encontré filtros guardados disponibles con ese nombre. ¿Cómo se llaman?');}}
+   const saved=dashboards.getHistoryFilters(p,draft.presetId);
+   if(draft.action==='presetRename'){if(!draft.newName){draft.wait='presetNewName';return reply(`¿Qué nombre querés ponerle a **${saved.name}**?`);}const renamed=dashboards.renameHistoryFilters(p,draft.presetId,{name:draft.newName});delete conversation.dashboardDraft;return reply(`Renombré tus filtros **${saved.name}** a **${renamed.name}**. Se conservaron los criterios y el dashboard.`);}
+   if(draft.action==='presetRemove'){const removed=dashboards.removeHistoryFilters(p,draft.presetId);conversation.removedHistoryFilter={id:removed.id};delete conversation.dashboardDraft;return reply(`Eliminé tus filtros **${removed.name}**. No cambié el dashboard ni los filtros de otros usuarios. Podés decir «deshacé la eliminación» para recuperarlos.`);}
+   draft={action:'history',branch:saved.branch,dashboardId:saved.dashboardId,filters:saved.filters,period:saved.period,filterNames:{}};conversation.dashboardDraft=draft;branch=saved.branch;
   }
   if(draft.action==='save'){
    if(!draft.report){const r=conversation.reportContext;if(!r||r.branch!==branch){delete conversation.dashboardDraft;return reply('Primero pedime el dashboard que querés guardar, con sus filtros. Después decime «guardalo como…».');}draft.report=structuredClone(r);}

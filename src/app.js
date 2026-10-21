@@ -193,7 +193,13 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         if(req.method==='POST')return send(res,201,dashboards.saveHistoryFilters(principal,await body(req)));
       }
       const presetMatch=/^\/api\/history-filters\/([a-f0-9-]{36})$/.exec(url.pathname);
-      if(presetMatch&&req.method==='GET')return send(res,200,dashboards.getHistoryFilters(principal,presetMatch[1]));
+      if(presetMatch){
+        if(req.method==='GET')return send(res,200,dashboards.getHistoryFilters(principal,presetMatch[1]));
+        if(req.method==='PATCH')return send(res,200,dashboards.renameHistoryFilters(principal,presetMatch[1],await body(req)));
+        if(req.method==='DELETE')return send(res,200,dashboards.removeHistoryFilters(principal,presetMatch[1]));
+      }
+      const restorePreset=/^\/api\/history-filters\/([a-f0-9-]{36})\/restore$/.exec(url.pathname);
+      if(restorePreset&&req.method==='POST')return send(res,200,dashboards.restoreHistoryFilters(principal,restorePreset[1]));
       const historyMatch=/^\/api\/dashboards\/([a-f0-9-]{36})\/history(\.xlsx)?$/.exec(url.pathname);
       if(historyMatch&&req.method==='GET'){
         assert([...url.searchParams.keys()].every(k=>['page','usuario','autor','destinatario','rol','desde','hasta','tipo'].includes(k)&&url.searchParams.getAll(k).length===1),400,'FILTROS_INVALIDOS','Filtros inválidos o repetidos.');

@@ -24,3 +24,24 @@ test('chat saves only the missing name, restores filters in a new conversation a
 test('relative period intent remains monthly on the first day rather than becoming today',async t=>{
  const f=setup(t);f.now('2026-11-01T12:00:00Z');const ask=f.chat({messages:[]});await ask('Historial del dashboard Ventas este mes');await ask('Guardalos como Mes actual');const preset=f.d.listHistoryFilters(f.p)[0];assert.equal(preset.period,'este mes');f.now('2026-11-03T12:00:00Z');assert.equal(f.d.getHistoryFilters(f.p,preset.id).filters.desde,'2026-11-01');assert.equal(f.d.getHistoryFilters(f.p,preset.id).filters.hasta,'2026-11-03');
 });
+
+test('rename preserves criteria and ownership, deletion is private and reversible with current permissions',t=>{
+ const f=setup(t),body={name:'Revisión',dashboardId:f.saved.id,filters:{tipo:'quitados',autor:'owner'},period:'este mes'},one=f.d.saveHistoryFilters(f.p,body),other={...f.p,userId:'other'};
+ assert.throws(()=>f.d.renameHistoryFilters(other,one.id,{name:'No'}),{status:404});assert.throws(()=>f.d.removeHistoryFilters(other,one.id),{status:404});assert.throws(()=>f.d.renameHistoryFilters({...f.p,allowed:false},one.id,{name:'No'}),{status:403});
+ const renamed=f.d.renameHistoryFilters(f.p,one.id,{name:'Control mensual'});assert.equal(renamed.name,'Control mensual');assert.deepEqual(renamed.filters,one.filters);assert.equal(renamed.period,one.period);assert.equal(renamed.dashboardId,one.dashboardId);
+ for(const bad of [{name:''},{name:'x'.repeat(101)},{name:'Nombre',owner:'other'},{name:1}])assert.throws(()=>f.d.renameHistoryFilters(f.p,one.id,bad),{status:400});
+ const removed=f.d.removeHistoryFilters(f.p,one.id);assert.equal(removed.deleted,true);assert.deepEqual(f.d.listHistoryFilters(f.p),[]);assert.throws(()=>f.d.getHistoryFilters(f.p,one.id),{status:404});assert.throws(()=>f.d.renameHistoryFilters(f.p,one.id,{name:'No'}),{status:404});assert.throws(()=>f.d.restoreHistoryFilters(other,one.id),{status:404});assert.throws(()=>f.d.restoreHistoryFilters({...f.p,allowed:false},one.id),{status:403});
+ f.d.restoreHistoryFilters(f.p,one.id);assert.equal(f.d.getHistoryFilters(f.p,one.id).name,'Control mensual');assert.equal(f.d.getHistoryFilters(f.p,one.id).filters.tipo,renamed.filters.tipo);assert.equal(f.d.getHistoryFilters(f.p,one.id).filters.autor,renamed.filters.autor);
+});
+test('chat rename/delete handle missing names and ambiguity, preserve other presets and can undo deletion',async t=>{
+ const f=setup(t),save=name=>f.d.saveHistoryFilters(f.p,{name,dashboardId:f.saved.id,filters:{tipo:'quitados'}});save('Mensual');save('Otro');const ask=f.chat({messages:[]});let r=await ask('Renombrá el filtro Mensual a Control mensual');assert.match(r.answer,/Renombré/);r=await ask('Renombrá mis filtros Control mensual');assert.match(r.answer,/Qué nombre/);r=await ask('Revisión del mes');assert.match(r.answer,/Revisión del mes/);assert.equal(f.d.listHistoryFilters(f.p).length,2);
+ save('Revisión del mes');r=await ask('Eliminá el filtro Revisión del mes');assert.equal(r.choices.length,2);assert.equal(f.d.listHistoryFilters(f.p).length,3);r=await ask('Opción 1');assert.match(r.answer,/Eliminé/);assert.equal(f.d.listHistoryFilters(f.p).length,2);assert.ok(f.d.listHistoryFilters(f.p).some(p=>p.name==='Otro'));r=await ask('Deshacé la eliminación');assert.match(r.answer,/Restauré/);assert.equal(f.d.listHistoryFilters(f.p).length,3);
+ r=await ask('Borrá mis filtros Otro');assert.match(r.answer,/Eliminé/);r=await ask('Aplicá los filtros Otro');assert.equal(r.historyExport,undefined);
+});
+test('migration keeps existing presets available and excludes soft-deleted records after restart',t=>{
+ const f=setup(t);f.store.db.exec('DROP TABLE history_filter_presets;CREATE TABLE history_filter_presets(id TEXT PRIMARY KEY,owner TEXT NOT NULL,dashboard_id TEXT NOT NULL,name TEXT NOT NULL,body TEXT NOT NULL,created TEXT NOT NULL);');const upgraded=savedDashboards(f.store,f.config),saved=upgraded.saveHistoryFilters(f.p,{name:'Migrado',dashboardId:f.saved.id,filters:{tipo:'agregados'}});assert.equal(upgraded.getHistoryFilters(f.p,saved.id).name,'Migrado');upgraded.removeHistoryFilters(f.p,saved.id);assert.deepEqual(savedDashboards(f.store,f.config).listHistoryFilters(f.p),[]);
+});
+
+test('ambiguous rename separators cannot silently change the wrong preset',async t=>{
+ const f=setup(t),preset=f.d.saveHistoryFilters(f.p,{name:'Accesos a clientes',dashboardId:f.saved.id,filters:{}}),ask=f.chat({messages:[]});let r=await ask('Renombrá el filtro Accesos a clientes a Control');assert.match(r.answer,/comillas/);assert.equal(f.d.getHistoryFilters(f.p,preset.id).name,'Accesos a clientes');r=await ask('Renombrá el filtro «Accesos a clientes» a «Control»');assert.match(r.answer,/Renombré/);assert.equal(f.d.getHistoryFilters(f.p,preset.id).name,'Control');
+});
