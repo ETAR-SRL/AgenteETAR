@@ -41,7 +41,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   const dashboards=savedDashboards(store,{authorize:(_p,resource,branch)=>{guard(resource);branchGuard(branch);assert(branches.includes(branch),403,'LECTURA_DENEGADA',denied);},recipients:(resource,branch)=>{
     const eligible=p=>p&&canRead(p,resource)&&p.branches.includes(branch);
     return {users:access.db.prepare('SELECT id,name,username FROM access_users WHERE active=1 ORDER BY name').all().filter(u=>eligible(access.principal(u.id))).map(({id,name,username})=>({id,name:`${name} (${username})`})),roles:access.db.prepare('SELECT id,name,permissions,branches FROM access_roles ORDER BY name').all().filter(r=>eligible({admin:r.id==='admin',permissions:JSON.parse(r.permissions),branches:JSON.parse(r.branches)})).map(({id,name})=>({id,name}))};
-  },accessReport:input=>dashboardAccess(access,input),assignedNames:targets=>targets.map(t=>{const value=t.kind==='user'?access.user(t.target):access.role(t.target);return {...t,name:value?(t.kind==='user'?`${value.name} (${value.username})`:value.name):'Destinatario eliminado · '+t.target};})});
+  },legacyActor:actor=>{const id=/^user:([^:]+)/.exec(actor)?.[1],u=id&&access.user(id);return {name:u?`${u.name} (${u.username})`:id?'Usuario eliminado · '+id:'Identidad de servicio',currentName:!!u};},accessReport:input=>dashboardAccess(access,input),assignedNames:targets=>targets.map(t=>{const value=t.kind==='user'?access.user(t.target):access.role(t.target);return {...t,name:value?(t.kind==='user'?`${value.name} (${value.username})`:value.name):'Destinatario eliminado · '+t.target};})});
   const rawErp=erp,rawKaiqen=kaiqen;
   erp={...rawErp,list:async(resource,params)=>{guard(resource);branchGuard(params.get('sucursal'));const value=await rawErp.list(resource,params);principalNow();return value;}};
   if(rawErp.writes){erp.writes={...rawErp.writes};for(const method of ['prepare','check','execute'])erp.writes[method]=async(...args)=>{
@@ -186,6 +186,11 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       if(url.pathname==='/api/dashboards'){
         if(req.method==='GET')return send(res,200,{data:dashboards.list(principal)});
         if(req.method==='POST')return send(res,201,dashboards.save(principal,await body(req)));
+      }
+      const historyMatch=/^\/api\/dashboards\/([a-f0-9-]{36})\/history$/.exec(url.pathname);
+      if(historyMatch&&req.method==='GET'){
+        assert([...url.searchParams.keys()].every(k=>k==='page')&&url.searchParams.getAll('page').length<=1,400,'PAGINACION_INVALIDA','Usar sólo page en el historial.');
+        return send(res,200,dashboards.history(principal,historyMatch[1],{page:Number(url.searchParams.get('page')||'1')}));
       }
       const inspectMatch=/^\/api\/dashboards\/([a-f0-9-]{36})\/access$/.exec(url.pathname);
       if(inspectMatch&&req.method==='GET')return send(res,200,dashboards.inspect(principal,inspectMatch[1]));

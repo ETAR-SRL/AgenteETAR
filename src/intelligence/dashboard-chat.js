@@ -6,6 +6,9 @@ const fingerprint=r=>JSON.stringify(r&&{branch:r.branch,resource:r.resource,filt
 function command(text){
  const s=text.trim().replace(/^[¿¡]/,'').replace(/[?!.]+$/,'').replace(/^(?:(?:che|por favor|porfa|ahora|perfecto|bueno)[, ]+|(?:quiero|necesito|podes|podés)\s+)+/i,'');
  if(/^(?:mostrame|mostrar|ver|lista|listar)\s+(?:mis |los )?dashboards(?: guardados| compartidos)?[?!.]*$/i.test(s))return {action:'list'};
+ const historyQuery=/^(?:(?:mostrame|mostrar|ver|consultar|decime|dame)\s+)?(?:el )?(?:historial|historia|hist[oó]rico)(?:\s+(?:del|de))?\s*(.*)$/i.exec(s);
+ const historyWho=/^qui[eé]n (?:lo )?(?:comparti[oó]|quit[oó] (?:los )?accesos|revoc[oó] (?:los )?accesos)(?:\s+(?:del|de|al))?\s*(.*)$/i.exec(s);
+ if(historyQuery||historyWho){const reference=(historyQuery||historyWho)[1];return {action:'history',reference:clean(reference.replace(/^(?:el |mi |este |ese )?(?:dashboard|informe|reporte)(?: guardado)?\s*/i,''))};}
  const accessQuery=/^(?:(?:decime|mostrame|quiero saber|saber) )?(?:con qui[eé]n(?:es)? (?:est[aá]|est[aá]s|est[aá]n|estoy|lo tengo|tengo) compartido|con qui[eé]n(?:es)? (?:lo )?compart[ií]|a qui[eé]n(?:es)? (?:le |les )?compart[ií]|qui[eé]n(?:es)? (?:puede|pueden) ver|qui[eé]n(?:es)? (?:tiene|tienen) acceso (?:al|a)|mostrame (?:los )?(?:accesos|destinatarios)(?: de)?|ver (?:los )?accesos(?: de)?)\s*(.*)$/i.exec(s);
  const userAccess=/^(?:(?:decime|mostrame) si )?(?:y )?(?:el usuario |la usuaria )?(.+?)\s+(?:accede|tiene acceso|puede ver)(?:\s+(?:directamente|por un rol|directamente o por un rol))?(?:\s+(?:a|al|en)\s+(.+?))?(?:\s+(?:directamente o por un rol|directamente|por un rol))?$/i.exec(s);
  if(accessQuery||userAccess){const reference=accessQuery?accessQuery[1]:userAccess[2]||'';return {action:'inspect',reference:clean(reference.replace(/^(?:el |mi |este |ese )?(?:dashboard|informe|reporte)(?: guardado)?\s*/i,'')),userQuery:userAccess?clean(userAccess[1]):undefined};}
@@ -42,7 +45,8 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
   let draft=conversation.dashboardDraft;
   if(draft?.branch!==branch){delete conversation.dashboardDraft;draft=null;}
   if(draft&&/^(?:cancel[aá](?:r|lo)?|dej[aá](?:lo)?|olvid[aá](?:lo)?|no gracias)[.!]?$/i.test(text.trim())){delete conversation.dashboardDraft;return reply('Listo, cancelé la gestión del dashboard.');}
-  const intent=command(text);
+  const more=/^(?:mostrame |ver )?m[aá]s historial(?: de este dashboard)?[.!]?$/i.test(text.trim());
+  const intent=more?(conversation.dashboardHistory?.branch===branch&&conversation.dashboardFocus?.id===conversation.dashboardHistory.id?{action:'history',dashboardId:conversation.dashboardHistory.id,page:conversation.dashboardHistory.page+1}:{action:'history',reference:''}):command(text);
   if(!intent&&!draft)return null;
   if(!intent&&draft&&/^(?:mostrame|creame|crea|actualiza|cambia|dashboard|resumen|cuanto|cuál|cual|a que precio)\b/i.test(text.trim())){delete conversation.dashboardDraft;return null;}
   const p=principal();
@@ -76,14 +80,14 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
    const reference=norm(draft.reference),contextual=!reference||/^(?:este|ese|esto|el mismo|lo)$/.test(reference);
    if(contextual&&conversation.dashboardFocus&&conversation.dashboardFocus.fingerprint===fingerprint(conversation.reportContext))draft.dashboardId=conversation.dashboardFocus.id;
    else{
-    let rows=available();if(['share','unshare','inspect'].includes(draft.action))rows=rows.filter(r=>r.owned);
+    let rows=available();if(['share','unshare','inspect','history'].includes(draft.action))rows=rows.filter(r=>r.owned);
     if(!contextual){const exact=rows.filter(r=>norm(r.name)===reference);rows=exact.length?exact:rows.filter(r=>norm(r.name).includes(reference));}
     if(contextual&&conversation.reportContext){
      const same=rows.filter(r=>{const opened=dashboards.open(p,r.id),current=conversation.reportContext;return opened.dashboard.resource===current.resource&&opened.dashboard.filters.sucursal===current.branch&&Object.entries(opened.dashboard.filters).every(([k,v])=>k==='sucursal'||current.filters[k]===v);});if(same.length)rows=same;
     }
     if(rows.length===1)draft.dashboardId=rows[0].id;
-    else if(rows.length)return choose('¿Qué dashboard querés '+(draft.action==='share'?'compartir':draft.action==='unshare'?'dejar de compartir':draft.action==='inspect'?'consultar':'abrir')+'?',rows.map(r=>({id:r.id,label:`${r.name} · ${r.owned?'propio':'compartido'} · sucursal ${r.dashboard.filters.sucursal}`})),'dashboard');
-    else{draft.wait='dashboard';return reply('No encontré un dashboard disponible con ese nombre. ¿Cómo se llama el que querés '+(draft.action==='share'?'compartir':draft.action==='unshare'?'dejar de compartir':draft.action==='inspect'?'consultar':'abrir')+'?');}
+    else if(rows.length)return choose('¿Qué dashboard querés '+(draft.action==='share'?'compartir':draft.action==='unshare'?'dejar de compartir':['inspect','history'].includes(draft.action)?'consultar':'abrir')+'?',rows.map(r=>({id:r.id,label:`${r.name} · ${r.owned?'propio':'compartido'} · sucursal ${r.dashboard.filters.sucursal}`})),'dashboard');
+    else{draft.wait='dashboard';return reply('No encontré un dashboard disponible con ese nombre. ¿Cómo se llama el que querés '+(draft.action==='share'?'compartir':draft.action==='unshare'?'dejar de compartir':['inspect','history'].includes(draft.action)?'consultar':'abrir')+'?');}
    }
   }
   if(draft.action==='open'){
@@ -92,6 +96,12 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
    if(!report.evidence?.some(e=>e.result.kind==='dashboard'))return report;
    conversation.dashboardFocus={id:saved.id,fingerprint:fingerprint(conversation.reportContext)};delete conversation.dashboardDraft;
    return {...report,selectedBranch:savedBranch,answer:`**${saved.name}** · datos actualizados\n\n${report.answer}`};
+  }
+  if(draft.action==='history'){
+   const report=dashboards.history(p,draft.dashboardId,{page:draft.page||1}),format=ts=>new Date(ts).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires',dateStyle:'short',timeStyle:'medium'}),label=t=>`${t.kind==='user'?'usuario':'rol'} ${t.name}`;
+   const lines=report.data.map(e=>e.legacy?`• ${format(e.at)} · auditoría anterior (${e.event==='dashboard.sharing.updated'?'cambio de destinatarios':'solicitud de revocación'}). Autor: ${e.who.name}${e.who.currentName?' (nombre actual; no conservado en el evento)':''}. Sin detalle histórico verificable de los destinatarios ni del resultado.`:`• ${format(e.at)} · **${e.who.name}**: ${[e.added.length?'compartió con '+e.added.map(label).join(', '):'',e.removed.length?'quitó acceso a '+e.removed.map(label).join(', '):''].filter(Boolean).join('; ')||'sin cambios en los accesos'}.`);
+   conversation.dashboardFocus={id:report.id,fingerprint:fingerprint(conversation.reportContext)};conversation.dashboardHistory={id:report.id,page:report.page,branch};delete conversation.dashboardDraft;
+   return reply(`**Historial de ${report.name}**\n\n${lines.join('\n')||'No hay cambios de acceso registrados para este dashboard.'}\n\nPágina ${report.page} · ${report.total} evento(s). Horarios de Argentina.\n\n${report.limitations.join(' ')}`,report.hasMore?[{label:'Ver más historial',text:'Mostrame más historial de este dashboard'}]:undefined);
   }
   if(draft.action==='inspect'){
    const report=dashboards.inspect(p,draft.dashboardId);
