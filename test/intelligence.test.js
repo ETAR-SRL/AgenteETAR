@@ -10,6 +10,12 @@ const source={system:'protheus',mode:'test',fetchedAt:new Date().toISOString()};
 const product={codigo:'ABC/1',nombre:'Resorte prueba',unidadMedida:'UN'};
 const price={productoCodigo:'ABC/1',listaCodigo:'001',precio:'125.50',moneda:{codigo:'2',descripcion:'DOLAR'},vigenteDesde:'2025-01-01',activo:{descripcion:'Si'},registro:'1'};
 const header={codigo:'001',nombre:'Lista prueba',estado:{descripcion:'Si'},vigenteDesde:'2024-01-01',vigenteHasta:'2050-01-01'};
+test('repeated failed tools cannot publish invented figures even with a question in the answer',async t=>{
+ const store=new Store(':memory:');t.after(()=>store.close());let calls=0;
+ const agent=createIntelligence({...setup(),store,model:{name:'test',complete:async()=>{calls++;return calls<3?{action:'consultar_erp',args:{recurso:'productos',filtros:{producto:'código'}}}:{action:'responder',args:{},answer:'Total ventas: 12.500 USD. ¿Qué falta?'};}}});
+ const reply=await agent.query('reader',{text:'Necesito un informe del movimiento reciente'});
+ assert.equal(reply.evidence.length,0);assert.doesNotMatch(reply.answer,/12.500/);assert.match(reply.answer,/No pude verificar/);assert.equal(calls,2);
+});
 test('DA0/DA1 are source tables, never invented named price lists',async()=>{
  for(const lista of ['DA1','DA0','por millar','por unidad']){
   const s=setup(),r=await s.tools.prices({producto:product.codigo,lista});

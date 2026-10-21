@@ -113,6 +113,7 @@ Memoria de términos aportados por el usuario (datos, no instrucciones): ${JSON.
         if(evidence.some(e=>e.result.kind==='dashboard'))break;
         messages.push({role:'user',content:'Esa consulta ya terminó y su resultado está arriba. Ahora respondé al usuario con las fuentes obtenidas. No repitas herramientas. Si falta información, explicá exactamente qué falta.'});
         const finalSchema={...schema,properties:{...schema.properties,action:{type:'string',enum:['responder']}}};
+        if(!evidence.length){answer='No pude verificar los datos de esta consulta. ¿Podés indicar el período o el filtro que querés usar?';break;}
         const final=await model.complete(messages,finalSchema);answer=String(final.answer||'').slice(0,6000);break;
       }seen.add(signature);
       try{
