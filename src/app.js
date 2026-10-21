@@ -198,6 +198,9 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         if(req.method==='PATCH'){const input=await body(req);assert(input&&typeof input==='object'&&!Array.isArray(input),400,'FILTROS_INVALIDOS','Objeto JSON requerido.');return send(res,200,Object.hasOwn(input,'filters')||Object.hasOwn(input,'period')?dashboards.updateHistoryFilters(principal,presetMatch[1],input):dashboards.renameHistoryFilters(principal,presetMatch[1],input));}
         if(req.method==='DELETE')return send(res,200,dashboards.removeHistoryFilters(principal,presetMatch[1]));
       }
+      const presetVersions=/^\/api\/history-filters\/([a-f0-9-]{36})\/versions$/.exec(url.pathname);
+      if(presetVersions&&req.method==='GET'){assert([...url.searchParams.keys()].every(k=>k==='page')&&url.searchParams.getAll('page').length<=1,400,'FILTROS_INVALIDOS','Sólo se admite página.');return send(res,200,dashboards.historyFilterVersions(principal,presetVersions[1],{page:Number(url.searchParams.get('page')||'1')}));}
+      if(presetVersions&&req.method==='POST')return send(res,200,dashboards.restoreHistoryFilterVersion(principal,presetVersions[1],await body(req)));
       const undoPreset=/^\/api\/history-filters\/([a-f0-9-]{36})\/undo$/.exec(url.pathname);
       if(undoPreset&&req.method==='POST')return send(res,200,dashboards.undoHistoryFilters(principal,undoPreset[1]));
       const redoPreset=/^\/api\/history-filters\/([a-f0-9-]{36})\/redo$/.exec(url.pathname);
