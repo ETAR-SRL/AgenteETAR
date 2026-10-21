@@ -207,6 +207,7 @@
       "filters": {
         "codigo": "A1_COD",
         "tienda": "A1_LOJA",
+        "lista": "A1_TABELA",
         "cuit": "A1_CGC",
         "provincia": "A1_EST"
       }

@@ -159,3 +159,7 @@ test('read timeout keeps the selected product for a direct retry',async t=>{
  const failed=await f.query('necesito saber el precio',first.conversationId);assert.match(failed.answer,/Conservé el producto/);
  const retry=await f.query('necesito saber el precio',first.conversationId);assert.ok(retry.evidence.some(e=>e.action==='precio_venta'));assert.equal(f.modelCalls,0);
 });
+
+ test('integral product route bypasses model and persists only own branch context across direct followups',async t=>{
+ const f=fixture(t);let r=await f.query('Analizá el producto Z100');assert.match(r.answer,/Precios de lista/);assert.ok(r.evidence.some(e=>e.args.recurso==='costos'));const id=r.conversationId;r=await f.query('y los costos',id);assert.match(r.answer,/Costos y existencias/);assert.equal(f.modelCalls,0);assert.equal(f.prepared.length,0);await assert.rejects(()=>f.query('y los costos',id,'0101','user:b'),{status:404});const calls=f.calls.length;f.denied='costos';r=await f.query('y los costos',id);assert.match(r.answer,/Esto no podés leerlo/);assert.ok(!r.evidence.some(e=>e.args.recurso==='costos'));
+});
