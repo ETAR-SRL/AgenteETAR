@@ -26,6 +26,9 @@ export async function accessReady(){
  $('#login-password').autocomplete=state.setupRequired?'new-password':'current-password';
  $('#login-password').minLength=state.setupRequired?12:1;
  $('#login-dialog').showModal();
+ if(new URLSearchParams(location.search).get('login')==='failed'){$('#login-error').textContent='No se pudo completar el acceso corporativo. Verificá que tu cuenta esté vinculada a un usuario habilitado de Central.';history.replaceState(null,'',location.pathname);}
+ try{const {providers}=await request('/api/auth/providers');let enabled=0;for(const provider of providers){const button=$('#login-'+provider.id);button.disabled=!provider.enabled;button.title=provider.enabled?'Ingresar con tu cuenta vinculada':'Tu administrador debe configurar y vincular este proveedor';if(provider.enabled)enabled++;button.onclick=async()=>{button.disabled=true;try{const result=await request('/api/auth/oidc/'+provider.id+'/start',{});location.assign(result.url);}catch(error){$('#login-error').textContent=error.message;button.disabled=false;}};}$('#provider-status').textContent=enabled?'Tu cuenta corporativa conserva los permisos de tu usuario de Central.':'Acceso corporativo preparado. Tu administrador debe conectar Google o Microsoft 365.';}catch{$('#provider-status').textContent='Por ahora, ingresá con tu usuario de Central.';}
+
  $('#login-dialog').addEventListener('cancel',event=>event.preventDefault());
  if(state.setupRequired&&state.setupAllowed===false){
   $('#login-heading').textContent='Falta configurar el administrador';

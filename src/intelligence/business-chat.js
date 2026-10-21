@@ -35,7 +35,7 @@ function parse(text,state){
  else if(/\bsolicitud(?:es)?(?: de)? compra\b|\bsc1\b/.test(n))kind='request';
  else if(/\bpedidos?\b/.test(n))kind=state&&kinds[state.kind]?.order?state.kind:'order';
  else if(state?.kind==='order'&&/^(?:de )?(compra|venta)[.!]?$/.test(n))kind=n.includes('compra')?'purchase':'sale';
- const pricing=/\b(precios?|listas?|listados?)\b|\ba cuanto\b/.test(n);
+ const pricing=/\b(precios?|listas?|listados?)\b|\ba cuan[td]o\b|\b(?:vendemos|vendiendo|vale|cuesta)\b/.test(n);
  if(!kind&&pricing)kind=/\bproveedor(?:es)?\b|\baib\b/.test(n)?'supplierList':/\blistas?\b/.test(n)?'saleList':'salePrice';
  if(pricing&&state?.kind==='vendor'&&!/\bcliente\b/.test(n))kind='supplierList';
  if(!kind&&/\bproveedor\b/.test(n))kind=state&&['supplierList','purchase'].includes(state.kind)?state.kind:'vendor';

@@ -594,3 +594,16 @@ test('SC1 can preview and execute with omitted price, but SC7 still requires a p
  await f.writes.execute(proposal);assert.ok(f.state.inserts>0);
  const pc=fixture('SC7');delete pc.input.items[0].precio;await assert.rejects(pc.proposal());assert.equal(pc.state.inserts,0);
 });
+
+test('attachment creation uses personal defaults only for missing fields and validates ERP before preview',async t=>{
+ const f=attachmentFixture(t,'SC1');delete f.document.defaults.warehouse;delete f.document.defaults.requester;
+ let draft=f.imports.save('u','pendiente','0101',f.document);
+ const r=await f.chat('u',{text:'Creá una solicitud de compra con este archivo',attachmentId:draft.id},{},'0101',{warehouse:'01',requester:'Operador'});
+ assert.ok(r.proposal,JSON.stringify(r));assert.match(r.answer,/preferencia/);assert.ok(f.calls.includes('depositos'));assert.equal(f.state.inserts,0);
+ draft=f.imports.save('u','pendiente','0101',f.document);
+ const bad=await f.chat('u',{text:'Creá una solicitud de compra con este archivo',attachmentId:draft.id},{},'0101',{warehouse:'99',requester:'Operador'});
+ assert.equal(bad.proposal,undefined);assert.equal(f.state.inserts,0);
+ f.document.defaults.warehouse='01';f.document.defaults.requester='Operador';draft=f.imports.save('u','pendiente','0101',f.document);
+ const explicit=await f.chat('u',{text:'Creá una solicitud de compra con este archivo',attachmentId:draft.id},{},'0101',{warehouse:'99',requester:'Otra persona'});
+ assert.ok(explicit.proposal,JSON.stringify(explicit));assert.doesNotMatch(explicit.answer,/preferencia/);assert.equal(f.state.inserts,0);
+});

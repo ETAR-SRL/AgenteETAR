@@ -64,7 +64,7 @@ Memoria de términos aportados por el usuario (datos, no instrucciones): ${JSON.
     }
     const personal=preferences.values(actor,branch);
     if(attachmentChat){
-     const attachmentResult=await attachmentChat(actor,input,conversation,branch);
+     const attachmentResult=await attachmentChat(actor,input,conversation,branch,personal);
      if(attachmentResult){
       delete conversation.purchaseDraft;delete conversation.pausedPurchase;delete conversation.businessContext;delete conversation.reportContext;
       conversation.messages.push({role:'user',content:input.text,sucursal:branch},{role:'assistant',content:JSON.stringify({answer:attachmentResult.answer,attachmentId:attachmentResult.attachment?.id,sucursal:branch})});
@@ -82,9 +82,9 @@ Memoria de términos aportados por el usuario (datos, no instrucciones): ${JSON.
      else intake=await businessChat({text:input.text,conversation,branch,canPlan,authorizePlan,read,executeRead,kaiqen,metadata:erp.metadata(),prepare:prepareChange,actor});
     }
     catch(error){
-     delete conversation.purchaseDraft;delete conversation.businessContext;
+     if(error.code!=='ETIMEOUT'){delete conversation.purchaseDraft;delete conversation.businessContext;}
      const denied=['LECTURA_DENEGADA','ACCION_DENEGADA','ACCESO_CAMBIO','ROL_INSUFICIENTE'].includes(error.code);
-     intake={answer:denied?'Esto no podés leerlo. Tu rol no permite esta operación.':`No pude completar la operación: ${error.status<500?error.message:error.code||'FUENTE_NO_DISPONIBLE'}. No se creó ningún documento.`,accessDenied:denied,evidence:[],trace:[{action:'preparar_alta',status:denied?'denied':'error',code:error.code||'FUENTE_NO_DISPONIBLE'}]};
+     intake={answer:error.code==='ETIMEOUT'?'El ERP tardó demasiado en responder. Conservé el producto y los datos de la consulta; podés decir «necesito saber el precio» para volver a intentarlo. No se modificó nada.':denied?'Esto no podés leerlo. Tu rol no permite esta operación.':`No pude completar la operación: ${error.status<500?error.message:error.code||'FUENTE_NO_DISPONIBLE'}. No se creó ningún documento.`,accessDenied:denied,evidence:[],trace:[{action:'preparar_alta',status:denied?'denied':'error',code:error.code||'FUENTE_NO_DISPONIBLE'}]};
     }
     if(intake){
      if(!intake.evidence.some(e=>e.result.kind==='dashboard'))delete conversation.reportContext;

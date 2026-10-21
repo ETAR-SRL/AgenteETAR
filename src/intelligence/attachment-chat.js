@@ -125,7 +125,7 @@ export async function attachmentIntent(text,state,model){
 }
 
 export function createAttachmentChat({imports,authorize,model}){
- return async function chat(actor,input,conversation,branch){
+ return async function chat(actor,input,conversation,branch,preferences={}){
   if(input.attachmentId===null){
    if(conversation.attachment)imports.invalidate(actor,conversation.attachment.id);
    delete conversation.attachment;return null;
@@ -169,13 +169,16 @@ export function createAttachmentChat({imports,authorize,model}){
   state.rows=state.rows.map(r=>rows.find(x=>x.id===r.id)||r);
   if(importProfiles[state.kind]?.creation){
    authorize(state.kind,branch);
+   const applied=[];
+   for(const key of ['warehouse','requester'])if(!state.values[key]&&preferences[key]&&(key!=='warehouse'||rows.some(r=>!r.warehouse))){state.values[key]=preferences[key];applied.push(key==='warehouse'?'depósito '+preferences[key]:'solicitante '+preferences[key]);}
+   const preferenceNote=applied.length?' Usé tu preferencia de '+applied.join(' y ')+', sujeta a la validación ERP y al resumen de confirmación.':'';
    const attachment={id,name:draft.name,kind:state.kind,rows:state.rows,defaults:state.values};
    if(!state.requested)return {answer:'¿Querés crear un documento nuevo con estas filas?',attachment};
    imports.classify(actor,id,state.kind);
    try{
     const result=await imports.preview(actor,id,{...state.values,rows,reviewed:true});
     state.missing=result.missing||[];
-    return {answer:result.message,attachment,proposal:result.proposal,issues:result.issues,choices:result.choices};
+    return {answer:result.message+preferenceNote,attachment,proposal:result.proposal,issues:result.issues,choices:result.choices};
    }catch(error){
     if(['LECTURA_DENEGADA','ACCION_DENEGADA','ACCESO_CAMBIO'].includes(error.code)||!error.code)throw error;
     return {answer:`No preparé el alta: ${error.message}`,attachment};

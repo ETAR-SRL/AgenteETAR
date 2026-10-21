@@ -1,3 +1,4 @@
+import {createFederatedLogin} from './federated-login.js';
 import {createModelSettings} from './intelligence/model-settings.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {Access,assertRead,assertAction,canRead,denied} from './access.js';
@@ -108,6 +109,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   model=model||aiSettings.model;
   const attachmentChat=createAttachmentChat({imports:priceImports,authorize:authorizeImport,model:model||createModel()});
   const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,attachmentChat,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
+  const federated=createFederatedLogin({access,ui});
   const server=http.createServer(async(req,res)=>{
     try{
       network.origin(req);
@@ -115,6 +117,10 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       const url=new URL(req.url,'http://localhost');
       if(url.pathname.startsWith('/api/auth/')){
         ui.local(req);
+        if(req.method==='GET'&&url.pathname==='/api/auth/providers')return rawSend(res,200,{providers:federated.status(ui.local(req))});
+        const oidc=/^\/api\/auth\/oidc\/(google|microsoft)\/(start|callback)$/.exec(url.pathname);
+        if(oidc&&oidc[2]==='start'&&req.method==='POST')return rawSend(res,200,await federated.start(oidc[1],req,res));
+        if(oidc&&oidc[2]==='callback'&&req.method==='GET'){try{await federated.callback(oidc[1],req,res);res.writeHead(303,{location:'/', 'cache-control':'no-store'});}catch{res.writeHead(303,{location:'/?login=failed','cache-control':'no-store'});}res.end();return;}
         if(req.method==='GET'&&url.pathname==='/api/auth/state')return rawSend(res,200,{setupRequired:!access.hasUsers(),setupAllowed:network.isLocal(req),user:access.fromToken(ui.token(req))});
         if(req.method==='POST'){
           ui.sameOrigin(req);

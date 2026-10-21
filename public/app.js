@@ -144,7 +144,7 @@ function renderAnswer(where,response){
     if(result.kind==='proposal'){renderProposal(where,result.proposal);continue;}
     if(result.candidates?.length){const choices=node('div','choice-list');result.candidates.forEach(candidate=>{const code=candidate.codigo||candidate.id;const b=node('button','secondary',[code,candidate.nombre||candidate.name,candidate.tienda?'Tienda '+candidate.tienda:''].filter(Boolean).join(' · '));b.onclick=()=>query(`Me refiero a ${code}${candidate.tienda?' tienda '+candidate.tienda:''}. Respondé la consulta anterior para esa opción.`);choices.append(b);});card.append(choices);renderResult(details,{...result,data:result.candidates},heading,{append:true});}
     else if(evidence.action==='calidad')renderQuality(details,result,true);
-    else if(Array.isArray(result.data))renderResult(details,result,heading,{append:true});
+    else if(Array.isArray(result.data))renderResult(details,result,'Detalle de la fuente',{append:true});
     else{const pre=node('pre','raw-evidence',JSON.stringify(result.data||result,null,2));details.append(pre);}
     where.append(details);
   }
@@ -243,6 +243,8 @@ async function record(){
   }catch(error){recordStream?.getTracks().forEach(track=>track.stop());voiceBusy=false;$('#mic').disabled=false;status.textContent=error.name==='NotAllowedError'?'Permití el uso del micrófono desde el icono de permisos del navegador.':error.name==='NotFoundError'?'No se encontró un micrófono conectado.':'No se pudo acceder al micrófono. Cerrá otras aplicaciones que lo estén usando.';}
 }
 $('#mic').onclick=record;window.addEventListener('pagehide',stopRecording);
+$('#install-top').onclick=()=>$('#install').click();
+window.addEventListener('appinstalled',()=>{$('#install-top').textContent='App instalada';$('#install-top').disabled=true;});
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstall=event;$('#install').textContent='＋ Instalar Central';});
 $('#install').onclick=async()=>{if(deferredInstall){await deferredInstall.prompt();deferredInstall=null;}else{$('#help-dialog').showModal();}};
 $('#help').onclick=()=>$('#help-dialog').showModal();$('#close-help').onclick=()=>$('#help-dialog').close();
@@ -346,3 +348,6 @@ async function historyList(){
  }catch(e){showError(where,e);}
 }
 $('#chat-history').onclick=()=>{if($('#send').disabled)return;$('#history-dialog').showModal();historyList();};$('#history-close').onclick=()=>$('#history-dialog').close();
+
+window.addEventListener('offline',()=>{$('#notice').textContent='Sin conexión. Podés ver la interfaz, pero necesitás conexión al servidor para consultar datos o confirmar cambios.';$('#notice').classList.remove('hidden');});
+window.addEventListener('online',()=>{$('#notice').textContent='Conexión restablecida. Volvé a intentar tu consulta.';$('#notice').classList.remove('hidden');});

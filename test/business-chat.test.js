@@ -18,9 +18,11 @@ function fixture(t){
  };
  const calls=[],prepared=[],authorized=[];
  const metadata={entities:Object.fromEntries(Object.keys(data).map(k=>[k,{fields:[{salida:'precio',diccionario:{X3_DECIMAL:6}},{salida:'precioUnitario',diccionario:{X3_DECIMAL:6}},{salida:'numero',diccionario:{X3_TAMANHO:6}},{salida:'item',diccionario:{X3_TAMANHO:2}}]}]))};
+ let timeoutOnce=false;
  let denied,planDenied=false,modelCalls=0,pageSize=100,failRecord;
  const read=async(resource,params)=>{
   calls.push({resource,filters:Object.fromEntries(params)});
+  if(timeoutOnce){timeoutOnce=false;throw Object.assign(new Error("timeout"),{code:"ETIMEOUT"});}
   if(resource===denied)throw Object.assign(new Error('Esto no podés leerlo.'),{status:403,code:'LECTURA_DENEGADA'});
   let rows=structuredClone(data[resource]||[]);
   for(const [k,v] of params){
@@ -37,7 +39,7 @@ function fixture(t){
   model:{name:'must-not-run',complete:()=>{modelCalls++;throw Error('Unexpected model call');}}
  });
  const query=(text,conversationId,branch='0101',actor='user:a')=>agent.query(actor,{text,conversationId,context:{sucursal:branch}},{canPlan:true});
- return {query,agent,data,calls,prepared,authorized,get modelCalls(){return modelCalls;},set denied(v){denied=v;},set planDenied(v){planDenied=v;},set pageSize(v){pageSize=v;},set failRecord(v){failRecord=v;}};
+ return {query,agent,data,calls,prepared,authorized,get modelCalls(){return modelCalls;},set timeoutOnce(v){timeoutOnce=v;},set denied(v){denied=v;},set planDenied(v){planDenied=v;},set pageSize(v){pageSize=v;},set failRecord(v){failRecord=v;}};
 }
 test('catalogs use real exact codes or names without model inference',async t=>{
  const f=fixture(t);
@@ -144,4 +146,16 @@ test('sales order can apply its customer price list with a preview',async t=>{
  const f=fixture(t),r=await f.query('Mostrame el pedido de venta 123');
  const next=await f.query('Usá la lista de precios',r.conversationId);
  assert.equal(f.prepared.length,1,next.answer);assert.equal(f.prepared[0].changes.precioUnitario,'0.058');assert.equal(f.prepared[0].priceUnit,'unidad');
+});
+
+test('selling-price typo resolves price lists and follow-up retains the product',async t=>{
+ const f=fixture(t);let r=await f.query('¿A cuando vendemos el producto Z100?');assert.ok(r.evidence.some(e=>e.action==='precio_venta'));assert.match(r.answer,/58/);
+ r=await f.query('necesito saber el precio',r.conversationId);assert.ok(r.evidence.some(e=>e.action==='precio_venta'));assert.equal(f.modelCalls,0);
+});
+
+
+test('read timeout keeps the selected product for a direct retry',async t=>{
+ const f=fixture(t),first=await f.query('Buscá el producto Z100');f.timeoutOnce=true;
+ const failed=await f.query('necesito saber el precio',first.conversationId);assert.match(failed.answer,/Conservé el producto/);
+ const retry=await f.query('necesito saber el precio',first.conversationId);assert.ok(retry.evidence.some(e=>e.action==='precio_venta'));assert.equal(f.modelCalls,0);
 });
