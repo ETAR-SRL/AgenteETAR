@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {formatAnswer} from '../public/answer-format.js';
+import {formatAnswer} from '../public/import-batch-ui.js';
 const doc={createElement:tag=>({tag,children:[],append(...children){this.children.push(...children);}}),createTextNode:text=>({text})};
 test('answers render escaped and ordinary bold, lists and code without interpreting HTML',()=>{
  const result=formatAnswer('**Ventas**\n\n- \\*\\*Total\\*\\*: `125`\n- <img src=x onerror=alert(1)>',doc);
