@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {salesOrderJourney} from '../src/intelligence/sales-order-journey.js';
+import {assertRead} from '../src/access.js';
+function fixture(){
+ const conversation={messages:[]},calls=[],blocked=new Set(),data={ventas:[{numero:'000123',clienteCodigo:'C1',clienteTienda:'01',moneda:{codigo:'2',descripcion:'Dólares'},listaPreciosCodigo:'059'}],clientes:[{codigo:'C1',tienda:'01',nombre:'CLIENTE'}],itemsVentas:[{registro:'6',numero:'000123',item:'01',productoCodigo:'Z1',clienteCodigo:'C1',clienteTienda:'01',producto:{codigo:'Z1',nombre:'RESORTE',unidadMedida:'UN'},unidadMedida:'UN',cantidadPedida:'1500',cantidadAtendida:'1000',precioUnitario:'0.058',total:'87'}],liberacionesVentas:[{numero:'000123',item:'01',productoCodigo:'Z1',clienteCodigo:'C1',clienteTienda:'01',cantidadLiberada:'500',precioUnitario:'0.058',bloqueoCredito:{codigo:'01',descripcion:'Crédito superado'}}],documentosPedidoVenta:[{clase:'REMITO',numero:'R1',serie:'R',item:'01',producto:'Z1',cantidad:'1000',unidad:'UN',importe:'58',moneda:'2',monedaNombre:'Dólares'},{clase:'NF',numero:'F1',serie:'A',item:'01',producto:'Z1',cantidad:'1000',unidad:'UN',importe:'87000',moneda:'1',monedaNombre:'Pesos'}]};
+ const read=async(resource,params)=>{calls.push({resource,filters:Object.fromEntries(params)});if(blocked.has(resource))throw Object.assign(new Error(),{status:403,code:'LECTURA_DENEGADA'});let rows=structuredClone(data[resource]||[]);if(resource==='ventas')rows=rows.filter(r=>r.numero===params.get('numero'));return {data:rows,meta:{hasMore:false}};};
+ const metadata={entities:{ventas:{fields:[{salida:'numero',diccionario:{X3_TAMANHO:6}}]}}};
+ const ask=(text,c=conversation,branch='0101')=>salesOrderJourney({text,conversation:c,branch,read,metadata});
+ return {conversation,calls,blocked,data,metadata,read,ask};
+}
+test('order overview verifies header, line/product identity, units, releases and separate documentary amounts',async()=>{
+ const f=fixture(),r=await f.ask('Analizá el pedido de venta 123');assert.match(r.answer,/Pedido de venta 000123/);assert.match(r.answer,/CLIENTE/);assert.match(r.answer,/58 por millar Dólares/);assert.match(r.answer,/saldo aritmético 500 UN = 0,5 millares/);assert.match(r.answer,/Crédito superado/);assert.match(r.answer,/87000 Pesos/);assert.match(r.answer,/58 Dólares/);assert.match(r.answer,/no certifican recepción física/);assert.equal(f.calls.filter(c=>c.resource==='documentosPedidoVenta').length,2);assert.equal(f.calls.filter(c=>c.resource==='itemsVentas').length,1);for(const c of f.calls){assert.equal(c.filters.sucursal,'0101');if(c.resource==='documentosPedidoVenta')assert.deepEqual([c.filters.pedido,c.filters.cliente,c.filters.tienda],['000123','C1','01']);}assert.equal(f.conversation.businessContext.refs.number,'000123');
+});
+test('followups re-read current data without model, and mutations keep the existing proposal route',async()=>{
+ const f=fixture();await f.ask('Ficha integral del pedido de venta 123');f.data.itemsVentas[0].precioUnitario='0.06';let r=await f.ask('¿Y sus precios?');assert.match(r.answer,/60 por millar/);assert.ok(!r.answer.includes('Facturas y notas'));assert.equal(f.calls.filter(c=>c.resource==='ventas').length,2);assert.equal(await f.ask('Cambiá el precio a 70 por millar'),null);assert.equal(await f.ask('Usá la lista de precios'),null);r=await f.ask('sus facturas');assert.match(r.answer,/87000 Pesos/);assert.ok(!r.evidence.some(e=>e.result.data.some(d=>d.clase==='REMITO')));r=await f.ask('sus liberaciones');assert.match(r.answer,/Crédito superado/);
+});
+test('denied sections expose no evidence; root denial blocks the entire journey and permission refresh propagates',async()=>{
+ const f=fixture();f.blocked.add('liberacionesVentas');f.blocked.add('documentosPedidoVenta');let r=await f.ask('Analizá el pedido de venta 123');assert.match(r.answer,/Esto no podés leerlo/);assert.ok(!r.evidence.some(e=>['liberacionesVentas','documentosPedidoVenta'].includes(e.args.recurso)));f.blocked.add('ventas');r=await f.ask('sus precios');assert.equal(r.accessDenied,true);assert.equal(r.evidence.length,0);
+ for(const resource of ['liberacionesVentas','documentosPedidoVenta']){assert.throws(()=>assertRead({permissions:['read:ventas']},resource),{status:403});assert.doesNotThrow(()=>assertRead({permissions:['read:ventas','read:clientes','read:preciosVenta','read:catalogo']},resource));}
+ await assert.rejects(()=>salesOrderJourney({text:'Analizá el pedido de venta 123',conversation:{},branch:'0101',read:f.read,authorizeRead:()=>{throw Object.assign(new Error(),{code:'ACCESO_CAMBIO'});}}),{code:'ACCESO_CAMBIO'});
+});
+test('missing or duplicate headers, inconsistent line linkage and stale branch never reuse an order',async()=>{
+ const f=fixture();let r=await f.ask('Analizá el pedido de venta 999');assert.match(r.answer,/No encontré/);assert.equal(f.calls.length,1);f.data.ventas.push({...f.data.ventas[0]});r=await f.ask('Analizá el pedido de venta 123');assert.match(r.answer,/cabecera única/);f.data.ventas.pop();f.data.itemsVentas[0].clienteTienda='02';r=await f.ask('Analizá el pedido de venta 123');assert.match(r.answer,/VINCULO_PEDIDO_NO_VERIFICADO/);assert.ok(!r.evidence.some(e=>['itemsVentas','liberacionesVentas'].includes(e.args.recurso)));assert.equal(await f.ask('sus precios',f.conversation,'0201'),null);assert.equal(f.conversation.salesOrderJourney,undefined);
+});
+test('switching entity clears focus, unsupported filters remain explicit and order amounts are never fabricated',async()=>{
+ const f=fixture();f.conversation.customerJourney={code:'OTHER'};await f.ask('Analizá el pedido de venta 123');assert.equal(f.conversation.customerJourney,undefined);let r=await f.ask('sus facturas del mes pasado');assert.match(r.answer,/no descarté/);assert.equal(await f.ask('Analizá el proveedor ACME'),null);assert.equal(f.conversation.salesOrderJourney,undefined);f.data.itemsVentas[0].unidadMedida='KG';f.data.itemsVentas[0].producto.unidadMedida='KG';r=await f.ask('Analizá el pedido de venta 123');assert.ok(!r.answer.includes('58 por millar'));assert.match(r.answer,/1500 KG/);
+});
+test('incomplete release pagination fails the link check rather than attaching to a different item',async()=>{
+ const f=fixture();f.data.liberacionesVentas[0].item='99';const r=await f.ask('Analizá el pedido de venta 123');assert.match(r.answer,/LIBERACION_NO_VERIFICADA/);assert.ok(!r.evidence.some(e=>e.args.recurso==='liberacionesVentas'));
+});
+test('explicit item selection falls through to the established item flow and remittance balances are not silently ignored',async()=>{
+ const f=fixture();await f.ask('Analizá el pedido de venta 123');assert.equal(await f.ask('Mostrame el pedido de venta 123 ítem 01'),null);await f.ask('Analizá el pedido de venta 123');assert.match((await f.ask('sus remitos pendientes')).answer,/pendientes de facturar/);
+});

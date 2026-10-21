@@ -1,5 +1,7 @@
 # Usuarios, roles y acceso a los datos
 
+El [recorrido integral del pedido de venta](pedido-venta-integral.md) consulta cada sección con sus permisos actuales. `liberacionesVentas` (SC9) y `documentosPedidoVenta` (SD2/SF2 con vínculos SC5/SC6) requieren ventas + clientes + preciosVenta + catalogo. No se reutilizan recursos mixtos que expongan compras. La cabecera se relee en cada turno; se comprueba cliente/tienda, sucursal e identidad del ítem. Secciones denegadas no adjuntan datos y responden «Esto no podés leerlo». El contexto no concede permisos ni habilita ejecución de modificaciones.
+
 Los [adjuntos de precios](precios-desde-archivos.md) admiten DA1/AIB, SC6, SC7 y SC1. La carga pendiente de clasificación exige al menos un permiso de preparación de esas acciones. Antes de consultar se exige preparar la acción concreta y leer catálogo, tercero y precios/ventas/compras que correspondan; SC1 no necesita proveedores. Sus borradores, conversaciones y resultados se aíslan por actor y sucursal. Subir un archivo no concede permisos ni ejecuta cambios; la ejecución conserva los permisos y confirmación existentes.
 
 Los adjuntos también admiten altas `crearPedidoCompra` y `crearSolicitudCompra`. Requieren sus permisos propios de preparación y ejecución: poder actualizar un pedido no autoriza crearlo. El alta comprueba además el acceso a depósitos y, para SC7, condiciones de pago y proveedor. Cada propuesta pertenece al actor y sucursal del archivo. Corregirlo invalida las propuestas anteriores en el servidor, incluso si se conservó su ID.

@@ -152,6 +152,55 @@
     }
   },
   "entities": {
+    "liberacionesVentas": {
+      "alias": "SC9",
+      "branch": "C9_FILIAL",
+      "required": [
+        "C9_PEDIDO",
+        "C9_ITEM",
+        "C9_PRODUTO",
+        "C9_CLIENTE",
+        "C9_LOJA",
+        "C9_QTDLIB",
+        "C9_PRCVEN"
+      ],
+      "fields": {
+        "C9_PEDIDO": "numero",
+        "C9_ITEM": "item",
+        "C9_PRODUTO": "productoCodigo",
+        "C9_CLIENTE": "clienteCodigo",
+        "C9_LOJA": "clienteTienda",
+        "C9_SEQUEN": "secuencia",
+        "C9_QTDLIB": {
+          "output": "cantidadLiberada",
+          "type": "decimal"
+        },
+        "C9_PRCVEN": {
+          "output": "precioUnitario",
+          "type": "decimal"
+        },
+        "C9_BLCRED": {
+          "output": "bloqueoCredito",
+          "enum": {}
+        },
+        "C9_BLEST": {
+          "output": "bloqueoStock",
+          "enum": {}
+        },
+        "C9_NFISCAL": "factura",
+        "C9_SERIENF": "serieFactura",
+        "C9_REMITO": "remito",
+        "C9_SERIREM": "serieRemito",
+        "C9_ITEMREM": "itemRemito"
+      },
+      "filters": {
+        "numero": "C9_PEDIDO",
+        "item": "C9_ITEM",
+        "producto": "C9_PRODUTO",
+        "cliente": "C9_CLIENTE",
+        "tienda": "C9_LOJA"
+      }
+    },
     "saldosProveedores": {
       "alias": "SE2",
       "branch": "E2_FILIAL",
@@ -1130,6 +1179,7 @@
         "C6_QTDENT"
       ],
       "fields": {
+        "C6_UM": "unidadMedida",
         "C6_NUM": "numero",
         "C6_ITEM": "item",
         "C6_PRODUTO": "productoCodigo",

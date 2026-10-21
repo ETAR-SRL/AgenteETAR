@@ -7,6 +7,7 @@ const D=Decimal.clone({precision:50});
 // Especie + sentido del documento: una NC de compra sale por SD2; una NC
 // de venta entra por SD1. No clasificar todo SD2 como venta ni todo SD1 como compra.
 export const commercialResources = {
+  documentosPedidoVenta:{scope:'pedidoDocumentos',emitted:true,label:'Remitos y facturas vinculados al pedido de venta'},
   comprobantesVentas: {scope:'ventas', label:'Ventas facturadas · NF / NC / ND'},
   comprobantesCompras: {scope:'compras', label:'Comprobantes de compra · NF / NC / ND'},
   remitosEmitidos: {scope:'remitos', emitted:true, label:'Remitos emitidos'},
@@ -21,6 +22,7 @@ export const commercialResources = {
 };
 const numeric = new Set(['float','real','decimal','numeric','int','bigint','smallint','money','smallmoney']);
 const rules = {
+  pedidoDocumentos:[[2,'NF','NF',1],[2,'NDC','ND',1],[2,'RFN','REMITO',1]],
   ventas: [[2,'NF','NF',1],[2,'NDC','ND',1],[1,'NCC','NC',-1]],
   compras: [[1,'NF','NF',1],[1,'NDP','ND',1],[2,'NCP','NC',-1]],
   remitos: [[2,'RFN','REMITO',1]],
@@ -33,10 +35,12 @@ const text = column => `RTRIM(LTRIM(${column}))`;
 export function commercialParams(resource, params, now = new Date()) {
   const spec = commercialResources[resource];
   if (!spec) fail('RECURSO_NO_EXISTE','Informe inexistente');
-  const allowed = new Set(['sucursal','desde','hasta','numero','serie','producto','cliente','proveedor','tienda','clase','moneda','unidad','page','limit','orden',...(spec.summary?['agrupar']:[])]);
+  const allowed = new Set(['sucursal','desde','hasta','numero','serie','producto','cliente','proveedor','tienda','clase','moneda','unidad','page','limit','orden',...(spec.scope==='pedidoDocumentos'?['pedido','documentos']:[]),...(spec.summary?['agrupar']:[])]);
   for (const key of params.keys()) if (!allowed.has(key) || params.getAll(key).length !== 1) fail('FILTRO_INVALIDO',`Filtro inválido o duplicado: ${key}`);
   if (!params.has('sucursal')) fail('SUCURSAL_REQUERIDA','Indicar sucursal');
   const filters = Object.fromEntries(params);
+  if(spec.scope==='pedidoDocumentos'&&!filters.pedido)fail('PEDIDO_REQUERIDO','Indicá el pedido de venta exacto');
+  if(spec.scope==='pedidoDocumentos'&&filters.documentos&&!['remitos','facturas'].includes(filters.documentos))fail('FILTRO_INVALIDO','documentos debe ser remitos o facturas');
   const purchase = ['compras','pedidosCompra'].includes(spec.scope);
   if (filters[purchase?'cliente':'proveedor']) fail('FILTRO_INVALIDO','El tercero no corresponde al informe');
   if (spec.summary) {
@@ -73,13 +77,32 @@ export class Commercial {
     const physical=alias=>{const key='branch'+alias;bindings[key]=c.branch(alias,branch);return '@'+key;};
     const invoice=(n,especie,clase,sign) => {
       const a='SD'+n,h='SF'+n,d='D'+n,f='F'+n,party=n===1?'FORNECE':'CLIENTE';
-      const amounts=['QUANT','TOTAL',n===1?'VUNIT':'PRCVEN',...(spec.scope==='remitos'?['QTDAFAT','QTDEFAT','QTDEDEV']:[])].map(x=>d+'_'+x);
+      const amounts=['QUANT','TOTAL',n===1?'VUNIT':'PRCVEN',...((spec.scope==='remitos'||especie==='RFN')?['QTDAFAT','QTDEFAT','QTDEDEV']:[])].map(x=>d+'_'+x);
       this.require(a,['FILIAL','DOC','SERIE','ITEM',party,'LOJA','COD','UM','ESPECIE','TIPO','TIPODOC','EMISSAO',...amounts.map(x=>x.slice(3))].map(x=>d+'_'+x),amounts);
       this.require(h,['FILIAL','DOC','SERIE',party,'LOJA','TIPO','ESPECIE','TIPODOC','MOEDA'].map(x=>f+'_'+x),[f+'_MOEDA']);
       const value=field=>`i.${q(d+'_'+field)}`;
-      const rem=spec.scope==='remitos', baseQty=decimal(value(rem&&!spec.emitted?'QTDAFAT':'QUANT')), qty=sign===-1?`-ABS(${baseQty})`:baseQty;
+      const rem=especie==='RFN', baseQty=decimal(value(rem&&!spec.emitted?'QTDAFAT':'QUANT')), qty=sign===-1?`-ABS(${baseQty})`:baseQty;
       const total=rem&&!spec.emitted?`${qty}*${decimal(value('PRCVEN'))}`:decimal(value('TOTAL'));
       const signed=sign===-1?`-ABS(${total})`:total;
+      let orderLink='';
+      if(spec.scope==='pedidoDocumentos'){
+        this.require('SD2',['D2_PEDIDO','D2_ITEMPV','D2_REMITO','D2_SERIREM','D2_ITEMREM']);
+        this.require('SC5',['C5_FILIAL','C5_NUM','C5_CLIENTE','C5_LOJACLI']);
+        this.require('SC6',['C6_FILIAL','C6_NUM','C6_ITEM','C6_PRODUTO','C6_CLI','C6_LOJA']);
+        bindings.pedido=spec.filters.pedido;
+        // Follow only complete document/item/party tuples. Never match by product/date alone.
+        const root=(line)=>`(SELECT COUNT_BIG(*) FROM ${c.name('SC6')} v WHERE v.D_E_L_E_T_=' ' AND v.C6_FILIAL=${physical('SC6')} AND v.C6_NUM=@pedido AND v.C6_ITEM=${line}.D2_ITEMPV AND v.C6_PRODUTO=i.D2_COD AND v.C6_CLI=i.D2_CLIENTE AND v.C6_LOJA=i.D2_LOJA)=1`;
+        orderLink=` AND (SELECT COUNT_BIG(*) FROM ${c.name('SC5')} p WHERE p.D_E_L_E_T_=' ' AND p.C5_FILIAL=${physical('SC5')} AND p.C5_NUM=@pedido AND p.C5_CLIENTE=i.D2_CLIENTE AND p.C5_LOJACLI=i.D2_LOJA)=1
+          AND ((i.D2_PEDIDO=@pedido AND ${root('i')}) OR (i.D2_PEDIDO=' ' AND i.D2_REMITO<>' ' AND i.D2_SERIREM<>' ' AND i.D2_ITEMREM<>' '
+          AND (SELECT COUNT_BIG(*) FROM ${c.name('SD2')} r WHERE r.D_E_L_E_T_=' ' AND r.D2_FILIAL=${physical('SD2')}
+            AND r.D2_DOC=i.D2_REMITO AND r.D2_SERIE=i.D2_SERIREM AND r.D2_ITEM=i.D2_ITEMREM
+            AND r.D2_CLIENTE=i.D2_CLIENTE AND r.D2_LOJA=i.D2_LOJA AND r.D2_COD=i.D2_COD
+            AND r.D2_ESPECIE='RFN' AND r.D2_TIPODOC='50' AND r.D2_TIPO='N')=1
+          AND EXISTS(SELECT 1 FROM ${c.name('SD2')} r WHERE r.D_E_L_E_T_=' ' AND r.D2_FILIAL=${physical('SD2')}
+            AND r.D2_DOC=i.D2_REMITO AND r.D2_SERIE=i.D2_SERIREM AND r.D2_ITEM=i.D2_ITEMREM
+            AND r.D2_CLIENTE=i.D2_CLIENTE AND r.D2_LOJA=i.D2_LOJA AND r.D2_COD=i.D2_COD
+            AND r.D2_ESPECIE='RFN' AND r.D2_TIPODOC='50' AND r.D2_TIPO='N' AND r.D2_PEDIDO=@pedido AND ${root('r')})))`;
+      }
       return `SELECT '${a}' origen,${str('i.R_E_C_N_O_')} registro,${text(value('DOC'))} numero,${text(value('SERIE'))} serie,${text(value('ITEM'))} item,
         '${clase}' clase,'${especie}' especie,${text(value('TIPODOC'))} tipoDocumento,${text(value('TIPO'))} tipo,
         ${text(value(party))} tercero,${text(value('LOJA'))} tienda,${text(value('COD'))} producto,${text(value('UM'))} unidad,
@@ -92,6 +115,7 @@ export class Commercial {
           FROM ${c.name(h)} x WHERE x.D_E_L_E_T_=' ' AND x.${q(f+'_FILIAL')}=${physical(h)}
           AND ${['DOC','SERIE',party,'LOJA','TIPO','ESPECIE','TIPODOC'].map(field=>`x.${q(f+'_'+field)}=${value(field)}`).join(' AND ')}
         ) h WHERE i.D_E_L_E_T_=' ' AND ${value('FILIAL')}=${physical(a)} AND ${value('ESPECIE')}='${especie}'
+        ${orderLink}
         ${rem?`AND ${value('TIPODOC')}='50' AND ${value('TIPO')}='N' ${spec.emitted?'':`AND ${value('QTDAFAT')}>0`}`:''}`;
     };
     if (rules[spec.scope]) return rules[spec.scope].map(r=>invoice(...r)).join('\nUNION ALL\n');
@@ -114,6 +138,7 @@ export class Commercial {
   build(resource,params) {
     const spec=commercialParams(resource,params),bindings={};
     const base=this.base(spec,bindings),where=[];
+    if(spec.scope==='pedidoDocumentos'&&spec.filters.documentos)where.push(spec.filters.documentos==='remitos'?"clase='REMITO'":"clase IN ('NF','ND')");
     for(const [key,col] of Object.entries({numero:'numero',serie:'serie',producto:'producto',cliente:'tercero',proveedor:'tercero',tienda:'tienda',clase:'clase',moneda:'moneda',unidad:'unidad'})) if(spec.filters[key]) {
       bindings[key]=spec.filters[key];where.push(`${q(col)}=@${key}`);
     }
@@ -166,7 +191,7 @@ export class Commercial {
       'Importes almacenados agrupados por moneda de cabecera y unidad, sin conversión cambiaria. No sumar monedas ni unidades distintas.',
       'Precisión del informe: 6 decimales. Cantidades en la unidad original; millares sólo para UN.',
       pending?'Importe pendiente estimado = saldo actual × precio. El período filtra emisión, no reconstruye saldos históricos. No es facturación, deuda ni confirmación de entrega física.':'Total de ítems SD1/SD2: no incluye automáticamente impuestos, fletes ni el total final de cabecera. NC resta su valor absoluto.',
-      spec.emitted?'Remitos emitidos RFN/50: no representan facturación ni recepción física.':
+      spec.scope==='pedidoDocumentos'?'Vínculo exacto SD2→SC6 o NF/ND→remito RFN→SC6. Referencias incompletas o ambiguas quedan fuera; ausencia de filas no demuestra ausencia de facturación. NF/ND y remitos se muestran separados; no sumar ambos. No incluye NC SD1 sin vínculo verificado.':spec.emitted?'Remitos emitidos RFN/50: no representan facturación ni recepción física.':
       spec.scope==='remitos'?'Pendiente de facturar = D2_QTDAFAT en remito normal RFN/50. No indica recepción física por el cliente.':
       pending?'Saldo positivo de cantidad pedida menos atendida; excluye residuos/cierres conocidos. Puede incluir ítems bloqueados o pendientes de aprobación.':
       'Ventas: SD2 NF/NDC y SD1 NCC. Compras: SD1 NF/NDP y SD2 NCP. Otras especies no se incluyen.',
@@ -191,7 +216,7 @@ export class Commercial {
   metadata() {
     return Object.fromEntries(Object.entries(commercialResources).map(([name,s])=>[name,{
       alias:s.label,disponible:true,requiereConfigurarSucursal:false,fechaFiltro:'emisión',aggregate:!!s.summary,
-      filters:{numero:'documento',producto:'producto',...(['compras','pedidosCompra'].includes(s.scope)?{proveedor:'código'}:{cliente:'código'}),tienda:'tienda',moneda:'código',unidad:'unidad original',...(['ventas','compras'].includes(s.scope)?{clase:'NF | NC | ND'}:{}),...(s.summary?{agrupar:'mes | tercero | producto | clase'}:{serie:'serie'})},
+      filters:{...(s.scope==='pedidoDocumentos'?{pedido:'pedido de venta exacto',documentos:'remitos | facturas'}:{}),numero:'documento',producto:'producto',...(['compras','pedidosCompra'].includes(s.scope)?{proveedor:'código'}:{cliente:'código'}),tienda:'tienda',moneda:'código',unidad:'unidad original',...(['ventas','compras'].includes(s.scope)?{clase:'NF | NC | ND'}:{}),...(s.summary?{agrupar:'mes | tercero | producto | clase'}:{serie:'serie'})},
       advertencias:['Consulta de solo lectura; moneda y unidad separadas'],fields:[],
     }]));
   }

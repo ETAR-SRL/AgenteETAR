@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Store} from '../src/store.js';
 import {createIntelligence} from '../src/intelligence/agent.js';
-function fixture(t){
+function fixture(t,orderJourney=false){
  const store=new Store(':memory:');t.after(()=>store.close());
  const data={
   productos:[{registro:'1',codigo:'1',nombre:'SERVICIO UNO',tipo:{descripcion:'SERVICIO'},unidadMedida:'UN',bloqueado:{codigo:'2'}},{registro:'2',codigo:'Z100',nombre:'TERMINADO',unidadMedida:'UN'}],
@@ -16,6 +16,7 @@ function fixture(t){
   itemsVentas:[{registro:'10',numero:'000123',item:'01',productoCodigo:'Z100',clienteCodigo:'C1',clienteTienda:'01',precioUnitario:'0.058',cantidadPedida:'1000',total:'58',moneda:{codigo:'2',descripcion:'DOLAR'}}],
   solicitudesCompra:[],depositos:[{codigo:'16',nombre:'GENERAL'}],condicionesPago:[{codigo:'001',nombre:'CONTADO'}]
  };
+ if(orderJourney){data.ventas=[{numero:"000123",clienteCodigo:"C1",clienteTienda:"01",moneda:{codigo:"2",descripcion:"DOLAR"}}];Object.assign(data.itemsVentas[0],{unidadMedida:"UN",cantidadAtendida:"0",producto:{codigo:"Z100",nombre:"TERMINADO",unidadMedida:"UN"}});}
  const calls=[],prepared=[],authorized=[];
  const metadata={entities:Object.fromEntries(Object.keys(data).map(k=>[k,{fields:[{salida:'precio',diccionario:{X3_DECIMAL:6}},{salida:'precioUnitario',diccionario:{X3_DECIMAL:6}},{salida:'numero',diccionario:{X3_TAMANHO:6}},{salida:'item',diccionario:{X3_TAMANHO:2}}]}]))};
  let timeoutOnce=false;
@@ -170,4 +171,9 @@ test('customer integral routing bypasses the model, scopes every commercial foll
 
 test('supplier journey integrates into authenticated conversations without model or writes, isolates owners and replaces customer focus',async t=>{
  const f=fixture(t);let r=await f.query('Analizá el cliente MILORDI');r=await f.query('Analizá el proveedor ACME',r.conversationId);assert.match(r.answer,/Proveedor verificado en SA2/);const id=r.conversationId;r=await f.query('sus compras',id);assert.ok(f.calls.some(c=>c.resource==='resumenCompras'&&c.filters.proveedor==='P1'&&c.filters.tienda==='01'));await assert.rejects(()=>f.query('sus saldos',id,'0101','user:b'),{status:404});f.denied='saldosProveedores';r=await f.query('sus saldos',id);assert.match(r.answer,/Esto no podés leerlo/);assert.ok(!r.evidence.some(e=>e.args.recurso==='saldosProveedores'));assert.equal(f.modelCalls,0);assert.equal(f.prepared.length,0);
+});
+
+test('order journey bypasses the model, keeps mutation previews and isolates conversations by owner',async t=>{
+ const f=fixture(t,true);let r=await f.query('Analizá el pedido de venta 123');assert.match(r.answer,/Pedido de venta 000123/);const id=r.conversationId;r=await f.query('sus precios',id);assert.match(r.answer,/58 por millar/);await assert.rejects(()=>f.query('sus facturas',id,'0101','user:b'),{status:404});
+ f.denied='liberacionesVentas';r=await f.query('sus liberaciones',id);assert.match(r.answer,/Esto no podés leerlo/);assert.ok(!r.evidence.some(e=>e.args.recurso==='liberacionesVentas'));f.denied=null;r=await f.query('Cambiá la cantidad a 2 millares y el precio a 60 dólares por millar',id);assert.equal(f.prepared.length,1,r.answer);assert.equal(f.prepared[0].changes.cantidadPedida,'2');assert.equal(f.prepared[0].changes.precioUnitario,'60');assert.equal(f.modelCalls,0);
 });

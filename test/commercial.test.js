@@ -9,10 +9,10 @@ function fixture(rows=[]){
   const c=new Catalog(null,{branches:{},entities:{}}),queries=[];
   for(const [alias,fields] of Object.entries({
     SD1:'FILIAL DOC SERIE ITEM FORNECE LOJA COD UM ESPECIE TIPO TIPODOC EMISSAO QUANT TOTAL VUNIT',
-    SD2:'FILIAL DOC SERIE ITEM CLIENTE LOJA COD UM ESPECIE TIPO TIPODOC EMISSAO QUANT TOTAL PRCVEN QTDAFAT QTDEFAT QTDEDEV',
+    SD2:'FILIAL DOC SERIE ITEM CLIENTE LOJA COD UM ESPECIE TIPO TIPODOC EMISSAO QUANT TOTAL PRCVEN QTDAFAT QTDEFAT QTDEDEV PEDIDO ITEMPV REMITO SERIREM ITEMREM',
     SF1:'FILIAL DOC SERIE FORNECE LOJA TIPO ESPECIE TIPODOC MOEDA',
     SF2:'FILIAL DOC SERIE CLIENTE LOJA TIPO ESPECIE TIPODOC MOEDA',
-    SC5:'FILIAL NUM MOEDA EMISSAO',
+    SC5:'FILIAL NUM MOEDA EMISSAO CLIENTE LOJACLI',
     SC6:'FILIAL NUM ITEM PRODUTO UM QTDVEN QTDENT PRCVEN CLI LOJA ENTREG BLQ',
     SC7:'FILIAL NUM ITEM PRODUTO UM QUANT QUJE PRECO FORNECE LOJA EMISSAO MOEDA RESIDUO ENCER CONAPRO',
   })){
@@ -108,4 +108,17 @@ test('PWA uses chat confirmations and summaries without standalone mutation form
   assert.doesNotMatch(js,/\$\('#(?:update-|create-|workflow-)/);
   assert.match(js,/function renderProposal/);assert.match(js,/confirm:true,fingerprint:proposal.fingerprint/);
   assert.match(js,/function renderDashboard/);assert.match(html,/id="automation-status"/);
+});
+
+test('order documents require an exact order and follow only unique complete origin tuples',()=>{
+ const f=fixture();assert.throws(()=>f.build('documentosPedidoVenta'),{code:'PEDIDO_REQUERIDO'});
+ const r=f.build('documentosPedidoVenta',params({pedido:"125746';--",cliente:'C1',tienda:'01'}));
+ assert.equal(r.bindings.pedido,"125746';--");assert.doesNotMatch(r.text,/125746/);
+ for(const field of ['D2_PEDIDO','D2_ITEMPV','D2_REMITO','D2_SERIREM','D2_ITEMREM','C6_ITEM','C6_PRODUTO','C6_CLI','C6_LOJA','C5_CLIENTE','C5_LOJACLI'])assert.ok(r.text.includes(field),field);
+ assert.match(r.text,/COUNT_BIG\(\*\)/);assert.match(r.text,/r.D2_TIPODOC='50'/);assert.match(r.text,/r.D2_ITEM=i.D2_ITEMREM/);assert.match(r.text,/C6_FILIAL=@branchSC6/);assert.match(r.text,/C5_FILIAL=@branchSC5/);assert.doesNotMatch(r.text,/'NCC'|'NCP'/);
+ f.c.table('SD2').columns.delete('D2_ITEMREM');assert.throws(()=>f.build('documentosPedidoVenta',params({pedido:'125746'})),{code:'ESQUEMA_INCOMPATIBLE'});
+});
+
+test('order invoice/remittance pages keep the document category in SQL instead of filtering a mixed first page',()=>{
+ const f=fixture();assert.match(f.build('documentosPedidoVenta',params({pedido:'125746',documentos:'facturas'})).text,/clase IN \('NF','ND'\)/);assert.match(f.build('documentosPedidoVenta',params({pedido:'125746',documentos:'remitos'})).text,/WHERE clase='REMITO'/);assert.throws(()=>f.build('documentosPedidoVenta',params({pedido:'125746',documentos:'otro'})),{code:'FILTRO_INVALIDO'});
 });
