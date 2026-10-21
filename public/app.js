@@ -173,6 +173,7 @@ async function query(text,dashboard){
   switchView('assistant');const conversation=$('#conversation'),q=node('div','question');q.append(node('span','',text));conversation.append(q);const result=node('div');conversation.append(result);busy(result);
   $('#send').disabled=true;$('#new-chat').disabled=true;const started=Date.now();const timer=setInterval(()=>{const loading=result.querySelector('.loading');if(loading)loading.textContent=`Interpretando y consultando las fuentes · ${Math.round((Date.now()-started)/1000)} s`;},1000);
   try{const response=await api('/api/agent/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,conversationId,...(dashboard?{dashboard}:{}),attachmentId:dashboard?undefined:attachments?.id,topic:$('#topic').value,context:{sucursal:$('#branch').value,...(selectedProject?{proyecto:selectedProject.id}:{})}})});
+    if(response.selectedBranch)$('#branch').value=response.selectedBranch;
     attachments?.receive(response.attachment);
     conversationId=response.conversationId;localStorage.setItem('central-conversation-id',conversationId);renderAnswer(result,response);
     $('#query').value='';

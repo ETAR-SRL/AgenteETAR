@@ -1,3 +1,4 @@
+import {createDashboardChat} from './intelligence/dashboard-chat.js';
 import {savedDashboards} from './saved-dashboards.js';
 import {createFederatedLogin} from './federated-login.js';
 import {createModelSettings} from './intelligence/model-settings.js';
@@ -113,7 +114,8 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   const aiSettings=modelSettings||(model?null:createModelSettings());
   model=model||aiSettings.model;
   const attachmentChat=createAttachmentChat({imports:priceImports,authorize:authorizeImport,model:model||createModel()});
-  const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,model,attachmentChat,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
+  const dashboardChat=createDashboardChat({dashboards,principal:principalNow,executeRead,read,authorizeRead:guard});
+  const intelligence=createIntelligence({erp,kaiqen,store,read,executeRead,branches,dashboardChat,model,attachmentChat,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
   const federated=createFederatedLogin({access,ui});
   const server=http.createServer(async(req,res)=>{
     try{
