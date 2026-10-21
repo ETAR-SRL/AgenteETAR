@@ -6,6 +6,12 @@ const reply=(answer,choices)=>({answer,evidence:[],trace:[],...(choices?.length?
 const fingerprint=r=>JSON.stringify(r&&{branch:r.branch,resource:r.resource,filters:r.filters});
 function command(text){
  const s=text.trim().replace(/^[¿¡]/,'').replace(/[?!.]+$/,'').replace(/^(?:(?:che|por favor|porfa|ahora|perfecto|bueno)[, ]+|(?:quiero|necesito|podes|podés)\s+)+/i,'');
+ if(/^(?:mostrame|mostrar|ver|lista|listar) (?:mis |los )?filtros(?: guardados)?(?: de historial)?$/i.test(s))return {action:'presetList'};
+ const contextualPreset=/^guard[aá]los(?: como (.*))?$/i.exec(s);if(contextualPreset)return {action:'presetSave',name:clean((contextualPreset[1]||'').replace(/\s+(?:con )?fechas (?:fijas|exactas)$/i,'')),fixed:/fechas (?:fijas|exactas)/i.test(s)};
+ let presetMatch=/^(?:guard[aá](?:me|lo|los)?|guardar) (?:estos |los |mis )?filtros(?: del? historial)?(?: como | con (?:el )?nombre )?(.*)$/i.exec(s);
+ if(presetMatch)return {action:'presetSave',name:clean(presetMatch[1].replace(/\s+(?:con )?fechas (?:fijas|exactas)$/i,'')),fixed:/fechas (?:fijas|exactas)/i.test(s)};
+ presetMatch=/^(?:aplic[aá](?:me|r)?|us[aá](?:r)?|consult[aá](?:r)? con|export[aá](?:r)? con|descarg[aá](?:r)? con) (?:los |mis )?filtros(?: guardados)?(?: de historial)?\s*(.*)$/i.exec(s);
+ if(presetMatch)return {action:'presetApply',name:clean(presetMatch[1].replace(/\s+en excel$/i,''))};
  if(/^(?:mostrame|mostrar|ver|lista|listar)\s+(?:mis |los )?dashboards(?: guardados| compartidos)?[?!.]*$/i.test(s))return {action:'list'};
  const historyQuery=/^(?:(?:mostrame|mostrar|ver|consultar|decime|dame|descarg[aá](?:me|lo|r)?|export[aá](?:me|lo|r)?|baj[aá](?:me|lo|r)?)\s+)?(?:el )?(?:historial|historia|hist[oó]rico)(?:\s+(?:del|de))?\s*(.*)$/i.exec(s);
  const historyWho=/^qui[eé]n (?:lo )?(?:comparti[oó]|quit[oó] (?:los )?accesos|revoc[oó] (?:los )?accesos)(?:\s+(?:del|de|al))?\s*(.*)$/i.exec(s);
@@ -42,18 +48,18 @@ function recipientParts(text){
  return segments.map(value=>{const m=/^(?:el |la |los |las |al |a la )?(usuario(?:s)?|rol|roles|grupo)\s+(.+)$/i.exec(value.trim());return {kind:m?/rol|grupo/i.test(m[1])?'role':'user':undefined,text:clean(m?m[2]:value)};}).filter(p=>p.text);
 }
 function historyFilterText(text,today){
- const filters={},names={};let remaining=String(text||'').replace(/\b(?:descarg[aá](?:lo|r)?|export[aá](?:lo|r)?|baj[aá](?:lo|r)?)\b/gi,'').replace(/\b(?:en |a )?excel\b/gi,'');
+ const filters={},names={};let period;let remaining=String(text||'').replace(/\b(?:descarg[aá](?:lo|r)?|export[aá](?:lo|r)?|baj[aá](?:lo|r)?)\b/gi,'').replace(/\b(?:en |a )?excel\b/gi,'');
  remaining=remaining.replace(/\b(?:(?:solo|solamente)\s+)?(?:(?:los )?accesos\s+|(?:por )?tipo(?: de cambio)?\s+)?(?:los\s+)?(agregados|quitados|sin cambios)\b/gi,(_,kind)=>{assert(!filters.tipo,400,'TIPO_AMBIGUO','Elegí un único tipo: accesos agregados, quitados o sin cambios.');filters.tipo=norm(kind)==='sin cambios'?'sin_cambios':norm(kind);return ' ';});
  const date=value=>{if(/^\d{4}-\d{2}-\d{2}$/.test(value))return value;const [d,m,y]=value.split('/');return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;};
- remaining=remaining.replace(/\b(desde|hasta)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})/gi,(_,k,v)=>{assert(!Object.hasOwn(filters,k.toLowerCase()),400,'FILTRO_DUPLICADO','Indicá una sola fecha '+k+'.');filters[k.toLowerCase()]=date(v);return ' ';});
- remaining=remaining.replace(/\b(este mes|mes pasado|este a[nñ]o|a[nñ]o pasado|hoy|ayer)\b/gi,(_,p)=>{assert(!filters.desde&&!filters.hasta,400,'FECHAS_AMBIGUAS','Usá un período relativo o fechas exactas, sin mezclarlos.');if(/hoy|ayer/i.test(p)){const d=new Date(today+'T12:00:00Z');if(/ayer/i.test(p))d.setUTCDate(d.getUTCDate()-1);filters.desde=filters.hasta=d.toISOString().slice(0,10);}else Object.assign(filters,reportPeriod(norm(p).replace('ano','año'),today));return ' ';});
+ remaining=remaining.replace(/\b(desde|hasta)\s+(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{4})/gi,(_,k,v)=>{assert(!Object.hasOwn(filters,k.toLowerCase()),400,'FILTRO_DUPLICADO','Indicá una sola fecha '+k+'.');period='fijo';filters[k.toLowerCase()]=date(v);return ' ';});
+ remaining=remaining.replace(/\b(este mes|mes pasado|este a[nñ]o|a[nñ]o pasado|hoy|ayer)\b/gi,(_,p)=>{assert(!filters.desde&&!filters.hasta,400,'FECHAS_AMBIGUAS','Usá un período relativo o fechas exactas, sin mezclarlos.');period=norm(p).replace('ano','año');if(/hoy|ayer/i.test(p)){const d=new Date(today+'T12:00:00Z');if(/ayer/i.test(p))d.setUTCDate(d.getUTCDate()-1);filters.desde=filters.hasta=d.toISOString().slice(0,10);}else Object.assign(filters,reportPeriod(norm(p).replace('ano','año'),today));return ' ';});
  remaining=remaining.replace(/\b(?:realizados|realizadas|hechos|hechas|efectuados|efectuadas)\s+por\s+(?:el usuario )?/gi,'autor ');
  const keyPattern='autor|usuario(?: destinatario)?|destinatario(?: usuario| rol)?|rol(?: destinatario)?';
  const subjects=new RegExp('(?:(?:\\by\\s+)?(?:el\\s+)?)?(?:\\b(?:del?|por|para)\\s+(?:el )?)?\\b('+keyPattern+')\\s+(?:"([^\"]+)"|«([^»]+)»|(.+?))(?=\\s+(?:(?:y )?(?:(?:del?|por|para) )?(?:el )?(?:'+keyPattern+')\\b)|$)','gi');
  remaining=remaining.replace(subjects,(_,k,q,a,v)=>{const key=/autor/i.test(k)?'autor':/rol/i.test(k)?'rol':'destinatario';assert(!Object.hasOwn(names,key),400,'FILTRO_DUPLICADO','Indicá un solo '+key+' para filtrar.');names[key]=clean(q||a||v).replace(/\s+y$/i,'');return ' ';});
  assert(!/\b(autor|destinatario|usuario|rol|desde|hasta|tipo)\b/i.test(remaining),400,'FILTRO_INCOMPLETO','Completá el autor o destinatario, o indicá las fechas como DD/MM/AAAA o AAAA-MM-DD. No apliqué un filtro incompleto.');
  remaining=remaining.replace(/\s+/g,' ').replace(/(?:\s+|^)(?:y|por|para|del?|el)$/gi,'').trim();
- return {reference:remaining,filters,names};
+ return {reference:remaining,filters,names,period};
 }
 export function createDashboardChat({dashboards,principal,executeRead,read,authorizeRead,clock=()=>new Date()}){
  return async function dashboardChat({text,conversation,branch}){
@@ -69,14 +75,16 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
   const p=principal();
   const available=()=>dashboards.list(p);
   const today=clock().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'});
+  if(intent?.action==='presetList'){delete conversation.dashboardDraft;const rows=dashboards.listHistoryFilters(p);return reply(rows.length?'Estos son tus filtros de historial guardados:':'Todavía no guardaste filtros de historial.',rows.map(r=>({label:`${r.name} · ${r.dashboardName} · ${r.period}`,text:`Aplicá los filtros "${r.name}"`})) );}
   if(intent?.action==='list'){delete conversation.dashboardDraft;const rows=available();return reply(rows.length?'Estos son tus dashboards disponibles:':'Todavía no tenés dashboards guardados ni compartidos.',rows.map(r=>({label:`${r.name} · ${r.owned?'propio':'compartido'} · ${r.dashboard.filters.sucursal}`,text:`Abrí el dashboard "${r.name}"`})) );}
   // A new command replaces an unfinished one. Plain replies only fill the outstanding slot.
-  if(intent){draft={...intent,branch,targets:[]};if(intent.action==='history'){const parsed=historyFilterText(intent.reference||'',today);draft.reference=parsed.reference;draft.filters={...(intent.inheritFilters||intent.page?conversation.dashboardHistory?.filters:{}),...parsed.filters};draft.filterNames=parsed.names;if(parsed.names.destinatario)delete draft.filters.usuario;}conversation.dashboardDraft=draft;}
+  if(intent){draft={...intent,branch,targets:[]};if(intent.action==='history'){const parsed=historyFilterText(intent.reference||'',today);draft.reference=parsed.reference;draft.filters={...(intent.inheritFilters||intent.page?conversation.dashboardHistory?.filters:{}),...parsed.filters};draft.period=parsed.period||((intent.inheritFilters||intent.page)?conversation.dashboardHistory?.period:undefined)||'fijo';draft.filterNames=parsed.names;if(parsed.names.destinatario)delete draft.filters.usuario;}conversation.dashboardDraft=draft;}
   else if(draft.choices){
    const n=/^(?:opci[oó]n |el |la )?(\d+)[.!]?$/i.exec(text.trim()),q=norm(text).replace(/^(?:el |la )?(?:usuario|rol)[: ]+/,''),matches=draft.choices.filter(c=>norm(c.label).includes(q));
    const selected=n?draft.choices[Number(n[1])-1]:matches.length===1?matches[0]:null;
    if(!selected)return reply('Elegí una de estas opciones para continuar.',draft.choices.map((c,i)=>({label:`${i+1}. ${c.label}`,text:`Opción ${i+1}`})));
-   if(draft.wait==='dashboard')draft.dashboardId=selected.id;
+   if(draft.wait==='preset')draft.presetId=selected.id;
+   else if(draft.wait==='dashboard')draft.dashboardId=selected.id;
    else if(draft.wait==='accessUser')draft.userId=selected.id;
    else if(['historyUser','historyRole','historyAuthor','historyDestination'].includes(draft.wait)){const key={historyUser:'usuario',historyRole:'rol',historyAuthor:'autor',historyDestination:'destinatario'}[draft.wait];draft.filters[key]=selected.id;delete draft.filterNames[key];}
    else{draft.targets.push(selected.target);draft.parts.shift();}
@@ -84,9 +92,20 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
   }else if(draft.wait==='name'){draft.name=clean(text.replace(/^(?:llam[aá]lo|ponele|que se llame|con (?:el )?nombre)\s+/i,''));delete draft.wait;}
   else if(draft.wait==='recipientCorrection'){draft.parts=[...recipientParts(text),...draft.parts.slice(1)];delete draft.wait;}
   else if(draft.wait==='recipients'){draft.parts=recipientParts(text);delete draft.wait;}
+  else if(draft.wait==='presetName'){draft.name=clean(text);delete draft.wait;}
   else if(draft.wait==='dashboard'){draft.reference=clean(text);delete draft.wait;}
   else if(!intent){delete conversation.dashboardDraft;return null;}
   const choose=(question,choices,wait)=>{draft.choices=choices;draft.wait=wait;return reply(question,choices.map((c,i)=>({label:`${i+1}. ${c.label}`,text:`Opción ${i+1}`})));};
+  if(draft.action==='presetSave'){
+   const history=conversation.dashboardHistory;if(!history||history.branch!==branch||conversation.dashboardFocus?.id!==history.id){delete conversation.dashboardDraft;return reply('Primero consultá el historial con los filtros que querés guardar. Después decime «guardá estos filtros como…».');}
+   if(!draft.name){draft.wait='name';return reply('¿Qué nombre querés ponerle a estos filtros de historial?');}
+   let period=draft.fixed?'fijo':history.period||'fijo';if(!draft.fixed&&!history.period)for(const name of ['hoy','ayer','este mes','mes pasado','este año','año pasado']){let range;if(['hoy','ayer'].includes(name)){const d=new Date(today+'T12:00:00Z');if(name==='ayer')d.setUTCDate(d.getUTCDate()-1);range={desde:d.toISOString().slice(0,10),hasta:d.toISOString().slice(0,10)};}else range=reportPeriod(name,today);if(history.filters?.desde===range.desde&&history.filters?.hasta===range.hasta){period=name;break;}}
+   const saved=dashboards.saveHistoryFilters(p,{name:draft.name,dashboardId:history.id,filters:history.filters||{},period});delete conversation.dashboardDraft;return reply(`Guardé para vos **${saved.name}**, del historial de **${saved.dashboardName}**. Período: ${period==='fijo'?'fechas fijas':period}. Para consultarlo o descargarlo decime «aplicá los filtros ${saved.name}». Se verifican tus permisos cada vez.`);
+  }
+  if(draft.action==='presetApply'){
+   if(!draft.presetId){const q=norm(draft.name);let rows=dashboards.listHistoryFilters(p);if(q){const exact=rows.filter(r=>norm(r.name)===q);rows=exact.length?exact:rows.filter(r=>norm(r.name).includes(q));}if(rows.length===1)draft.presetId=rows[0].id;else if(rows.length)return choose('¿Qué filtros guardados querés aplicar?',rows.map(r=>({id:r.id,label:`${r.name} · ${r.dashboardName} · ${r.period}`})),'preset');else{draft.wait='presetName';return reply('No encontré filtros guardados disponibles con ese nombre. ¿Cómo se llaman?');}}
+   const saved=dashboards.getHistoryFilters(p,draft.presetId);draft={action:'history',branch:saved.branch,dashboardId:saved.dashboardId,filters:saved.filters,period:saved.period,filterNames:{}};conversation.dashboardDraft=draft;branch=saved.branch;
+  }
   if(draft.action==='save'){
    if(!draft.report){const r=conversation.reportContext;if(!r||r.branch!==branch){delete conversation.dashboardDraft;return reply('Primero pedime el dashboard que querés guardar, con sus filtros. Después decime «guardalo como…».');}draft.report=structuredClone(r);}
    if(!draft.name){draft.wait='name';return reply('¿Qué nombre querés ponerle a este dashboard?');}
@@ -124,9 +143,9 @@ export function createDashboardChat({dashboards,principal,executeRead,read,autho
    }
    const report=dashboards.history(p,draft.dashboardId,{page:draft.page||1,filters:draft.filters||{}}),format=ts=>new Date(ts).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires',dateStyle:'short',timeStyle:'medium'}),label=t=>`${t.kind==='user'?'usuario':'rol'} ${t.name}`;
    const lines=report.data.map(e=>e.legacy?`• ${format(e.at)} · auditoría anterior (${e.event==='dashboard.sharing.updated'?'cambio de destinatarios':'solicitud de revocación'}). Autor: ${e.who.name}${e.who.currentName?' (nombre actual; no conservado en el evento)':''}. Sin detalle histórico verificable de los destinatarios ni del resultado.`:`• ${format(e.at)} · **${e.who.name}**: ${[e.added.length?'compartió con '+e.added.map(label).join(', '):'',e.removed.length?'quitó acceso a '+e.removed.map(label).join(', '):''].filter(Boolean).join('; ')||'sin cambios en los accesos'}.`);
-   conversation.dashboardFocus={id:report.id,fingerprint:fingerprint(conversation.reportContext)};conversation.dashboardHistory={id:report.id,page:report.page,branch,filters:report.filters};delete conversation.dashboardDraft;
+   conversation.dashboardFocus={id:report.id,fingerprint:fingerprint(conversation.reportContext)};conversation.dashboardHistory={id:report.id,page:report.page,branch,filters:report.filters,period:draft.period||'fijo'};delete conversation.dashboardDraft;
    const filterLabel=Object.entries(report.filters||{}).map(([k,v])=>`${k==='destinatario'?'usuario destinatario':k==='rol'?'rol destinatario':k==='usuario'?'usuario (autor o destinatario)':k}: ${k==='autor'?subjects.authors.find(r=>r.id===v)?.name||v:k==='destinatario'?subjects.destinations.find(r=>r.id===v)?.name||v:k==='usuario'?subjects.users.find(r=>r.id===v)?.name||v:k==='rol'?subjects.roles.find(r=>r.id===v)?.name||v:k==='tipo'?v==='sin_cambios'?'sin cambios':'accesos '+v:v}`).join(' · ');
-   return {...reply(`**Historial de ${report.name}**${filterLabel?' · '+filterLabel:''}\n\n${lines.join('\n')||(Object.keys(report.filters||{}).length?'No hay eventos que coincidan con estos filtros.':'No hay cambios de acceso registrados para este dashboard.')}\n\nPágina ${report.page} · ${report.total} evento(s). Horarios de Argentina.\n\n${report.limitations.join(' ')}`,report.hasMore?[{label:'Ver más historial',text:'Mostrame más historial de este dashboard'}]:undefined),historyExport:{id:report.id,filters:report.filters||{}}};
+   return {...reply(`**Historial de ${report.name}**${filterLabel?' · '+filterLabel:''}\n\n${lines.join('\n')||(Object.keys(report.filters||{}).length?'No hay eventos que coincidan con estos filtros.':'No hay cambios de acceso registrados para este dashboard.')}\n\nPágina ${report.page} · ${report.total} evento(s). Horarios de Argentina.\n\n${report.limitations.join(' ')}`,report.hasMore?[{label:'Ver más historial',text:'Mostrame más historial de este dashboard'}]:undefined),selectedBranch:branch,historyExport:{id:report.id,filters:report.filters||{}}};
   }
   if(draft.action==='inspect'){
    const report=dashboards.inspect(p,draft.dashboardId);

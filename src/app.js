@@ -188,6 +188,12 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         if(req.method==='GET')return send(res,200,{data:dashboards.list(principal)});
         if(req.method==='POST')return send(res,201,dashboards.save(principal,await body(req)));
       }
+      if(url.pathname==='/api/history-filters'){
+        if(req.method==='GET')return send(res,200,{data:dashboards.listHistoryFilters(principal)});
+        if(req.method==='POST')return send(res,201,dashboards.saveHistoryFilters(principal,await body(req)));
+      }
+      const presetMatch=/^\/api\/history-filters\/([a-f0-9-]{36})$/.exec(url.pathname);
+      if(presetMatch&&req.method==='GET')return send(res,200,dashboards.getHistoryFilters(principal,presetMatch[1]));
       const historyMatch=/^\/api\/dashboards\/([a-f0-9-]{36})\/history(\.xlsx)?$/.exec(url.pathname);
       if(historyMatch&&req.method==='GET'){
         assert([...url.searchParams.keys()].every(k=>['page','usuario','autor','destinatario','rol','desde','hasta','tipo'].includes(k)&&url.searchParams.getAll(k).length===1),400,'FILTROS_INVALIDOS','Filtros inválidos o repetidos.');
