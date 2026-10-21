@@ -200,6 +200,8 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       }
       const undoPreset=/^\/api\/history-filters\/([a-f0-9-]{36})\/undo$/.exec(url.pathname);
       if(undoPreset&&req.method==='POST')return send(res,200,dashboards.undoHistoryFilters(principal,undoPreset[1]));
+      const redoPreset=/^\/api\/history-filters\/([a-f0-9-]{36})\/redo$/.exec(url.pathname);
+      if(redoPreset&&req.method==='POST')return send(res,200,dashboards.redoHistoryFilters(principal,redoPreset[1]));
       const restorePreset=/^\/api\/history-filters\/([a-f0-9-]{36})\/restore$/.exec(url.pathname);
       if(restorePreset&&req.method==='POST')return send(res,200,dashboards.restoreHistoryFilters(principal,restorePreset[1]));
       const historyMatch=/^\/api\/dashboards\/([a-f0-9-]{36})\/history(\.xlsx)?$/.exec(url.pathname);
