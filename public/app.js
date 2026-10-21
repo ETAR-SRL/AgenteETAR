@@ -108,6 +108,7 @@ function renderDashboard(where,envelope,heading,{append=false,comparison=true}={
   const card=node('article','result-card'),header=node('div','result-header'),rows=envelope.data||[];
   card.classList.add('dashboard-card');
   header.append(node('h3','',heading));
+  const saveButton=node('button','secondary','Guardar dashboard');saveButton.onclick=()=>saveDashboardDialog(envelope,heading);header.append(saveButton);
   const exportButton=node('button','secondary','↓ CSV');exportButton.onclick=()=>downloadRows(dashboardRows(rows),'resumen');header.append(exportButton);
   const printButton=node('button','secondary','Imprimir / PDF');printButton.onclick=()=>printReport(card);header.append(printButton);
   card.append(header,node('p','result-meta',`Protheus · ${stamp(envelope.source?.fetchedAt)} · ${envelope.scope.desde} a ${envelope.scope.hasta} · sucursal ${envelope.scope.sucursal}`));
@@ -404,3 +405,22 @@ $('#chat-history').onclick=()=>{if($('#send').disabled)return;$('#history-dialog
 window.addEventListener('offline',()=>{$('#notice').textContent='Sin conexión. Podés ver la interfaz, pero necesitás conexión al servidor para consultar datos o confirmar cambios.';$('#notice').classList.remove('hidden');});
 window.addEventListener('online',()=>{$('#notice').textContent='Conexión restablecida. Volvé a intentar tu consulta.';$('#notice').classList.remove('hidden');});
 const languageButton=node('button','secondary hidden','Mis expresiones');languageButton.type='button';languageButton.onclick=()=>query('¿Qué expresiones aprendiste?');$('.assistant-toolbar').append(languageButton);
+
+function dashboardDialog(title){
+ const dialog=node('dialog','saved-dashboard-dialog'),head=node('h2','',title),close=node('button','secondary','Cerrar');close.onclick=()=>dialog.close();dialog.append(head,close);dialog.addEventListener('close',()=>dialog.remove());document.body.append(dialog);dialog.showModal();return dialog;
+}
+function saveDashboardDialog(report,title){
+ const dialog=dashboardDialog('Guardar dashboard'),form=node('form','dashboard-filters'),label=node('label','','Nombre'),name=node('input');name.required=true;name.maxLength=100;name.value=title;label.append(name);
+ const periodLabel=node('label','','Período'),period=node('select');for(const [value,text] of [['fijo','Estas fechas exactas'],['este mes','Este mes · se actualiza al abrir'],['mes pasado','Mes anterior · se actualiza al abrir'],['este año','Este año · se actualiza al abrir'],['año pasado','Año anterior · se actualiza al abrir']]){const option=node('option','',text);option.value=value;period.append(option);}periodLabel.append(period);
+ const save=node('button','primary','Guardar'),status=node('p','','Se guardan los filtros, no los resultados. Al abrir se consultan datos actuales con tus permisos.');save.type='submit';form.append(label,periodLabel,save);dialog.append(form,status);
+ form.onsubmit=async e=>{e.preventDefault();save.disabled=true;try{await api('/api/dashboards',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.value,period:period.value,dashboard:{mode:'summary',resource:report.meta.recurso,filters:{...report.scope.filtros,sucursal:report.scope.sucursal,desde:report.scope.desde,hasta:report.scope.hasta,agrupar:report.scope.agrupar||'mes'}}})});dialog.close();notice('Dashboard guardado en Mis dashboards.');}catch(error){status.textContent=error.message;}finally{save.disabled=false;}};
+}
+const savedButton=node('button','secondary','Mis dashboards');savedButton.type='button';$('.assistant-toolbar').append(savedButton);
+savedButton.onclick=async()=>{
+ const dialog=dashboardDialog('Mis dashboards'),content=node('div'),status=node('p','','Cargando…');dialog.append(status,content);
+ try{const {data}=await api('/api/dashboards');status.textContent=data.length?'Sólo vos ves estos dashboards. Se consultan nuevamente al abrirlos.':'Todavía no guardaste dashboards. Usá Guardar dashboard en un resultado.';
+ for(const entry of data){const row=node('article','result-card'),open=node('button','secondary',entry.name),remove=node('button','text-button','Quitar');row.append(open,node('p','result-meta',`${entry.period==='fijo'?'Fechas fijas':entry.period} · sucursal ${entry.dashboard.filters.sucursal} · ${visual(entry.dashboard.filters)}`),remove);content.append(row);
+ open.onclick=async()=>{open.disabled=true;try{const current=await api('/api/dashboards/'+entry.id);$('#branch').value=current.dashboard.filters.sucursal;dialog.close();await query('Abrir dashboard guardado: '+entry.name,current.dashboard);}catch(error){status.textContent=error.message;open.disabled=false;}};
+ remove.onclick=async()=>{try{await api('/api/dashboards/'+entry.id,{method:'DELETE'});row.remove();}catch(error){status.textContent=error.message;}};
+ }}catch(error){status.textContent=error.message;}
+};

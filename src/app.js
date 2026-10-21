@@ -1,3 +1,4 @@
+import {savedDashboards} from './saved-dashboards.js';
 import {createFederatedLogin} from './federated-login.js';
 import {createModelSettings} from './intelligence/model-settings.js';
 import {AsyncLocalStorage} from 'node:async_hooks';
@@ -35,6 +36,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   const send=(res,status,value)=>{if(context.getStore())principalNow();return rawSend(res,status,value);};
   const guard=resource=>{const p=principalNow();assertRead(p,resource);return p;};
   const branchGuard=branch=>{const p=principalNow();assert(p?.unrestricted||p?.branches.includes(branch),403,'LECTURA_DENEGADA',denied);};
+  const dashboards=savedDashboards(store,{authorize:(_p,resource,branch)=>{guard(resource);branchGuard(branch);assert(branches.includes(branch),403,'LECTURA_DENEGADA',denied);}});
   const rawErp=erp,rawKaiqen=kaiqen;
   erp={...rawErp,list:async(resource,params)=>{guard(resource);branchGuard(params.get('sucursal'));const value=await rawErp.list(resource,params);principalNow();return value;}};
   if(rawErp.writes){erp.writes={...rawErp.writes};for(const method of ['prepare','check','execute'])erp.writes[method]=async(...args)=>{
@@ -174,6 +176,15 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
           if(req.method==='POST'&&match[2]==='/preview')return send(res,200,await priceImports.preview(principal.actor,match[1],await body(req,512000)));
         }
         throw new HttpError(404,'RUTA_NO_EXISTE','Ruta de adjuntos inexistente.');
+      }
+      if(url.pathname==='/api/dashboards'){
+        if(req.method==='GET')return send(res,200,{data:dashboards.list(principal)});
+        if(req.method==='POST')return send(res,201,dashboards.save(principal,await body(req)));
+      }
+      const savedMatch=/^\/api\/dashboards\/([a-f0-9-]{36})$/.exec(url.pathname);
+      if(savedMatch){
+        if(req.method==='GET')return send(res,200,dashboards.open(principal,savedMatch[1]));
+        if(req.method==='DELETE')return send(res,200,dashboards.remove(principal,savedMatch[1]));
       }
       if(req.method==='GET'&&url.pathname==='/api/agent/status')return send(res,200,await intelligence.status());
       if(req.method==='POST'&&url.pathname==='/api/agent/chat')return send(res,200,await intelligence.query(principal.actor,await body(req),{canPlan:['planner','writer'].includes(principal.role),allowedBranches:principal.branches||branches}));
