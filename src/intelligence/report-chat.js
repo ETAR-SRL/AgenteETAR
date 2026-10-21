@@ -10,7 +10,7 @@ export function reportPeriod(name,today=new Date().toLocaleDateString('en-CA',{t
  return {desde:`${y}-${String(m).padStart(2,'0')}-01`,hasta:today};
 }
 export function reportRequest(text,today=new Date().toLocaleDateString('en-CA',{timeZone:'America/Argentina/Buenos_Aires'})){
- let n=norm(text).replace(/^(?:(?:ok|perfecto|bueno|por favor) )+/,'').replace(/^(?:mostrame|mostra|dame|haceme|hace|quiero|necesito|armame|arma|generame|genera) /,'').replace(/^(?:un |el )/,'');
+ let n=norm(text).replace(/^(?:(?:ok|perfecto|bueno|por favor) )+/,'').replace(/^(?:mostrame|mostra|dame|haceme|hace|quiero|necesito|armame|arma|generame|genera) /,'').replace(/^(?:un |una |el |la )/,'');
  const head=/^(?:dashboard|resumen|informe|reporte|grafico|ranking|evolucion)(?: de)? (?:(?:las|los) )?(ventas y compras|compras y ventas|pedidos de venta pendientes|pedidos de compra pendientes|pedidos de venta|pedidos de compra|remitos pendientes|ventas|compras)(?: facturadas)?\b/.exec(n);
  if(!head)return null;
  const resources={'ventas':'resumenVentas','compras':'resumenCompras','pedidos de venta':'resumenPedidosVenta','pedidos de compra':'resumenPedidosCompra','pedidos de venta pendientes':'resumenPedidosVenta','pedidos de compra pendientes':'resumenPedidosCompra','remitos pendientes':'resumenRemitosPendientes'};
