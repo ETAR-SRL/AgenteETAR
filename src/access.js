@@ -4,8 +4,9 @@ import {assert} from './errors.js';
 const scrypt=promisify(scryptCallback),digest=s=>createHash('sha256').update(s).digest('hex');
 const passwordOptions={N:32768,r:8,p:3,maxmem:64*1024*1024};
 export const denied='Esto no podés leerlo.';
-export const domains={catalogo:'Productos, estructuras y catálogos',clientes:'Clientes y sus datos',proveedores:'Proveedores y sus datos',costos:'Costos y valuación de existencias',preciosVenta:'Precios de venta y listas',preciosCompra:'Precios de compra y listas',ventas:'Pedidos y documentos de venta',compras:'Solicitudes, pedidos y documentos de compra',produccion:'Producción y pendientes de fabricación',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN',aprobaciones:'Circuitos e historial de aprobaciones'};
+export const domains={finanzasClientes:'Saldos financieros de clientes',catalogo:'Productos, estructuras y catálogos',clientes:'Clientes y sus datos',proveedores:'Proveedores y sus datos',costos:'Costos y valuación de existencias',preciosVenta:'Precios de venta y listas',preciosCompra:'Precios de compra y listas',ventas:'Pedidos y documentos de venta',compras:'Solicitudes, pedidos y documentos de compra',produccion:'Producción y pendientes de fabricación',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN',aprobaciones:'Circuitos e historial de aprobaciones'};
 export const resourceDomains={
+ saldosClientes:['finanzasClientes','clientes'],
  comprobantesVentas:['ventas','clientes','preciosVenta','catalogo'],resumenVentas:['ventas','clientes','preciosVenta','catalogo'],
  comprobantesCompras:['compras','proveedores','preciosCompra','catalogo'],resumenCompras:['compras','proveedores','preciosCompra','catalogo'],
  remitosEmitidos:['ventas','clientes','preciosVenta','catalogo'],remitosPendientes:['ventas','clientes','preciosVenta','catalogo'],resumenRemitosPendientes:['ventas','clientes','preciosVenta','catalogo'],

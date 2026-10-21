@@ -1,6 +1,7 @@
 {
   "schema": "dbo",
   "tables": {
+    "SE1": "dbo.SE1010",
     "SM2": "dbo.SM2010",
     "SX7": "dbo.SX7010",
     "SF1": "dbo.SF1010",
@@ -44,6 +45,7 @@
     "SAI": "dbo.SAI010"
   },
   "branches": {
+    "SE1": {"0101": "0101"},
     "SM2": {"0101": ""},
     "SF1": {"0101": "0101"},
     "SY1": {"0101": "01"},
@@ -148,6 +150,66 @@
     }
   },
   "entities": {
+    "saldosClientes": {
+      "alias": "SE1",
+      "branch": "E1_FILIAL",
+      "required": [
+        "E1_CLIENTE",
+        "E1_LOJA",
+        "E1_TIPO",
+        "E1_MOEDA",
+        "E1_SALDO",
+        "E1_NUM",
+        "E1_PREFIXO",
+        "E1_PARCELA"
+      ],
+      "nonZeroField": "E1_SALDO",
+      "dateField": "E1_VENCTO",
+      "fields": {
+        "E1_CLIENTE": "clienteCodigo",
+        "E1_LOJA": "clienteTienda",
+        "E1_PREFIXO": "prefijo",
+        "E1_NUM": "numero",
+        "E1_PARCELA": "cuota",
+        "E1_TIPO": "tipoTitulo",
+        "E1_EMISSAO": {
+          "output": "fechaEmision",
+          "type": "date"
+        },
+        "E1_VENCTO": {
+          "output": "fechaVencimiento",
+          "type": "date"
+        },
+        "E1_VENCREA": {
+          "output": "fechaVencimientoReal",
+          "type": "date"
+        },
+        "E1_VALOR": {
+          "output": "valorOriginal",
+          "type": "decimal"
+        },
+        "E1_SALDO": {
+          "output": "saldoPendiente",
+          "type": "decimal"
+        },
+        "E1_MOEDA": {
+          "output": "moneda",
+          "currencyParameters": true
+        }
+      },
+      "filters": {
+        "cliente": "E1_CLIENTE",
+        "tienda": "E1_LOJA",
+        "tipo": "E1_TIPO",
+        "moneda": "E1_MOEDA",
+        "numero": "E1_NUM"
+      },
+      "warnings": [
+        "Saldo almacenado SE1 distinto de cero; no es saldo de pedidos ni de remitos.",
+        "Mostrar moneda y tipo por separado; no netear RA/NCC u otras especies como deuda.",
+        "No calcula intereses, impuestos, compensaciones, movimientos SE5 ni estados a fecha histórica."
+      ]
+    },
     "compradores": {
       "alias": "SY1", "branch": "Y1_FILIAL",
       "required": ["Y1_COD", "Y1_NOME", "Y1_GRAPROV", "Y1_PEDIDO"],

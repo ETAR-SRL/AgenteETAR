@@ -19,6 +19,7 @@ export function buildQuery(catalog, entity, params) {
   const bindings = { branch: catalog.branch(entity.alias, params.get('sucursal')), offset: (paging.page-1)*paging.limit, take: paging.limit+1 };
   if (String(bindings.branch).length > 32) throw new ApiError(400,'SUCURSAL_INVALIDA','Sucursal demasiado larga');
   const conditions = [`${q(entity.branch)} = @branch`, `[D_E_L_E_T_] = ' '`];
+  if(entity.nonZeroField){const f=entity.nonZeroField;const col=table.columns.get(f);if(!col||!['float','real','decimal','numeric','money','smallmoney','int','bigint'].includes(col.type.toLowerCase()))throw new ApiError(503,'ESQUEMA_INCOMPATIBLE','Saldo financiero no numérico o no disponible');conditions.push(`${q(f)} <> 0`);}
   if(params.has('q')){
     const query=params.get('q').trim();if(query.length<2||query.length>120)throw new ApiError(400,'BUSQUEDA_INVALIDA','Buscar entre 2 y 120 caracteres');
     const words=query.split(/\s+/);if(words.length>10)throw new ApiError(400,'BUSQUEDA_INVALIDA','Máximo 10 palabras');

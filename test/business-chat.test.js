@@ -163,3 +163,7 @@ test('read timeout keeps the selected product for a direct retry',async t=>{
  test('integral product route bypasses model and persists only own branch context across direct followups',async t=>{
  const f=fixture(t);let r=await f.query('Analizá el producto Z100');assert.match(r.answer,/Precios de lista/);assert.ok(r.evidence.some(e=>e.args.recurso==='costos'));const id=r.conversationId;r=await f.query('y los costos',id);assert.match(r.answer,/Costos y existencias/);assert.equal(f.modelCalls,0);assert.equal(f.prepared.length,0);await assert.rejects(()=>f.query('y los costos',id,'0101','user:b'),{status:404});const calls=f.calls.length;f.denied='costos';r=await f.query('y los costos',id);assert.match(r.answer,/Esto no podés leerlo/);assert.ok(!r.evidence.some(e=>e.args.recurso==='costos'));
 });
+
+test('customer integral routing bypasses the model, scopes every commercial followup by store and isolates accounts',async t=>{
+ const f=fixture(t);let r=await f.query('Analizá el cliente MILORDI');assert.match(r.answer,/Cliente verificado en SA1/);assert.equal(f.modelCalls,0);const id=r.conversationId;r=await f.query('sus ventas',id);assert.ok(f.calls.some(c=>c.resource==='resumenVentas'&&c.filters.cliente==='C1'&&c.filters.tienda==='01'));await assert.rejects(()=>f.query('sus saldos',id,'0101','user:b'),{status:404});f.denied='saldosClientes';r=await f.query('sus saldos',id);assert.match(r.answer,/Esto no podés leerlo/);assert.ok(!r.evidence.some(e=>e.args.recurso==='saldosClientes'));assert.equal(f.prepared.length,0);
+});

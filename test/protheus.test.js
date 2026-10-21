@@ -33,6 +33,9 @@ test('SQL values are bound, deletion and stable recno ordering are enforced',()=
   assert.match(query.text,/CONVERT\(varchar\(80\),\[C7_PRECO\]\)/);
   assert.throws(()=>identifier('dbo;DROP'),/inválido/);
 });
+test('customer financial balances bind customer/store and preserve SE1 identity, nonzero filter, filial and decimals',()=>{
+ const c=fakeCatalog(),entity=config.entities.saldosClientes;const bad="'; DROP TABLE SE1010;--",q=buildQuery(c,entity,new URLSearchParams({sucursal:'0101',cliente:bad,tienda:'01'}));assert.match(q.text,/\[E1_SALDO\] <> 0/);assert.match(q.text,/\[E1_CLIENTE\] = @f/);assert.match(q.text,/\[E1_LOJA\] = @f/);assert.equal(q.bindings.branch,'01');assert.ok(Object.values(q.bindings).includes(bad));assert.ok(!q.text.includes(bad));assert.match(q.text,/CONVERT\(varchar\(80\),\[E1_SALDO\]/);assert.match(q.text,/\[D_E_L_E_T_\] = ' '/);c.table('SE1').columns.delete('E1_SALDO');assert.throws(()=>buildQuery(c,entity,new URLSearchParams({sucursal:'0101'})),/Falta|Saldo financiero/);
+});
 
 test('name search binds each term, escapes wildcards and stays within branch/deletion scope',()=>{
  const query=buildQuery(fakeCatalog(),config.entities.productos,new URLSearchParams({sucursal:'0101',q:"resorte %_[ 'OR'"}));

@@ -181,3 +181,6 @@ Por texto o voz: «mostrame el historial de modificaciones del filtro Control»,
 
 
 El [recorrido integral de producto](producto-integral.md) reutiliza permisos por cada fuente, sin agregar un acceso global: catálogo SB1 obligatorio; precios DA1/DA0, clientes SA1, costos SB2 y recursos comerciales de ventas/compras se autorizan por separado. Una sección denegada no adjunta filas ni entrega cifras al modelo y responde «Esto no podés leerlo». Se releen producto y permisos en cada seguimiento. El filtro `clientes?lista=` se limita a A1_TABELA parametrizado, con la sucursal normal del usuario. No agrega escritura ni elude permisos de propuestas.
+
+
+El [recorrido integral por cliente](cliente-integral.md) autoriza cada sección por los dominios existentes y conserva cliente+tienda+sucursal. Nuevo recurso `saldosClientes` (SE1): requiere `read:finanzasClientes` y `read:clientes`. Es de sólo lectura y no se concede automáticamente a roles comerciales existentes. Una denegación no adjunta saldos ni los envía al modelo. SE1 usa filial explícita, filtros parametrizados de cliente/tienda/tipo/moneda y saldo distinto de cero; no confundirlo con saldos de cantidad SC6/SD2. El contexto no concede permisos ni reutiliza importes previos.
