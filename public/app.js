@@ -68,13 +68,15 @@ function renderResult(where,envelope,heading,{append=false}={}){
 }
 function renderDashboard(where,envelope,heading,{append=false}={}){
   const card=node('article','result-card'),header=node('div','result-header'),rows=envelope.data||[];
+  card.classList.add('dashboard-card');
   header.append(node('h3','',heading));
   const exportButton=node('button','secondary','↓ CSV');exportButton.onclick=()=>downloadRows(rows,'resumen');header.append(exportButton);
+  const printButton=node('button','secondary','Imprimir / PDF');printButton.onclick=()=>{document.querySelectorAll('.printing-report').forEach(e=>e.classList.remove('printing-report'));card.classList.add('printing-report');document.body.classList.add('printing-dashboard');window.print();};header.append(printButton);
   card.append(header,node('p','result-meta',`Protheus · ${stamp(envelope.source?.fetchedAt)} · ${envelope.scope.desde} a ${envelope.scope.hasta} · sucursal ${envelope.scope.sucursal}`));
   if(Object.keys(envelope.scope.filtros||{}).length)card.append(node('p','metrics-note','Filtros aplicados: '+visual(envelope.scope.filtros)));
   const metrics=node('div','metrics');
   for(const row of rows.filter(r=>r.agrupacion==='total')){
-    const metric=node('div','metric');metric.append(node('span','',`Moneda ${row.moneda} · ${row.unidad}`),node('strong','',visual(row.importeNeto)),node('span','',`${row.documentos} documentos · ${row.lineas} ítems · cantidad ${row.cantidad}${row.cantidadMillares!==undefined?' / '+row.cantidadMillares+' millares':''}`));metrics.append(metric);
+    const metric=node('div','metric');metric.append(node('span','',`Moneda ${row.moneda} · ${row.unidad}`),node('strong','',visual(String(row.importeNeto))),node('span','',`${row.documentos} documentos · ${row.lineas} ítems · ${visual(String(row.cantidad))} ${row.unidad}${row.cantidadMillares!==undefined?' / '+visual(String(row.cantidadMillares))+' millares':''}`));metrics.append(metric);
   }
   card.append(metrics,node('p','metrics-note','Totales del alcance completo. Monedas y unidades separadas; los importes no incluyen automáticamente impuestos ni fletes.'));
   if(!rows.length)card.append(node('p','empty','No hay movimientos para estos filtros.'));
@@ -83,19 +85,22 @@ function renderDashboard(where,envelope,heading,{append=false}={}){
     const key=`Moneda ${row.moneda} · ${row.unidad}`;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row);
   }
   for(const [key,items] of groups){
+    if(envelope.scope.agrupar!=='mes')items.sort((a,b)=>Number(b.importeNeto)-Number(a.importeNeto));
     card.append(node('h4','',key));
     const chart=node('div','summary-bars'),max=Math.max(...items.map(r=>Math.abs(Number(r.importeNeto))),1);
     for(const row of items.slice(0,24)){
       const line=node('div','summary-bar'),bar=node('div','summary-bar-fill');
       bar.style.width=`${Math.abs(Number(row.importeNeto))/max*100}%`;bar.classList.toggle('negative',Number(row.importeNeto)<0);
-      line.append(node('span','',`${row.dimension} · ${row.importeNeto}`),bar);chart.append(line);
+      const dimension=envelope.scope.agrupar==='mes'&&/^\d{6}$/.test(row.dimension)?new Date(Number(row.dimension.slice(0,4)),Number(row.dimension.slice(4))-1,1).toLocaleDateString('es-AR',{month:'long',year:'numeric'}):row.dimension;
+      line.append(node('span','',`${dimension} · ${visual(String(row.importeNeto))}`),bar);line.title=`${row.dimension}: ${row.importeNeto} · ${key}`;chart.append(line);
     }
-    card.append(chart);if(items.length>24)card.append(node('p','metrics-note','Gráfico: primeras 24 agrupaciones. Tabla y CSV incluyen todas.'));
+    card.append(chart);if(items.length>24)card.append(node('p','metrics-note',envelope.scope.agrupar==='mes'?'Gráfico: primeros 24 meses. Tabla y CSV incluyen todo el período.':'Gráfico: las 24 agrupaciones con mayor importe neto. Tabla y CSV incluyen todas.'));
   }
-  if(rows.length){const details=node('details');details.append(node('summary','','Ver todos los valores'),table(rows));card.append(details);}
+  if(rows.length){const details=node('details','dashboard-values');details.append(node('summary','','Ver tabla completa'),table(rows));card.append(details);}
   if(envelope.limitations?.length){const details=node('details');details.append(node('summary','','Cómo se calculó'),node('p','result-notes',envelope.limitations.join(' ')));card.append(details);}
   if(append)where.append(card);else where.replaceChildren(card);return card;
 }
+window.addEventListener('afterprint',()=>{document.body.classList.remove('printing-dashboard');document.querySelectorAll('.printing-report').forEach(e=>e.classList.remove('printing-report'));});
 function renderQuality(where,envelope,append=false){
   const data=envelope.data||{},section=node('div');section.append(node('h3','','Calidad · estados registrados'));
   const metrics=node('div','metrics'),names={noConformidades:'No conformidades',problemas:'Problemas',ppap:'PPAP',msa:'Estudios MSA',capacidad:'Capacidad'};
@@ -135,6 +140,7 @@ function renderAnswer(where,response){
   const card=node('article','answer-card');card.append(node('div','eyebrow',response.local===false?'CENTRAL · IA EXTERNA':'CENTRAL · ASISTENTE'),formatAnswer(response.answer),node('div','result-meta',metadata));where.replaceChildren(card);
   if(response.batch)renderImportBatch(where,response.batch,{api,capabilities});
   if(response.proposal)renderProposal(where,response.proposal);
+  if(response.comparison){const c=response.comparison,box=node('article','result-card');box.append(node('h3','','Comparación de períodos'),node('p','result-meta',`${c.current.desde} a ${c.current.hasta} frente a ${c.previous.desde} a ${c.previous.hasta}`));if(c.rows.length)box.append(table(c.rows));else box.append(node('p','empty','Sin movimientos en ambos períodos.'));where.append(box);}
   if(response.choices?.length){const choices=node('div','choice-list');for(const choice of response.choices){const button=node('button','secondary',choice.label);button.type='button';button.onclick=()=>query(choice.text);choices.append(button);}card.append(choices);}
   for(const evidence of response.evidence||[]){
     const result=evidence.result,heading=evidence.id+' · '+(evidence.action==='precio_venta'?(result.kind==='prices'?'Precios de lista verificados':'Consulta de precios'):labels[evidence.args.recurso]||evidence.action);

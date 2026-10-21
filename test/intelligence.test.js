@@ -10,6 +10,12 @@ const source={system:'protheus',mode:'test',fetchedAt:new Date().toISOString()};
 const product={codigo:'ABC/1',nombre:'Resorte prueba',unidadMedida:'UN'};
 const price={productoCodigo:'ABC/1',listaCodigo:'001',precio:'125.50',moneda:{codigo:'2',descripcion:'DOLAR'},vigenteDesde:'2025-01-01',activo:{descripcion:'Si'},registro:'1'};
 const header={codigo:'001',nombre:'Lista prueba',estado:{descripcion:'Si'},vigenteDesde:'2024-01-01',vigenteHasta:'2050-01-01'};
+test('recent dashboard bypasses the language model and reads the full authorized aggregate',async t=>{
+ const store=new Store(':memory:');t.after(()=>store.close());const s=setup(),calls=[];
+ const agent=createIntelligence({...s,store,executeRead:async q=>{calls.push(q);return {kind:'dashboard',verifiedSummary:'Resumen verificado',data:[],scope:{...q.filters,filtros:{}}};},model:{name:'test',complete:()=>assert.fail('Dashboard should not need a model round trip')}});
+ const result=await agent.query('reader',{text:'Haceme un dashboard de ventas de los últimos dos días'});
+ assert.equal(calls.length,1);assert.equal(calls[0].resource,'resumenVentas');assert.equal(calls[0].filters.cliente,undefined);assert.equal(result.evidence[0].result.kind,'dashboard');assert.equal(result.answer,'Resumen verificado');
+});
 test('repeated failed tools cannot publish invented figures even with a question in the answer',async t=>{
  const store=new Store(':memory:');t.after(()=>store.close());let calls=0;
  const agent=createIntelligence({...setup(),store,model:{name:'test',complete:async()=>{calls++;return calls<3?{action:'consultar_erp',args:{recurso:'productos',filtros:{producto:'código'}}}:{action:'responder',args:{},answer:'Total ventas: 12.500 USD. ¿Qué falta?'};}}});
