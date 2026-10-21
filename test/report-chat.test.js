@@ -23,7 +23,8 @@ test('monthly dashboard does not invent entity filters',async()=>{
  assert.deepEqual(calls,[{resource:'resumenVentas',filters:{desde:'2026-10-01',hasta:'2026-10-20',sucursal:'0101'}}]);assert.equal(r.answer,'Ventas verificadas');
 });
 test('direct report never drops requested filters or periods',async()=>{
- for(const text of ['Dashboard de ventas del cliente X','Resumen de compras en dólares','Dashboard de ventas de los últimos 0 días','Resumen de ventas desde enero hasta mayo'])assert.equal(await reportChat({text,branch:'01',executeRead:()=>assert.fail('filter dropped')}),null);
+ for(const text of ['Resumen de compras en dólares','Dashboard de ventas de los últimos 0 días','Resumen de ventas desde enero hasta mayo'])assert.equal(await reportChat({text,branch:'01',executeRead:()=>assert.fail('filter dropped')}),null);
+ await assert.rejects(reportChat({text:'Dashboard de ventas del cliente X',branch:'01',executeRead:()=>assert.fail('unverified filter')}),{code:'REFERENCIA_NO_VERIFICADA'});
 });
 test('report denies access without claiming zero sales',async()=>{
  await assert.rejects(reportChat({text:'Resumen de ventas de este mes',branch:'01',executeRead:async()=>{throw Object.assign(new Error('denied'),{code:'LECTURA_DENEGADA'});}}),{code:'LECTURA_DENEGADA'});

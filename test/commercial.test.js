@@ -55,6 +55,11 @@ test('summaries aggregate all matching lines and separate currencies and units',
   assert.match(r.text,/COUNT\(DISTINCT documentoClave\)/);assert.doesNotMatch(r.text,/OFFSET|FETCH/);
   assert.match(r.text,/SUM\(CASE WHEN clase='NC' THEN -importe ELSE 0 END\)/);
 });
+test('document drilldown binds the same unit, currency, product, customer and date filters with pagination',()=>{
+ const {build}=fixture(),query=build('comprobantesVentas',params({unidad:'UN',moneda:'2',producto:'Z1',cliente:'000001',tienda:'01',limit:'50',page:'2'}));
+ for(const key of ['unidad','moneda','producto','cliente','tienda'])assert.match(query.text,new RegExp('\\['+({cliente:'tercero',tienda:'tienda'}[key]||key)+'\\]=@'+key));
+ assert.equal(query.bindings.unidad,'UN');assert.equal(query.bindings.offset,50);assert.equal(query.bindings.take,51);assert.equal(query.bindings.desde,'20261001');assert.equal(query.bindings.hasta,'20261020');
+});
 test('summary validation rejects ambiguous dates, unsupported SQL/grouping and partial pages',()=>{
   for(const extra of [{desde:'2026-02-30'},{desde:'2027-01-01'},{desde:'2020-01-01'},{agrupar:'moneda;drop'},{page:'2'},{proveedor:'001'},{clase:'RFN'},{sql:'SELECT 1'}])
     assert.throws(()=>commercialParams('resumenVentas',params(extra)),JSON.stringify(extra));

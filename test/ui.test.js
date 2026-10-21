@@ -33,6 +33,7 @@ test('local session requires exact origin, rejects DNS rebinding and cross-site,
  assert.equal((await request('/api/voice/transcribe',{method:'POST',headers,body:'{}'})).status,200);
  assert.equal((await request('/api/voice/transcribe',{method:'POST'})).status,401);
  const query=await request('/api/agent/query',{method:'POST',headers,body:JSON.stringify({text:'mostrame los costos',context:{sucursal:'0101'}})});assert.equal(query.status,200);
+ const filtered=await request('/api/agent/chat',{method:'POST',headers,body:JSON.stringify({text:'Aplicar filtros del dashboard',context:{sucursal:'0101'},dashboard:{mode:'summary',resource:'resumenVentas',filters:{cliente:'MILORDI'}}})});assert.equal(filtered.status,200);const rejected=await filtered.json();assert.equal(rejected.accessDenied,true);assert.deepEqual(rejected.evidence,[]);assert.match(rejected.answer,/Esto no podés leerlo/);
 });
 test('PWA serves local shell without credentials, cache limited to static allowlist',async t=>{
  const {request}=await setup(t);

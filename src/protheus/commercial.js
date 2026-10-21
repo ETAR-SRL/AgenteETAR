@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import {ApiError, identifier as q} from './config.js';
 import {pagination} from './service.js';
-import {currencyIdentity,currencyTitle,previousMonthRange,compareReports} from '../report-metrics.js';
+import {currencyIdentity,currencyTitle,previousMonthRange,compareReports,reportDrilldown} from '../report-metrics.js';
 const D=Decimal.clone({precision:50});
 
 // Especie + sentido del documento: una NC de compra sale por SD2; una NC
@@ -33,7 +33,7 @@ const text = column => `RTRIM(LTRIM(${column}))`;
 export function commercialParams(resource, params, now = new Date()) {
   const spec = commercialResources[resource];
   if (!spec) fail('RECURSO_NO_EXISTE','Informe inexistente');
-  const allowed = new Set(['sucursal','desde','hasta','numero','serie','producto','cliente','proveedor','tienda','clase','moneda','page','limit','orden',...(spec.summary?['agrupar']:[])]);
+  const allowed = new Set(['sucursal','desde','hasta','numero','serie','producto','cliente','proveedor','tienda','clase','moneda','unidad','page','limit','orden',...(spec.summary?['agrupar']:[])]);
   for (const key of params.keys()) if (!allowed.has(key) || params.getAll(key).length !== 1) fail('FILTRO_INVALIDO',`Filtro inválido o duplicado: ${key}`);
   if (!params.has('sucursal')) fail('SUCURSAL_REQUERIDA','Indicar sucursal');
   const filters = Object.fromEntries(params);
@@ -114,7 +114,7 @@ export class Commercial {
   build(resource,params) {
     const spec=commercialParams(resource,params),bindings={};
     const base=this.base(spec,bindings),where=[];
-    for(const [key,col] of Object.entries({numero:'numero',serie:'serie',producto:'producto',cliente:'tercero',proveedor:'tercero',tienda:'tienda',clase:'clase',moneda:'moneda'})) if(spec.filters[key]) {
+    for(const [key,col] of Object.entries({numero:'numero',serie:'serie',producto:'producto',cliente:'tercero',proveedor:'tercero',tienda:'tienda',clase:'clase',moneda:'moneda',unidad:'unidad'})) if(spec.filters[key]) {
       bindings[key]=spec.filters[key];where.push(`${q(col)}=@${key}`);
     }
     for(const [key,op] of [['desde','>='],['hasta','<=']]) if(spec.filters[key]) {bindings[key]=spec.filters[key].replaceAll('-','');where.push(`fecha${op}@${key}`);}
@@ -151,13 +151,13 @@ export class Commercial {
     if(spec.summary && rows.length>5000) throw new ApiError(422,'RESUMEN_EXTENSO','Hay más de 5000 grupos; acotá filtros o agrupá por mes');
     const more=!spec.summary&&rows.length>spec.limit;
     if(!spec.summary) rows=rows.slice(0,spec.limit);
-    if(spec.summary)currencies ||= await this.currencies(spec.filters.sucursal);
+    currencies ||= await this.currencies(spec.filters.sucursal);
     const data=rows.map(row=>{
       const r=Object.fromEntries(Object.entries(row).map(([k,v])=>[k,typeof v==='string'?v.trim():v]));
       delete r.cabeceras;delete r.cabecerasInvalidas;delete r.documentoClave;
       if(r.fecha?.length===8)r.fecha=`${r.fecha.slice(0,4)}-${r.fecha.slice(4,6)}-${r.fecha.slice(6,8)}`;
       if(r.unidad==='UN' && r.cantidad!=null)r.cantidadMillares=new D(r.cantidad).div(1000).toFixed();
-      if(spec.summary)Object.assign(r,currencyIdentity(r.moneda,currencies[r.moneda]));
+      Object.assign(r,currencyIdentity(r.moneda,currencies[r.moneda]));
       return r;
     });
     const pending=!spec.emitted&&!['ventas','compras'].includes(spec.scope);
@@ -175,6 +175,7 @@ export class Commercial {
     const scope={sucursal:spec.filters.sucursal,desde:spec.filters.desde||null,hasta:spec.filters.hasta||null,fecha:'emisión',agrupar:spec.group,filtros:filters};
     const result={kind:spec.summary?'dashboard':'commercial',title:spec.label,data,scope,meta:{recurso:resource,page:spec.summary?1:spec.page,limit:spec.limit,hasMore:more,complete:spec.summary,aggregate:spec.summary||false},limitations};
     if(spec.summary) {
+      result.drilldown=reportDrilldown(resource,scope);for(const row of data)row.drilldown=reportDrilldown(resource,scope,row);
       const totals=data.filter(r=>r.agrupacion==='total');
       result.verifiedSummary=`${spec.label}, del ${scope.desde} al ${scope.hasta}, sucursal ${scope.sucursal}.${Object.keys(filters).length?' Filtros: '+JSON.stringify(filters)+'.':''}\n`+
         (totals.length?totals.map(r=>`${currencyTitle(r)}: ${r.documentos} documentos, ${r.lineas} ítems, ${pending?'importe pendiente estimado':'NF + ND − NC'} ${r.importeNeto}; cantidad ${r.cantidadMillares!==undefined?r.cantidadMillares+' millares':r.cantidad+' '+(r.unidad||'unidad no informada')}.`).join('\n'):'No encontré movimientos en el período y alcance consultados.')+
@@ -190,7 +191,7 @@ export class Commercial {
   metadata() {
     return Object.fromEntries(Object.entries(commercialResources).map(([name,s])=>[name,{
       alias:s.label,disponible:true,requiereConfigurarSucursal:false,fechaFiltro:'emisión',aggregate:!!s.summary,
-      filters:{numero:'documento',producto:'producto',...(['compras','pedidosCompra'].includes(s.scope)?{proveedor:'código'}:{cliente:'código'}),tienda:'tienda',moneda:'código',...(['ventas','compras'].includes(s.scope)?{clase:'NF | NC | ND'}:{}),...(s.summary?{agrupar:'mes | tercero | producto | clase'}:{serie:'serie'})},
+      filters:{numero:'documento',producto:'producto',...(['compras','pedidosCompra'].includes(s.scope)?{proveedor:'código'}:{cliente:'código'}),tienda:'tienda',moneda:'código',unidad:'unidad original',...(['ventas','compras'].includes(s.scope)?{clase:'NF | NC | ND'}:{}),...(s.summary?{agrupar:'mes | tercero | producto | clase'}:{serie:'serie'})},
       advertencias:['Consulta de solo lectura; moneda y unidad separadas'],fields:[],
     }]));
   }
