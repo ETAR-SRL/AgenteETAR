@@ -1,3 +1,7 @@
+import {installCorporateDocumentsUI} from './corporate-documents-ui.js';
+import {installApprovedKnowledgeUI} from './knowledge-ui.js';
+import {installInvestigations} from './investigation-ui.js';
+import {addReportDownload} from './report-download-ui.js';
 import {installAttention} from './attention-ui.js';
 import {installErpConnection} from './erp-connection-ui.js';
 import {accessReady,loadAccessPanel} from './access-ui.js';
@@ -8,7 +12,7 @@ const $=s=>document.querySelector(s);
 const labels={liberacionesVentas:'Liberaciones del pedido · SC9',documentosPedidoVenta:'Remitos y facturas del pedido',saldosProveedores:'Saldos financieros de proveedores · SE2',saldosClientes:'Saldos financieros de clientes · SE1',recepcionesCompras:'Entradas registradas de proveedores · SD1',comprobantesVentas:'Ventas facturadas · NF/NC/ND',comprobantesCompras:'Compras facturadas · NF/NC/ND',remitosEmitidos:'Remitos emitidos',remitosPendientes:'Remitos pendientes de facturar',pedidosVentaPendientes:'Pedidos de venta pendientes',pedidosCompraPendientes:'Pedidos de compra pendientes',resumenVentas:'Resumen de ventas facturadas',resumenCompras:'Resumen de compras',resumenRemitosPendientes:'Resumen de remitos pendientes',resumenPedidosVenta:'Resumen de pedidos de venta',resumenPedidosCompra:'Resumen de pedidos de compra',condicionesPago:'Condiciones de pago',depositos:'Depósitos',centrosCosto:'Centros de costo',solicitudesCompra:'Solicitudes de compra',costos:'Costos',compras:'Órdenes de compra',produccion:'Producción',ventas:'Pedidos de venta',itemsVentas:'Ítems de ventas / pendientes',documentosSalida:'Documentos de salida',itemsDocumentosSalida:'Ítems de documentos de salida',remitos:'Remitos',entregas:'Entregas físicas',clientes:'Clientes',proveedores:'Proveedores',productos:'Productos',listasPreciosClientes:'Listas de precios de clientes',preciosClientes:'Precios de clientes · DA1',listasPreciosProveedores:'Listas de precios de proveedores',preciosProveedores:'Precios de proveedores',productoProveedor:'Productos por proveedor',productoCliente:'Productos por cliente',entradasCompras:'Entradas de compras',estructuras:'Estructuras',cotizaciones:'Cotizaciones',itemsCotizaciones:'Ítems de cotizaciones',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN'};
 const fieldLabels={monedaVista:'Moneda',importe:'Importe',fecha:'Fecha',clase:'Tipo',tercero:'Cliente / proveedor',serie:'Serie',item:'Ítem',precioPorMillar:'Precio por millar',cantidadMillares:'Cantidad en millares',registro:'Registro',codigo:'Código',descripcion:'Descripción',sucursal:'Sucursal',producto:'Producto',cliente:'Cliente',proveedor:'Proveedor',nombre:'Nombre',tienda:'Tienda',numero:'Número',lista:'Lista',precio:'Precio',desde:'Desde',hasta:'Hasta',pendiente:'Pendientes',status_name:'Estado registrado',phase_no:'Fase',name:'Nombre',code:'Código',customer:'Cliente',current_phase_name:'Fase actual',planned_start:'Inicio previsto',planned_end:'Fin previsto',actual_start:'Inicio real',actual_end:'Fin real',updated_at:'Actualizado',part_number:'N.º de pieza',part_name:'Pieza',sin_ia_externa:'Restricción IA externa',sin_ia_externa_por_cliente:'Restricción IA del cliente'};
 let capabilities,selectedProject=null,projectOffset=0,projectQuery='',page=1,activeParams=null,activeResource=null,deferredInstall;
-let conversationId=localStorage.getItem('central-conversation-id')||undefined,attachments,attention;
+let conversationId=localStorage.getItem('central-conversation-id')||undefined,attachments,attention,investigations,corporateUI,knowledgeUI;
 const node=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
 function notice(text){$('#notice').textContent=text;$('#notice').classList.toggle('hidden',!text);}
 function busy(where,text='Consultando la fuente…'){where.replaceChildren(node('div','loading',text));}
@@ -113,6 +117,7 @@ function renderDashboard(where,envelope,heading,{append=false,comparison=true}={
   const saveButton=node('button','secondary','Guardar dashboard');saveButton.onclick=()=>saveDashboardDialog(envelope,heading);header.append(saveButton);
   const exportButton=node('button','secondary','↓ CSV');exportButton.onclick=()=>downloadRows(dashboardRows(rows),'resumen');header.append(exportButton);
   const printButton=node('button','secondary','Imprimir / PDF');printButton.onclick=()=>printReport(card);header.append(printButton);
+  addReportDownload(header,envelope,{request:(path,options)=>fetch(path,{credentials:'same-origin',cache:'no-store',...options}),notice});
   card.append(header,node('p','result-meta',`Protheus · ${stamp(envelope.source?.fetchedAt)} · ${envelope.scope.desde} a ${envelope.scope.hasta} · sucursal ${envelope.scope.sucursal}`));
   card.append(dashboardFilterForm(envelope));
   if(Object.keys(envelope.scope.filtros||{}).length)card.append(node('p','metrics-note','Filtros aplicados: '+visual(envelope.scope.filtros)));
@@ -187,6 +192,9 @@ function renderAnswer(where,response){
   const card=node('article','answer-card');card.append(node('div','eyebrow',response.local===false?'CENTRAL · IA EXTERNA':'CENTRAL · ASISTENTE'),formatAnswer(response.answer),node('div','result-meta',metadata));where.replaceChildren(card);
   if(response.learnedExpressions?.length)card.append(node('p','result-meta','Usé tus expresiones aprendidas: '+response.learnedExpressions.join(', ')+'.'));
   if(response.learningNotice)card.append(node('p','learning-notice',response.learningNotice));
+  if(response.job)investigations?.render(where,response.job);
+  if(response.jobs)for(const job of response.jobs)investigations?.render(where,job);
+  if(response.untrustedDocument)where.append(node('p','notice','Documento externo: su contenido se muestra como datos. No se ejecutan instrucciones ni se envía a la IA.'));
   if(response.attention)attention?.render(where,response.attention);
   if(response.investigation)attention?.renderInvestigation(where,response.investigation);
   if(response.attentionChanges)attention?.renderChanges(where,response.attentionChanges);
@@ -285,7 +293,11 @@ async function loadProject(project){
   }catch(error){if(version===detailVersion)showError(where,error);}
 }
 function renderSources(){
-  const where=$('#sources-content');where.replaceChildren();if(!capabilities)return;
+  const where=$('#sources-content');corporateUI?.destroy?.();knowledgeUI?.destroy?.();where.replaceChildren();if(!capabilities)return;
+  const request=(path,options={})=>api(path,{...options,...(options.body&&typeof options.body==='object'?{headers:{'Content-Type':'application/json'},body:JSON.stringify(options.body)}:{})});
+  corporateUI=installCorporateDocumentsUI({container:where,request,isAdmin:capabilities.user?.admin===true});
+  knowledgeUI=installApprovedKnowledgeUI({container:where,request,isAdmin:capabilities.user?.admin===true});
+  const states=node('p','notice','Comprobando disponibilidad de las fuentes…');where.append(states);void api('/api/sources/status').then(s=>{if(states.isConnected)states.textContent='Protheus: '+(s.erp.available?'disponible':'pendiente de conexión')+' · KAIQEN: '+(s.kaiqen.available?'disponible':s.kaiqen.state==='not_configured'?'sin configurar':'pendiente de conexión')+' · IA: '+(s.ai.available?(s.ai.local||s.ai.connectionVerified?'disponible':'configurada, sin verificar'):'pendiente de conexión o configuración');if(states.isConnected){const details=node('details'),asOf=(label,value)=>node('p','result-meta',label+': '+(value?new Date(value).toLocaleString('es-AR'):'sin lectura exitosa en este proceso'));details.append(node('summary','','Últimas comprobaciones'),asOf('Protheus · última lectura',s.erp.lastReadSuccess),asOf('Protheus · conexión',s.erp.lastConnected),asOf('KAIQEN · última lectura',s.kaiqen.lastSuccess),asOf('IA · última respuesta',s.ai.lastSuccessAt));states.after(details);}}).catch(()=>{states.textContent='No se pudo comprobar la disponibilidad actual.';});
   const erp=node('div','source-card');erp.append(node('h3','','Protheus · Argentina 2510'),node('p','',`Modo ${capabilities.mode==='live'?'real':'DEMO'} · sucursales permitidas: ${capabilities.branches.join(', ')}. Las consultas se realizan al pedir información; la disponibilidad de cada recurso se verifica con su respuesta.`));
   const list=node('div','source-list');Object.entries(capabilities.erp.entities||{}).forEach(([key,m])=>{const row=node('div','source-item');row.append(node('span','',labels[key]||key),node('small','',!m.disponible?'No disponible':m.requiereConfigurarSucursal?'Requiere sucursal':'Configurado · '+m.alias));list.append(row);});erp.append(list);where.append(erp);
   if(capabilities.writePolicy){const writes=node('div','source-card');writes.append(node('h3','','Actualizaciones · SQL controlado'),node('p','',capabilities.writePolicy.description),node('p','',capabilities.writePolicy.creditLimitation));where.append(writes);}
@@ -333,7 +345,8 @@ async function start(){
     if(conversationId){try{const history=await api('/api/agent/conversations/'+conversationId);const conversation=$('#conversation');for(const message of history.messages){if(message.role==='user'){const q=node('div','question');q.append(node('span','',message.content));conversation.append(q);}else{let saved;try{saved=JSON.parse(message.content);}catch{continue;}const a=node('article','answer-card');a.append(node('div','result-meta','Conversación anterior · valores históricos, consultá nuevamente para actualizarlos'),formatAnswer(saved.answer));conversation.append(a);}}}catch{conversationId=undefined;localStorage.removeItem('central-conversation-id');}}
     attention=installAttention({api,branch:()=>$('#branch').value,switchView,notice,revision:capabilities.user?.revision,canPrepare:kind=>Boolean(capabilities.proposalActions?.[kind==='sale'?'pedidoVenta':kind==='purchase'?'pedidoCompra':'']),ask:(text,id,targetBranch)=>{if(targetBranch)$('#branch').value=targetBranch;return query(text,undefined,{attentionId:id});}});void attention.load();
     if(new URLSearchParams(location.search).get('attention')==='updates'){void attention.openUpdates();history.replaceState(null,'',location.pathname);}
-    $('#branch').addEventListener('change',()=>attention?.load());
+    investigations?.destroy();investigations=installInvestigations({api,container:document.querySelector('#attention'),branch:()=>$('#branch').value,notice,onResult:result=>{switchView('assistant');const target=node('div','');$('#conversation').append(target);renderAnswer(target,result);target.scrollIntoView({behavior:'smooth',block:'start'});}});
+    $('#branch').addEventListener('change',()=>{attention?.load();investigations?.load();});
     if(capabilities.mode==='live'&&capabilities.erp.connection)installErpConnection({api,initial:capabilities.erp.connection,onChange:async()=>{
       const next=await api('/api/capabilities');if(next.user?.actor!==capabilities.user?.actor){location.reload();return;}
       Object.assign(capabilities,next);updateErpResources();await attention.load();
@@ -411,12 +424,35 @@ $('#automation-refresh').onclick=async()=>{
   try{const result=await api('/api/approvals/automation');renderAutomationStatus(result.status);where.append(node('h4','','Últimas transferencias'),table(result.receipts.map(r=>({fecha:r.at,estado:r.status,documento:r.identity.numero,tipo:r.identity.tipo,registro:r.identity.registro,vencimiento:r.identity.plazo,desde:r.result?.from||r.result?.planned?.from||'',hacia:r.result?.to||r.result?.planned?.to||'',motivo:r.result?.code||''}))),node('h4','','Incidencias registradas'),table(result.issues.map(r=>({fecha:r.at,...r.target,motivo:r.code}))));}catch(error){where.append(node('p','error-box',error.message));}
 };
 
+let aiSavedSettings;
+const aiNativeUrls={openai:'https://api.openai.com/v1',anthropic:'https://api.anthropic.com/v1'};
+function aiControls(){
+ const provider=$('#ai-provider').value,local=provider==='local',native=Object.hasOwn(aiNativeUrls,provider);
+ if(native)$('#ai-url').value=aiNativeUrls[provider];
+ $('#ai-url').readOnly=native;$('#ai-url').disabled=local;$('#ai-model').disabled=local;$('#ai-key').disabled=local;
+ $('#ai-url').required=!local;$('#ai-model').required=!local;
+ const sameDestination=aiSavedSettings?.provider===provider&&aiSavedSettings?.url===$('#ai-url').value;
+ $('#ai-key').required=!local&&(!sameDestination||!aiSavedSettings?.hasKey);
+ $('#ai-key').placeholder=sameDestination&&aiSavedSettings?.hasKey?'Dejá vacío para conservar la clave':'Ingresá una nueva clave para este proveedor';
+ $('#ai-clear-key').disabled=!local;if(!local)$('#ai-clear-key').checked=false;
+}
+function renderAiSettings(c){
+ aiSavedSettings=c;$('#ai-provider').value=['local','external','openai','anthropic'].includes(c.provider)?c.provider:'';
+ $('#ai-url').value=c.url||'';$('#ai-model').value=c.model||'';$('#ai-key').value='';$('#ai-clear-key').checked=false;
+ for(const [id,key,fallback] of [['ai-input-limit','maxInputChars',64000],['ai-output-limit','maxOutputTokens',1200],['ai-timeout-limit','timeoutMs',60000]])$('#'+id).value=c.limits?.[key]??fallback;
+ const h=c.health||{},count=n=>Number.isFinite(n)&&n>=0?n:0,t=c.telemetry||{};
+ $('#ai-settings-health').textContent=c.configurationRequired?'Configuración pendiente: revisá proveedor, modelo y clave.':h.nextRetryAt>Date.now()?`Sin conexión por ahora. Próximo intento permitido: ${new Date(h.nextRetryAt).toLocaleTimeString()}.`:h.lastErrorCode?'La última consulta no pudo completarse. Ya podés reintentar con la configuración guardada.':(h.lastSuccessAt?'Última respuesta verificada: '+new Date(h.lastSuccessAt).toLocaleString()+'.':'Configuración guardada; conexión todavía sin verificar.');
+ $('#ai-settings-usage').textContent=`En este inicio: ${count(t.requests)} consultas · ${count(t.failures)} fallos · ${count(t.durationMs)} ms · tokens informados: ${count(t.inputTokens)} de entrada y ${count(t.outputTokens)} de salida. Caché: ${count(t.cacheReadTokens)} leídos y ${count(t.cacheWriteTokens)} creados. Un contador ausente no acredita consumo cero.`;
+ aiControls();
+}
 async function loadAiSettings(){
  $('#ai-settings-panel').classList.remove('hidden');
- try{const c=await api('/api/admin/ai');$('#ai-provider').value=c.provider;$('#ai-url').value=c.url;$('#ai-model').value=c.model;$('#ai-settings-status').textContent=c.hasKey?'Hay una clave guardada en el servidor.':'No hay clave externa guardada.';}catch(e){$('#ai-settings-status').textContent=e.message;}
+ try{const c=await api('/api/admin/ai');renderAiSettings(c);$('#ai-settings-status').textContent=c.hasKey?'Hay una clave guardada en el servidor.':'No hay clave externa guardada.';}catch(e){$('#ai-settings-status').textContent=e.message;}
 }
-$('#ai-settings-form').onsubmit=async e=>{e.preventDefault();try{await api('/api/admin/ai',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:$('#ai-provider').value,url:$('#ai-url').value,model:$('#ai-model').value,apiKey:$('#ai-key').value,clearKey:$('#ai-clear-key').checked})});$('#ai-key').value='';$('#ai-clear-key').checked=false;$('#ai-settings-status').textContent='Guardado. Se aplica a las próximas consultas, sin reiniciar.';const s=await api('/api/agent/status');$('#ai-status').textContent=(s.local?'IA local · ':'IA externa · ')+s.model;}catch(error){$('#ai-settings-status').textContent=error.message;}};
-$('#ai-test').onclick=async()=>{const b=$('#ai-test');b.disabled=true;$('#ai-settings-status').textContent='Probando sin datos del ERP…';try{const r=await api('/api/admin/ai/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});$('#ai-settings-status').textContent='Conexión verificada: '+r.model;}catch(e){$('#ai-settings-status').textContent=e.message;}finally{b.disabled=false;}};
+$('#ai-provider').onchange=()=>{$('#ai-key').value='';$('#ai-clear-key').checked=false;if($('#ai-provider').value!==aiSavedSettings?.provider)$('#ai-model').value='';else $('#ai-model').value=aiSavedSettings?.model||'';aiControls();$('#ai-settings-status').textContent=$('#ai-provider').value==='local'?'Cambio a IA local pendiente. Guardá la configuración.':'Cambio pendiente. Ingresá modelo y clave del proveedor elegido y guardá la configuración.';};
+$('#ai-url').oninput=()=>{$('#ai-key').value='';aiControls();};
+$('#ai-settings-form').onsubmit=async e=>{e.preventDefault();const button=e.currentTarget.querySelector('button[type="submit"],button.primary');button.disabled=true;try{const c=await api('/api/admin/ai',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider:$('#ai-provider').value,url:$('#ai-url').value,model:$('#ai-model').value,apiKey:$('#ai-key').value,clearKey:$('#ai-clear-key').checked,limits:{maxInputChars:Number($('#ai-input-limit').value),maxOutputTokens:Number($('#ai-output-limit').value),timeoutMs:Number($('#ai-timeout-limit').value)}})});renderAiSettings(c);$('#ai-settings-status').textContent='Guardado. Se aplica a las próximas consultas, sin reiniciar.';const s=await api('/api/agent/status');$('#ai-status').textContent=(s.local?'IA local · ':'IA externa · ')+(s.model||'Configuración pendiente');}catch(error){$('#ai-settings-status').textContent=error.message;}finally{button.disabled=false;}};
+$('#ai-test').onclick=async()=>{const b=$('#ai-test');b.disabled=true;$('#ai-settings-status').textContent='Probando la configuración guardada, sin datos del ERP…';try{const r=await api('/api/admin/ai/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});renderAiSettings(await api('/api/admin/ai'));$('#ai-settings-status').textContent='Conexión verificada: '+r.model;}catch(e){$('#ai-settings-status').textContent=e.message;try{renderAiSettings(await api('/api/admin/ai'));}catch{}}finally{b.disabled=false;}};
 async function historyList(){
  const where=$('#history-list');busy(where);
  try{const result=await api('/api/agent/conversations');where.replaceChildren();if(!result.data.length)where.append(node('p','','Todavía no hay conversaciones.'));

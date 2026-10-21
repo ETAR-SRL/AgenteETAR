@@ -28,6 +28,7 @@ export function createErpConnection({connect,writeEnabled=false,branches=['0101'
    // Una lectura iniciada antes de la caída no puede volver a verificar un seguimiento
    // después de que se retiró su conexión. Un COMMIT ya comprobado conserva su recibo.
    if(current!==slot&&!(write&&method.endsWith('execute')))throw new HttpError(503,'PROTHEUS_NO_DISPONIBLE','La conexión cambió durante la consulta. Volvé a consultar para verificar los datos actuales.');
+   if(!write&&method==='list')state.lastReadSuccess=clock().toISOString();
    return result;
   }
   catch(error){if(disconnected(error)){unavailable(slot);if(!write)throw new HttpError(503,'PROTHEUS_NO_DISPONIBLE','Se perdió la conexión con Protheus. Voy a reconectar automáticamente; no se dio nada por resuelto.');}throw error;}

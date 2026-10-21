@@ -10,7 +10,9 @@
     "start": "node --env-file-if-exists=.env src/server.js",
     "demo": "node scripts/demo.js",
     "test": "node --test test/*.test.js",
-    "diagnose": "node --env-file-if-exists=.env scripts/diagnose.js"
+    "diagnose": "node --env-file-if-exists=.env scripts/diagnose.js",
+    "evaluate": "node scripts/evaluate-models.js",
+    "validate:integration": "node --env-file-if-exists=.env scripts/validate-integration.js"
   },
   "dependencies": {
     "decimal.js": "10.6.0",

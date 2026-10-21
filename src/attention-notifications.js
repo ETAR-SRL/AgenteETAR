@@ -33,7 +33,7 @@ export function createAttentionNotifications({attention,principal,user,clock=()=
   // un nuevo seguimiento invalida los eventos del seguimiento anterior, incluso en el mismo ms.
   return db.prepare(`SELECT e.id,e.type,e.body FROM op_events e JOIN op_items i ON i.id=e.item AND i.owner=e.owner
    JOIN op_follows f ON f.item=i.id AND f.owner=i.owner
-   WHERE e.owner=? AND e.id>? AND e.type IN ('changed','goal') AND f.state<>'cancelled' AND i.status<>'unknown'
+   WHERE e.owner=? AND e.id>? AND e.type IN ('changed','goal') AND f.state NOT IN ('cancelled','paused') AND i.status<>'unknown'
    AND (i.preference='visible' OR (i.preference='snoozed' AND i.until_at<=?))
    AND (${allowed.map(()=>'(i.branch=? AND i.kind=?)').join(' OR ')})
    AND e.id>(SELECT coalesce(max(id),0) FROM op_events WHERE owner=e.owner AND item=e.item AND type='followed')

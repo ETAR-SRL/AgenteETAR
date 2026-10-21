@@ -1,0 +1,40 @@
+import {execFileSync} from 'node:child_process';
+import {mkdirSync,writeFileSync} from 'node:fs';
+import {fileURLToPath,pathToFileURL} from 'node:url';
+import {dirname,join,resolve} from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {performance} from 'node:perf_hooks';
+import assert from 'node:assert/strict';
+
+const args=process.argv.slice(2),option=(key,fallback)=>{const i=args.indexOf(key);return i<0?fallback:args[i+1];},root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+const loops=Number(option('--loops','40')),warmup=Number(option('--warmup','5'));
+if(!Number.isInteger(loops)||loops<5||loops>200||!Number.isInteger(warmup)||warmup<1||warmup>20)throw new Error('Usar --loops 5..200 y --warmup 1..20.');
+const cases=['priceZ','monthlyAndPrevious','purchaseProduct1','knownOutage'];
+if(args.includes('--worker')){
+ const target=resolve(option('--worker',root)),moduleAt=name=>import(pathToFileURL(join(target,'src',name)).href);
+ const {Store}=await moduleAt('store.js'),{createIntelligence}=await moduleAt('intelligence/agent.js');
+ async function sample(name){
+  // Fixture shapes and dialogue mirror price-commands, report-chat and
+  // purchase-chat tests. Every read and model action is a local controlled double.
+  const store=new Store(':memory:');let modelCalls=0,reads=0,prepared=0,stage=0;const products=[{codigo:'Z100',nombre:'Producto Z100',unidadMedida:'UN'},{codigo:'1',nombre:'VARIOS-MIGRACION',tipo:{codigo:'SV',descripcion:'SERVICIO'},unidadMedida:'UN',depositoPredeterminado:'16',bloqueado:{codigo:'2'}}];
+  const read=async(resource,params)=>{reads++;if(name==='knownOutage')throw Object.assign(new Error('Fuente controlada fuera de servicio'),{code:'PROTHEUS_NO_DISPONIBLE',status:503});
+   let rows=structuredClone(({productos:products,preciosClientes:[{registro:'1',productoCodigo:'Z100',listaCodigo:'059',precio:'0.058',moneda:{codigo:'2',descripcion:'DOLAR'},activo:{descripcion:'Si'},vigenteDesde:'2026-01-01'}],listasPreciosClientes:[{codigo:'059',nombre:'MILORDI',estado:{descripcion:'Si'},vigenteDesde:'2025-01-01',vigenteHasta:'2050-01-01'}],clientes:[{codigo:'C1',tienda:'01',nombre:'CLIENTE',listaPreciosCodigo:'059'}]})[resource]||[]);
+   for(const [filter,key]of [['codigo','codigo'],['producto','productoCodigo'],['lista','listaCodigo']])if(params.has(filter))rows=rows.filter(r=>r[key]===params.get(filter));if(params.has('q'))rows=rows.filter(r=>String(r.nombre||'').toLowerCase().includes(params.get('q').toLowerCase()));
+   return {data:rows,meta:{hasMore:false},source:{system:'protheus',mode:'controlled-benchmark'}};
+  };
+  const executeRead=async command=>{if(command.resource?.startsWith('resumen')){reads++;return {kind:'dashboard',meta:{recurso:command.resource,complete:true,hasMore:false},scope:{...command.filters,filtros:{}},data:[{agrupacion:'total',moneda:'2',unidad:'UN',importeNeto:command.filters.desde?.endsWith('-01')?'100':'120',cantidad:'1000',documentos:'1',lineas:'1'}],verifiedSummary:'Resumen de control: moneda 2, importe 100. Sin lectura ERP real.'};}return read(command.resource,new URLSearchParams(command.filters));};
+  const model={name:'benchmark-controlled',local:true,status:()=>({available:true,provider:'controlled'}),complete:async()=>{modelCalls++;if((name==='priceZ'||name==='knownOutage')&&stage++===0)return {action:'precio_venta',args:{producto:'Z100'},answer:''};return {action:'responder',args:{},answer:'Respuesta del modelo de control sin cifras nuevas.'};}};
+  const agent=createIntelligence({store,erp:{available:name!=='knownOutage',metadata:()=>({entities:{productos:{},preciosClientes:{fields:[{salida:'precio',diccionario:{X3_DECIMAL:6}}]},listasPreciosClientes:{},clientes:{},resumenVentas:{aggregate:true}}})},kaiqen:{},read,executeRead,branches:['0101'],authorizeRead:()=>{},authorizePlan:()=>{},model,prepareChange:async()=>{prepared++;return {id:'controlled',diff:[],warnings:[]};}});
+  const turns=name==='monthlyAndPrevious'?['Haceme un resumen de ventas de este mes','¿Y el mes pasado?']:name==='purchaseProduct1'?['Creame una solicitud de compra con el producto 1.']:['Precio Z100'];let conversationId;const responses=[];
+  const start=performance.now();try{for(const text of turns){const result=await agent.query('benchmark:user',{text,conversationId,context:{sucursal:'0101'}},{canPlan:true});conversationId=result.conversationId;responses.push({evidence:(result.evidence||[]).length,dashboards:(result.evidence||[]).filter(e=>e.result?.kind==='dashboard').length,comparison:!!result.comparison,sourceUnavailable:!!result.connectionUnavailable,answerMentionsProduct1:/VARIOS-MIGRACION/.test(result.answer||''),answerLength:(result.answer||'').length});}const ms=performance.now()-start;assert.equal(prepared,0,'The consultation/intake benchmark must not prepare business changes.');if(name==='priceZ')assert.ok(responses[0].evidence>0,'Price case must return verified evidence, not an error path.');if(name==='purchaseProduct1')assert.equal(responses[0].answerMentionsProduct1,true,'Intake must verify the exact product.');if(name==='monthlyAndPrevious')assert.equal(responses[1].comparison,true,'Follow-up must compare verified periods.');if(name==='knownOutage')assert.equal(responses[0].sourceUnavailable,true,'Outage must remain explicit.');return {ms,modelCalls,reads,prepared,responses};}finally{store.close();}
+ }
+ const output={};for(const name of cases){for(let i=0;i<warmup;i++)await sample(name);const samples=[];for(let i=0;i<loops;i++)samples.push(await sample(name));const sorted=samples.map(x=>x.ms).sort((a,b)=>a-b),percentile=p=>sorted[Math.max(0,Math.ceil(p*sorted.length)-1)];output[name]={samples:loops,p50Ms:percentile(.5),p95Ms:percentile(.95),minMs:sorted[0],maxMs:sorted.at(-1),modelCallsPerDialogue:[...new Set(samples.map(x=>x.modelCalls))],readsPerDialogue:[...new Set(samples.map(x=>x.reads))],preparedPerDialogue:[...new Set(samples.map(x=>x.prepared))],example:samples[0].responses,rawMs:samples.map(x=>x.ms)};}
+ process.stdout.write(JSON.stringify(output));
+}else{
+ const baseline=option('--baseline','1f1d913');if(!/^[A-Za-z0-9_./-]+$/.test(baseline))throw new Error('Referencia Git inválida.');const revision=execFileSync('git',['rev-parse','--verify',baseline+'^{commit}'],{cwd:root,encoding:'utf8'}).trim();
+ const directory=join(root,'data','bench',randomUUID()),baselineDirectory=join(directory,'baseline');mkdirSync(baselineDirectory,{recursive:true});const archive=join(directory,'baseline.tar');execFileSync('git',['archive','--format=tar','--output='+archive,revision],{cwd:root});execFileSync('tar',['-xf',archive,'-C',baselineDirectory],{cwd:root});
+ const run=target=>JSON.parse(execFileSync(process.execPath,[fileURLToPath(import.meta.url),'--worker',target,'--loops',String(loops),'--warmup',String(warmup)],{cwd:root,encoding:'utf8',maxBuffer:10*1024*1024}));
+ const before=run(baselineDirectory),after=run(root),comparison=Object.fromEntries(cases.map(name=>[name,{p50BeforeMs:before[name].p50Ms,p50AfterMs:after[name].p50Ms,p95BeforeMs:before[name].p95Ms,p95AfterMs:after[name].p95Ms,p50ChangePercent:(after[name].p50Ms/before[name].p50Ms-1)*100,modelBefore:before[name].modelCallsPerDialogue,modelAfter:after[name].modelCallsPerDialogue}]));
+ const report={semanticChecksPassed:true,measuredAt:new Date().toISOString(),baseline:revision,currentCommit:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),currentIncludesWorkingTree:true,node:process.version,loops,warmup,scope:'Microbenchmark de routing/código con Store SQLite en memoria, fuentes y modelo controlados. Excluye arranque/importaciones/creación de fixtures; incluye turnos y persistencia de diálogo. Sin red, .env, DB operativa ni inferencia real. No mide latencia ERP, calidad real del modelo ni experiencia de producción. Baseline se ejecuta primero: resultados sensibles a ruido/calientamiento del host; no atribuir causalidad sin repetir.',before,after,comparison};
+ const path=join(directory,'benchmark.json');writeFileSync(path,JSON.stringify(report,null,2));process.stdout.write(JSON.stringify({path,comparison},null,2)+'\n');
+}

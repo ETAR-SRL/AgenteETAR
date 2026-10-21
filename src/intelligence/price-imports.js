@@ -2,6 +2,8 @@ import {randomUUID} from 'node:crypto';
 import {assert} from '../errors.js';
 import {assertPriceCurrency} from './references.js';
 import {prepareAttachmentCreation} from './purchase-imports.js';
+import Decimal from 'decimal.js';
+import {supplierPriceImpact} from './supplier-price-impact.js';
 const normalized=value=>String(value||'').trim().toUpperCase();
 export const importProfiles=Object.freeze({
  crearPedidoCompra:{action:'crearPedidoCompra',resource:'compras',party:'proveedores',creation:true},
@@ -13,7 +15,7 @@ export const importProfiles=Object.freeze({
  solicitudCompra:{action:'solicitudCompra',resource:'solicitudesCompra',price:'C1_VUNIT',order:true}
 });
 export const importAction=kind=>Object.hasOwn(importProfiles,kind)?importProfiles[kind].action:null;
-export function createPriceImports({store,read,prepare,createBatch,metadata=()=>({})}){
+export function createPriceImports({store,read,prepare,createBatch,metadata=()=>({}),authorizeRead,clock=()=>new Date()}){
  const db=store.db,busy=new Set();
  db.exec('CREATE TABLE IF NOT EXISTS price_imports(id TEXT PRIMARY KEY,actor TEXT NOT NULL,expires TEXT NOT NULL,body TEXT NOT NULL)');
  function save(actor,kind,branch,document){
@@ -161,10 +163,11 @@ export function createPriceImports({store,read,prepare,createBatch,metadata=()=>
      const changes={...(changePrice?{[profile.order?'precioUnitario':'precio']:value}:{}),...(changeQuantity?{cantidadPedida:quantity}:{})};
      const proposal=await prepare(actor,{action:profile.action,target:{sucursal:draft.branch,registro:String(row.registro)},changes,...(changePrice?{priceUnit}:{}),...(changeQuantity?{quantityUnit,expectedQuantity:row.cantidadPedida}:{}),expectedPrice:profile.order?row.precioUnitario:row.precio,expectedIdentity,origin});
      proposals.push({...proposal,origin});resolved.push({fila:inputRow.id,producto:product.codigo,descripcion:product.nombre,registro:row.registro,lista:row.listaCodigo,numero:row.numero,item:row.item,tercero:party?.nombre||row.proveedor?.nombre||row.proveedorCodigo||row.clienteCodigo,tienda:party?.tienda||row.proveedorTienda||row.clienteTienda,precio:value,base:priceUnit,moneda:currency,cantidad:row.cantidadPedida});
-     Object.assign(resolved.at(-1),{base:priceUnit||'unidad',quantityUnit,quantityChanged:changeQuantity,priceChanged:changePrice});
+     Object.assign(resolved.at(-1),{base:priceUnit||'unidad',quantityUnit,quantityChanged:changeQuantity,priceChanged:changePrice,monedaCodigo:String(row.moneda?.codigo||''),unidadMedida:product.unidadMedida,proveedorCodigo:supplier?party?.codigo:undefined,precioPorUnidad:changePrice?new Decimal(value).div(priceUnit==='millar'?1000:1).toFixed():row.precioUnitario??row.precio,evidenceAt:clock().toISOString(),vigenciaAnterior:{desde:row.vigenteDesde??null,hasta:row.vigenteHasta??null},vigenciaNueva:{desde:row.vigenteDesde??null,hasta:row.vigenteHasta??null},vigenciaModificada:false});
     }catch(error){if(['LECTURA_DENEGADA','ACCION_DENEGADA','ACCESO_CAMBIO'].includes(error.code))throw error;issues.push({fila:inputRow.id,producto:inputRow.product,ubicacion:origin.ubicacion,motivo:error.message,codigo:error.code||'ERROR_VERIFICACION'});}
    }
    const result={proposals,issues,resolved,message:`Cambios preparados: ${proposals.length}. Filas para revisar: ${issues.length}. No se modificó el ERP.`};
+   if(draft.kind==='proveedor'&&resolved.length){result.impact=await supplierPriceImpact({rows:resolved,branch:draft.branch,read,authorizeRead,clock});for(const row of resolved)row.impact=result.impact.rows.find(r=>r.fila===row.fila)||{state:result.impact.state,message:result.impact.message,evidenceAt:result.impact.evidenceAt};}
    if(createBatch)result.batch=createBatch(actor,draft,result);
    db.prepare('UPDATE price_imports SET body=? WHERE id=? AND actor=?').run(JSON.stringify({...draft,lastResult:result}),id,actor);store.audit(actor,'price-import.prepared',id);return result;
   }finally{busy.delete(actor);}

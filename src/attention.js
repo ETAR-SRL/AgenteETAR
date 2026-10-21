@@ -1,7 +1,9 @@
 import Decimal from 'decimal.js';
 import {randomUUID} from 'node:crypto';
 import {AttentionStore} from './attention-store.js';
-import {canRead} from './access.js';
+import {AttentionCases,casePriority} from './attention-cases.js';
+import {createAttentionDaily} from './attention-daily.js';
+import {canRead,assertAction} from './access.js';
 import {assert} from './errors.js';
 const resources={sale:'atencionVentas',purchase:'atencionCompras',remit:'atencionRemitos'};
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
@@ -25,7 +27,8 @@ export function documentSnapshot(target,rows,today){
 }
 export function createAttention({store,principal,users,runAs,read,kaiqen,clock=()=>new Date(),enabled=true,intervalMs=300000,maxDocuments=5,maxUsers=5}){
  assert(Number.isInteger(intervalMs)&&intervalMs>=30000&&intervalMs<=86400000,500,'CONFIGURACION_INVALIDA','ATTENTION_POLL_MS debe estar entre 30000 y 86400000.');
- const db=new AttentionStore(store,{clock}),token=randomUUID();let timer,running=null,stopped=false;
+ const db=new AttentionStore(store,{clock}),cases=new AttentionCases(db),token=randomUUID();let timer,dailyTimer,running=null,stopped=false;
+ db.db.exec('CREATE TABLE IF NOT EXISTS op_priority_preferences(owner TEXT NOT NULL,branch TEXT NOT NULL,kind TEXT NOT NULL,preference TEXT NOT NULL,PRIMARY KEY(owner,branch,kind))');
  const current=()=>{const p=principal();assert(p?.userId,403,'USUARIO_REQUERIDO','Ingresá con tu usuario para usar tus seguimientos.');return p;};
  const authorize=item=>{const p=current();assert(permitted(p,item),403,'LECTURA_DENEGADA','Esto no podés leerlo.');return p;};
  const owner=()=>current().userId;
@@ -38,7 +41,7 @@ export function createAttention({store,principal,users,runAs,read,kaiqen,clock=(
   }
   throw Object.assign(new Error('El documento supera el alcance de la revisión.'),{status:503,code:'ALCANCE_PARCIAL'});
  };
- const applyGoals=row=>{const f=db.db.prepare('SELECT * FROM op_follows WHERE owner=? AND item=?').get(owner(),row.id);if(f&&f.state!=='cancelled')db.finish(owner(),row.id,row.snapshot.goalComplete?'completed':row.snapshot.closedOther?'needs_review':'active');return db.get(owner(),row.id);};
+ const applyGoals=row=>{const f=db.db.prepare('SELECT * FROM op_follows WHERE owner=? AND item=?').get(owner(),row.id);if(f&&!['cancelled','paused'].includes(f.state))db.finish(owner(),row.id,row.snapshot.goalComplete?'completed':row.snapshot.closedOther?'needs_review':'active');return db.get(owner(),row.id);};
  const putDocument=async(target,beforeSave=()=>{})=>{const rows=await readRows(target),snapshot=documentSnapshot(target,rows,day(clock())),previous=db.byKey(owner(),key(target));const present=new Set(rows.map(r=>r.registro));snapshot.missingItems=[...new Set([...(previous?.snapshot.missingItems||[]),...(previous?.snapshot.rows||[]).map(r=>r.registro)])].filter(id=>!present.has(id));if(snapshot.missingItems.length){snapshot.goalComplete=false;if(!snapshot.pendingItems)snapshot.closedOther=true;}authorize({kind:target.kind,branch:target.branch});beforeSave();return applyGoals(db.upsert(owner(),{key:key(target),branch:target.branch,kind:target.kind,target,snapshot,status:snapshot.attention?'active':'resolved'}));};
  function projectProblems(detail,quality,today){
   const problems=[];
@@ -63,13 +66,13 @@ export function createAttention({store,principal,users,runAs,read,kaiqen,clock=(
  };
  const review=async(item,beforeSave=()=>{})=>{
   authorize(item);try{let row;if(item.kind==='kaiqen'){const snapshot=await projectSnapshot(item.target.projectId,item.branch);beforeSave();row=db.upsert(owner(),{key:item.key,branch:item.branch,kind:item.kind,target:item.target,snapshot,status:snapshot.attention?'active':'resolved'});}else row=await putDocument(item.target,beforeSave);authorize(row);
-   const f=db.db.prepare('SELECT * FROM op_follows WHERE owner=? AND item=?').get(owner(),row.id);if(f&&f.state!=='cancelled'){if(row.snapshot.goalComplete)db.finish(owner(),row.id,'completed');else if(row.snapshot.closedOther)db.finish(owner(),row.id,'needs_review');else if(f.state!=='active')db.finish(owner(),row.id,'active');}return db.get(owner(),row.id);
+   const f=db.db.prepare('SELECT * FROM op_follows WHERE owner=? AND item=?').get(owner(),row.id);if(f&&!['cancelled','paused'].includes(f.state)){if(row.snapshot.goalComplete)db.finish(owner(),row.id,'completed');else if(row.snapshot.closedOther)db.finish(owner(),row.id,'needs_review');else if(f.state!=='active')db.finish(owner(),row.id,'active');}return db.get(owner(),row.id);
   }catch(e){if(denied(e))throw e;authorize(item);beforeSave();db.unavailable(owner(),item.id);return db.get(owner(),item.id);}
  };
- const view=item=>{authorize(item);const now=clock(),s=item.snapshot;return {...item,...db.news(owner(),item.id),ageDays:age(s.fecha,day(now)),historical:item.status==='unknown',visible:item.preference==='visible'||item.preference==='snoozed'&&item.until_at<=now.toISOString(),evidence:{source:item.kind==='kaiqen'?'KAIQEN · vínculo de catálogo verificado':'Protheus · lectura estructurada',checkedAt:item.checked,lastSuccess:item.last_success},kindLabel:item.kind==='sale'?'Pedido de venta':item.kind==='purchase'?'Pedido de compra':item.kind==='remit'?'Remito':'Proyecto y calidad'};};
+ const view=item=>{const p=authorize(item),now=clock(),s=item.snapshot,caseDetails=cases.get(owner(),item.id);const preference=db.db.prepare('SELECT preference FROM op_priority_preferences WHERE owner=? AND branch=? AND kind=?').get(owner(),item.branch,item.kind)?.preference;if(preference&&!caseDetails.preferenceExplicit)caseDetails.preference=preference;const accessible=e=>e.revision===p.revision&&(e.requiredResources||[]).every(r=>canRead(p,r));caseDetails.investigations=(caseDetails.investigations||[]).filter(accessible);caseDetails.links=(caseDetails.links||[]).filter(accessible);const caseState=caseDetails.state==='open'&&item.follow_state==='completed'?'resolved':caseDetails.state;return {...item,...db.news(owner(),item.id),caseDetails,caseState,caseObjective:caseDetails.objective||item.goal,nextSteps:caseDetails.nextSteps||[],priority:casePriority({...item,caseDetails},now),ageDays:age(s.fecha,day(now)),historical:item.status==='unknown',visible:!['paused','cancelled'].includes(caseState)&&(item.preference==='visible'||item.preference==='snoozed'&&item.until_at<=now.toISOString()),evidence:{source:item.kind==='kaiqen'?'KAIQEN · vínculo de catálogo verificado':'Protheus · lectura estructurada',checkedAt:item.checked,lastSuccess:item.last_success},kindLabel:item.kind==='sale'?'Pedido de venta':item.kind==='purchase'?'Pedido de compra':item.kind==='remit'?'Remito':'Proyecto y calidad'};};
  const list=({branch,following=false,all=false}={})=>{
   const p=current();assert(p.branches.includes(branch),403,'LECTURA_DENEGADA','Esto no podés leerlo.');
-  const rows=db.rows(p.userId,branch).filter(i=>permitted(p,i)&&(!following||i.follow_state&&i.follow_state!=='cancelled')).map(view);
+  const rows=db.rows(p.userId,branch).filter(i=>permitted(p,i)&&(!following||i.follow_state&&i.follow_state!=='cancelled')).map(view).sort((a,b)=>b.priority.score-a.priority.score||a.created.localeCompare(b.created));
   const data=all||following?rows:rows.filter(i=>i.visible&&(i.status!=='resolved'||i.hasNews||i.follow_state==='active'||i.follow_state==='needs_review'));
   const sources=Object.entries(resources).filter(([kind])=>permitted(p,{kind,branch})).map(([kind,r])=>({name:kind==='sale'?'Pedidos de venta':kind==='purchase'?'Pedidos de compra':'Remitos',...db.source(p.userId,branch,r)}));
   if(permitted(p,{kind:'kaiqen',branch}))sources.push({name:'Proyectos y calidad',...db.source(p.userId,branch,'kaiqen')});
@@ -83,13 +86,15 @@ export function createAttention({store,principal,users,runAs,read,kaiqen,clock=(
   if(choices.length>1)return {choices};return {item:await putDocument(choices[0])};
  };
  const act=async(id,input)=>{
-  assert(input&&['follow','cancel','snooze','dismiss','show','changes','review','seen'].includes(input.action),400,'ACCION_INVALIDA','Acción de seguimiento inválida.');
+  assert(input&&['follow','cancel','pause','resume','case-update','snooze','dismiss','show','changes','review','seen'].includes(input.action),400,'ACCION_INVALIDA','Acción de seguimiento inválida.');
   let item=lookup(id);
   if(input.action==='seen'){db.seen(owner(),id);return {item:view(lookup(id))};}
   if(input.action==='review')return {item:view(await review(item))};
   if(input.action==='changes')return {item:view(item),changes:db.events(owner(),id,true),historical:true};
-  if(input.action==='follow'){item=await review(item);assert(item.status!=='unknown',503,'FUENTE_NO_DISPONIBLE','No pude verificar el documento. No guardé un objetivo con datos sin verificar.');const goal=item.kind==='remit'?'invoice_recorded':item.kind==='kaiqen'?'problem_cleared':'attention_recorded';db.follow(owner(),id,goal);if(item.snapshot.goalComplete)db.finish(owner(),id,'completed');}
-  if(input.action==='cancel')db.finish(owner(),id,'cancelled');
+  if(['follow','resume'].includes(input.action)){item=await review(item);assert(item.status!=='unknown',503,'FUENTE_NO_DISPONIBLE','No pude verificar el documento. No guardé un objetivo con datos sin verificar.');const goal=item.kind==='remit'?'invoice_recorded':item.kind==='kaiqen'?'problem_cleared':'attention_recorded';db.follow(owner(),id,goal);cases.update(owner(),id,{state:'open'});db.finish(owner(),id,item.snapshot.goalComplete?'completed':item.snapshot.closedOther?'needs_review':'active');}
+  if(input.action==='cancel'){db.finish(owner(),id,'cancelled');cases.update(owner(),id,{state:'cancelled'});}
+  if(input.action==='pause'){db.finish(owner(),id,'paused');cases.update(owner(),id,{state:'paused'});}
+  if(input.action==='case-update'){assert(input.state===undefined,400,'ESTADO_INVALIDO','Usá pausar, retomar o cancelar para cambiar el estado del caso.');cases.update(owner(),id,input);}
   if(input.action==='snooze'){const until=new Date(input.until);assert(Number.isFinite(+until)&&until>clock()&&+until-+clock()<=366*86400000,400,'FECHA_INVALIDA','Elegí una fecha futura dentro de un año.');db.preference(owner(),id,{mode:'snoozed',until:until.toISOString(),onChange:input.onChange===true});}
   if(input.action==='dismiss')db.preference(owner(),id,{mode:'dismissed',onChange:input.onChange===true});
   if(input.action==='show')db.preference(owner(),id,{mode:'visible'});
@@ -118,7 +123,10 @@ export function createAttention({store,principal,users,runAs,read,kaiqen,clock=(
    db.set('usersCursor',offset+selected.length);db.set('lastRun',start.toISOString());db.set('nextRun',new Date(+clock()+intervalMs).toISOString());
   }finally{db.release(token);}
  }
- const service={db,list,resolve,act,get:id=>view(lookup(id)),review,projectSnapshot,
+ const daily=createAttentionDaily({db,current,users,runAs,list,clock,canPrepare:item=>{try{assertAction(current(),item.kind==='sale'?'pedidoVenta':item.kind==='purchase'?'pedidoCompra':'');return true;}catch{return false;}}});
+ const service={db,list,resolve,act,get:id=>view(lookup(id)),review,projectSnapshot,setPriorityPreference({branch,kind,preference}){const p=current();assert(p.branches.includes(branch)&&['sale','purchase','remit'].includes(kind)&&['high','normal','low'].includes(preference)&&canRead(p,resources[kind]),403,'LECTURA_DENEGADA','Esto no podés leerlo.');db.db.prepare('INSERT INTO op_priority_preferences VALUES(?,?,?,?) ON CONFLICT(owner,branch,kind) DO UPDATE SET preference=excluded.preference').run(p.userId,branch,kind,preference);return {kind,preference,branch};},settings:daily.settings,currentDaily:daily.currentDaily,dailyRun:()=>daily.run(),
+  recordInvestigation(id,input){const item=lookup(id),p=current(),required=[...itemResources(item),...(input.requiredResources||[])];assert(required.every(r=>canRead(p,r)),403,'LECTURA_DENEGADA','Esto no podés leerlo.');cases.investigation(owner(),id,input,required,p.revision);return view(lookup(id));},
+  linkProposal(id,input){const item=lookup(id),p=current(),required=[...itemResources(item),...(input.requiredResources||[])];assert(required.every(r=>canRead(p,r)),403,'LECTURA_DENEGADA','Esto no podés leerlo.');cases.link(owner(),id,input,required,p.revision);return view(lookup(id));},
   erpUnavailable(){
    // Cambia sólo la disponibilidad local; conserva objetivos, preferencias e historial.
    for(const r of db.db.prepare("SELECT owner,id FROM op_items WHERE kind IN ('sale','purchase','remit') AND status<>'unknown'").all())db.unavailable(r.owner,r.id);
@@ -128,11 +136,13 @@ export function createAttention({store,principal,users,runAs,read,kaiqen,clock=(
    db.db.prepare("UPDATE op_sources SET next_check=NULL WHERE source IN ('atencionVentas','atencionCompras','atencionRemitos')").run();
    void service.run();
   },
+  kaiqenUnavailable(){for(const r of db.db.prepare("SELECT owner,id FROM op_items WHERE kind='kaiqen' AND status<>'unknown'").all())db.unavailable(r.owner,r.id);},
+  kaiqenAvailable(){db.db.prepare("UPDATE op_items SET next_check=NULL WHERE kind='kaiqen' AND status='unknown'").run();db.db.prepare("UPDATE op_sources SET next_check=NULL WHERE source='kaiqen'").run();void service.run();},
   acknowledge(id){const item=lookup(id);db.seen(owner(),item.id);},
   async refresh(id){return view(await review(lookup(id)));},
   run(){if(stopped||!enabled)return Promise.resolve();if(running)return running;running=cycle().catch(()=>{try{db.set('lastFailure',clock().toISOString());db.set('nextRun',new Date(+clock()+intervalMs).toISOString());}catch{}}).finally(()=>{running=null;});return running;},
-  start(){if(timer||!enabled||stopped)return;void service.run();timer=setInterval(()=>void service.run(),intervalMs);timer.unref?.();},
-  async stop(){stopped=true;clearInterval(timer);await running;}
+  start(){if(timer||!enabled||stopped)return;void service.run();void daily.run();timer=setInterval(()=>void service.run(),intervalMs);timer.unref?.();dailyTimer=setInterval(()=>void daily.run(),60000);dailyTimer.unref?.();},
+  async stop(){stopped=true;clearInterval(timer);clearInterval(dailyTimer);await running;await daily.drain();}
  };
  return service;
 }

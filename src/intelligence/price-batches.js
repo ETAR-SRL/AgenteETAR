@@ -44,13 +44,15 @@ export function createPriceBatches({store,check,execute,authorize=()=>{}}){
    rows.push({...resolved,proposalId:proposal.id,fingerprint:proposal.fingerprint,expiresAt:proposal.expiresAt,
     anterior:new Decimal(diff.before).toDecimalPlaces(scale).times(factor).toFixed(),
     nuevo:new Decimal(diff.after).times(factor).toFixed(),
-    unidadMedida:proposal.calculation?.unidadMedida||proposal.identity?.unidadMedida,totalAnterior:total?.before??proposal.before?.total,totalNuevo:total?.after??proposal.before?.total,
+    diferenciaAbsoluta:new Decimal(diff.after).minus(diff.before).times(factor).toFixed(),
+    diferenciaPorcentaje:new Decimal(diff.before).eq(0)?null:new Decimal(diff.after).minus(diff.before).div(diff.before).times(100).toFixed(4),
+    unidadMedida:proposal.calculation?.unidadMedida||proposal.identity?.unidadMedida||resolved.unidadMedida,totalAnterior:total?.before??proposal.before?.total,totalNuevo:total?.after??proposal.before?.total,
     cantidadAnterior:quantityDiff?.before??resolved.cantidad,cantidadNueva:quantityDiff?.after??resolved.cantidad,
     cantidadAnteriorComercial:resolved.quantityChanged?new Decimal(quantityDiff?.before??resolved.cantidad).div(resolved.quantityUnit==='millares'?1000:1).toFixed():undefined,
     cantidadNuevaComercial:resolved.quantityChanged?new Decimal(quantityDiff?.after??resolved.cantidad).div(resolved.quantityUnit==='millares'?1000:1).toFixed():undefined,
     origen:proposal.origin?.ubicacion,warnings:proposal.warnings||[],diff:proposal.diff});
   }
-  const data={id:randomUUID(),importId:draft.id,kind:draft.kind,action,branch:draft.branch,name:draft.name,rows,issues,
+  const data={id:randomUUID(),importId:draft.id,kind:draft.kind,action,branch:draft.branch,name:draft.name,rows,issues,...(result.impact?{impact:result.impact}:{}),
    expiresAt:rows.length?rows.reduce((min,r)=>r.expiresAt<min?r.expiresAt:min,rows[0].expiresAt):draft.expiresAt};
   data.fingerprint=createHash('sha256').update(JSON.stringify(data)).digest('hex');
   db.exec('BEGIN IMMEDIATE');

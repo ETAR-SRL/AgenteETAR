@@ -1,4 +1,11 @@
 import {createAttention} from './attention.js';
+import {createInvestigationJobs} from './investigation-jobs.js';
+import {CorporateDocuments} from './corporate-documents.js';
+import {createCorporateDocumentExtractor} from './corporate-document-extract.js';
+import {createApprovedKnowledge} from './approved-knowledge.js';
+import {createOperationalChat} from './operational-chat.js';
+import {exportFinishedReport} from './finished-reports.js';
+import {createExternalPrivacy} from './intelligence/external-privacy.js';
 import {createAttentionNotifications} from './attention-notifications.js';
 import {createAttentionChat} from './intelligence/attention-chat.js';
 import {historyExcel} from './history-excel.js';
@@ -34,10 +41,10 @@ async function body(req,maxBytes=16384){
   for await(const chunk of req){bytes+=chunk.length;assert(bytes<=maxBytes,413,'CUERPO_GRANDE','Solicitud demasiado grande');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new HttpError(400,'JSON_INVALIDO','JSON inválido');}
 }
-export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,attentionOptions={},notificationOptions={},voice=createVoice(),documents=createDocumentReader(),model,modelSettings,network=createNetworkAccess()}){
+export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,attentionOptions={},notificationOptions={},corporateOptions={},voice=createVoice(),documents=createDocumentReader(),model,modelSettings,network=createNetworkAccess()}){
   assert(readKey?.length>=32 && planKey?.length>=32 && readKey!==planKey,500,'CLAVES_INVALIDAS','Configurar dos claves distintas de al menos 32 caracteres');
   assert(!writeKey || (writeKey.length>=32 && writeKey!==readKey && writeKey!==planKey),500,'CLAVES_INVALIDAS','La clave de escritura debe ser distinta y de al menos 32 caracteres');
-  const access=new Access(store,branches),context=new AsyncLocalStorage();
+  const access=new Access(store,branches),context=new AsyncLocalStorage(),privacy=createExternalPrivacy();
   const principalNow=()=>access.refresh(context.getStore());
   const send=(res,status,value)=>{if(context.getStore())principalNow();return rawSend(res,status,value);};
   const guard=resource=>{const p=principalNow();assertRead(p,resource);return p;};
@@ -53,7 +60,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     const p=principalNow();assertAction(p,action,method==='execute');if(method==='execute'&&p.userId)assert(localWrites,403,'ESCRITURA_LOCAL_DESHABILITADA','La ejecución está deshabilitada para usuarios en esta instalación.');branchGuard(target.sucursal);
     return rawErp.writes[method](...args);
   };}
-  kaiqen={...rawKaiqen};for(const [method,resource] of Object.entries({projects:'proyectos',project:'proyectos',quality:'calidad',projectLink:'proyectos',product:'productos'}))if(rawKaiqen[method])kaiqen[method]=async(...args)=>{guard(resource);const value=await rawKaiqen[method](...args);const p=principalNow();return p.admin||p.unrestricted?value:scopeKaiqen(method,value);};
+  kaiqen={...rawKaiqen};Object.defineProperty(kaiqen,'computedQuality',{enumerable:true,get:()=>rawKaiqen.computedQuality});for(const [method,resource] of Object.entries({projects:'proyectos',project:'proyectos',quality:'calidad',projectLink:'proyectos',product:'productos'}))if(rawKaiqen[method])kaiqen[method]=async(...args)=>{guard(resource);const value=await rawKaiqen[method](...args);privacy.observe(value);const p=principalNow();return p.admin||p.unrestricted?value:scopeKaiqen(method,value);};
   const rate=new Map(),ui=createUi({access,network});
   function auth(req){
     const token=/^Bearer ([^\s]+)$/.exec(req.headers.authorization||'')?.[1]||'';
@@ -91,7 +98,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     assert(erp.writes?.enabled,503,'ESCRITURA_DESHABILITADA','El ejecutor no está habilitado.');
     if(p.userId)assert(localWrites,403,'ESCRITURA_LOCAL_DESHABILITADA','La ejecución está deshabilitada para usuarios en esta instalación.');
   }});
-  const priceImports=createPriceImports({store,read,metadata:()=>erp.metadata(),prepare:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);},createBatch:priceBatches.create});
+  const priceImports=createPriceImports({store,read,authorizeRead:guard,metadata:()=>erp.metadata(),prepare:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);},createBatch:priceBatches.create});
   async function executeRead(command){
     guard(command.resource);
     const params=new URLSearchParams(command.filters);
@@ -117,19 +124,37 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     return read(command.resource,params);
   }
   const aiSettings=modelSettings||(model?null:createModelSettings());
-  model=model||aiSettings.model;
+  model=privacy.model(model||aiSettings.model);
   const attachmentChat=createAttachmentChat({imports:priceImports,authorize:authorizeImport,model:model||createModel()});
   const dashboardChat=createDashboardChat({dashboards,principal:principalNow,executeRead,read,authorizeRead:guard});
   const attention=createAttention({store,principal:principalNow,read,kaiqen,users:()=>access.db.prepare('SELECT id FROM access_users WHERE active=1 ORDER BY id').all().map(u=>access.principal(u.id)),runAs:async(id,fn)=>{const p=access.principal(id);if(p)return context.run(p,fn);},...attentionOptions});
   const notifications=createAttentionNotifications({attention,principal:principalNow,user:id=>access.principal(id),...notificationOptions});
-  const attentionChat=createAttentionChat({attention,read,executeRead,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),metadata:()=>erp.metadata(),kaiqen});
-  const intelligence=createIntelligence({attentionChat,erp,kaiqen,store,read,executeRead,branches,dashboardChat,model,attachmentChat,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
+  let jobs;
+  const attentionChat=createAttentionChat({attention,read,executeRead,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),metadata:()=>erp.metadata(),kaiqen,enqueueInvestigation:(id,branch)=>jobs.create(id,branch)});
+  jobs=createInvestigationJobs({store,attention,principal:principalNow,user:id=>access.principal(id),runAs:(id,fn)=>{const p=access.principal(id);assert(p,403,'ACCESO_CAMBIO','Tus permisos cambiaron.');return context.run(p,()=>privacy.run(fn));},investigate:attentionChat.investigate});
+  const corporate=new CorporateDocuments({db:store.db,...corporateOptions,resolvePrincipal:id=>access.principal(id),authorize:(p,action)=>action==='manage'?p.admin===true:canRead(p,'documentosCorporativos'),extractBinary:createCorporateDocumentExtractor({documents,root:process.cwd()})});
+  const knowledge=createApprovedKnowledge({store,principal:principalNow,user:id=>access.principal(id)});
+  async function prepareCase(actor,input){
+    assertAction(principalNow(),input.action);const id=input.origin?.attention;
+    if(id){const item=attention.get(id);assert(item.branch===input.target?.sucursal&&((item.kind==='sale'&&input.action==='pedidoVenta')||(item.kind==='purchase'&&input.action==='pedidoCompra'))&&item.snapshot.rows.some(r=>String(r.registro)===String(input.target.registro)),403,'LECTURA_DENEGADA',denied);}
+    const proposal=await changes.preview(actor,input);if(id)attention.linkProposal(id,{id:proposal.id,status:'prepared',reason:'Propuesta preparada; requiere confirmación explícita.',requiredResources:[changePolicies[input.action].resource]});return proposal;
+  }
+  const operationalChat=createOperationalChat({documents:corporate,knowledge,jobs,principal:principalNow});
+  const prepareConversationCase=(actor,input)=>{if(input.origin?.attention){const item=attention.get(input.origin.attention),related=item.branch===input.target?.sucursal&&((item.kind==='sale'&&input.action==='pedidoVenta')||(item.kind==='purchase'&&input.action==='pedidoCompra'))&&item.snapshot.rows.some(r=>String(r.registro)===String(input.target.registro));if(!related){const {attention:_,...origin}=input.origin;input={...input,origin};}}return prepareCase(actor,input);};
+  const intelligence=createIntelligence({attentionChat,operationalChat,privacy,erp,kaiqen,store,read,executeRead,branches,dashboardChat,model,attachmentChat,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:prepareConversationCase});
   const federated=createFederatedLogin({access,ui});
   const server=http.createServer(async(req,res)=>{
     try{
       network.origin(req);
       assert(req.url.length<=4096,414,'URL_LARGA','URL demasiado larga');
       const url=new URL(req.url,'http://localhost');
+      const documentCallback=/^\/api\/corporate-documents\/oauth\/(google|microsoft)\/callback$/.exec(url.pathname);
+      if(documentCallback&&req.method==='GET'){
+        const name='central_docs_'+documentCallback[1],cookie=(req.headers.cookie||'').split(';').map(s=>s.trim()).find(s=>s.startsWith(name+'='))?.slice(name.length+1),state=url.searchParams.get('state');
+        res.setHeader('set-cookie',`${name}=; HttpOnly; SameSite=Lax; Path=/api/corporate-documents/oauth; Max-Age=0${req.socket.encrypted?'; Secure':''}`);
+        let ok=false;try{assert(typeof state==='string'&&state.length<=100&&cookie&&safeEqual(state,cookie),400,'DOCUMENTOS_STATE','La conexión no corresponde a este navegador.');await corporate.completeConnect({state,code:url.searchParams.get('code'),error:url.searchParams.get('error'),expectedProvider:documentCallback[1],expectedOrigin:ui.local(req)});ok=true;}catch{}
+        res.writeHead(303,{location:'/?documents='+(ok?'connected':'failed'),'cache-control':'no-store'});res.end();return;
+      }
       if(url.pathname.startsWith('/api/auth/')){
         ui.local(req);
         if(req.method==='GET'&&url.pathname==='/api/auth/providers')return rawSend(res,200,{providers:federated.status(ui.local(req))});
@@ -151,7 +176,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       if(ui.handle(req,res,url.pathname))return;
       if(url.pathname==='/health' && req.method==='GET')return send(res,200,{status:'up',mode});
       const principal=auth(req);
-      return await context.run(principal,async()=>{
+      return await context.run(principal,()=>privacy.run(async()=>{
       if(url.pathname.startsWith('/api/admin/')){
         access.admin(principal);
         if(url.pathname==='/api/admin/ai'&&aiSettings){
@@ -160,6 +185,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         }
         if(url.pathname==='/api/admin/ai/test'&&req.method==='POST'&&aiSettings)return send(res,200,await aiSettings.test());
         if(req.method==='GET'&&url.pathname==='/api/admin/access')return send(res,200,access.list(principal));
+        if(req.method==='GET'&&url.pathname==='/api/admin/corporate-documents')return send(res,200,{sources:corporate.adminList(principalNow())});
         const target=/^\/api\/admin\/(roles|users)(?:\/([a-f0-9-]{36}|admin))?$/.exec(url.pathname);
         if(target&&['POST','PUT'].includes(req.method)){
           const result=target[1]==='roles'?access.saveRole(principal,await body(req),target[2]):await access.saveUser(principal,await body(req),target[2]);
@@ -167,6 +193,34 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         }
         throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
       }
+      if(req.method==='GET'&&url.pathname==='/api/sources/status')return send(res,200,{erp:erp.status?.()||{state:'available',available:true},kaiqen:rawKaiqen.status?.()||{state:kaiqen.available?'configured':'not_configured'},ai:await model.status()});
+      if(req.method==='POST'&&url.pathname==='/api/reports/export'){
+        const report=await exportFinishedReport(await body(req),{read,authorizeRead:guard});principalNow();res.writeHead(200,{'content-type':report.contentType,'content-disposition':`attachment; filename="${report.filename}"`,'cache-control':'no-store','x-content-type-options':'nosniff'});res.end(report.buffer);return;
+      }
+      if(url.pathname==='/api/knowledge'){
+        if(req.method==='GET')return send(res,200,knowledge.list({branch:url.searchParams.get('branch')||principal.branches?.[0],q:url.searchParams.get('q')||'',management:url.searchParams.get('management')==='true'}));
+        if(req.method==='POST')return send(res,200,knowledge.save(await body(req)));
+      }
+      const guide=/^\/api\/knowledge\/([a-f0-9-]{36})(\/archive)?$/.exec(url.pathname);
+      if(guide){if(req.method==='GET'&&!guide[2])return send(res,200,knowledge.get(guide[1],{management:url.searchParams.get('management')==='true'}));if(req.method==='POST'&&guide[2])return send(res,200,knowledge.archive(guide[1],(await body(req)).revision));}
+      if(url.pathname==='/api/corporate-documents'){
+        if(req.method==='GET')return send(res,200,{sources:corporate.list(principalNow())});
+        if(req.method==='POST'){access.admin(principalNow());const input=await body(req);assert(input?.users?.every(id=>access.user(id)?.active)&&input?.roles?.every(id=>access.role(id)),400,'DOCUMENTOS_DESTINOS','Elegí usuarios activos y roles existentes.');const saved=corporate.configure(principalNow(),input);store.audit(principal.actor,'documents.configure',saved.id);return send(res,200,saved);}
+      }
+      if(['/api/corporate-documents/search','/api/corporate-documents/read'].includes(url.pathname)&&req.method==='GET'){const args=Object.fromEntries(url.searchParams);if(args.limit)args.limit=Number(args.limit);return send(res,200,await corporate[url.pathname.endsWith('/search')?'search':'read'](principalNow(),args));}
+      const docConnection=/^\/api\/corporate-documents\/([\w-]+)\/(connect|disconnect)$/.exec(url.pathname);
+      if(docConnection&&req.method==='POST'){
+        const p=principalNow();
+        if(docConnection[2]==='disconnect'){const result=await corporate.disconnect(p,docConnection[1]);store.audit(p.actor,'documents.disconnect',docConnection[1]);return send(res,200,result);}
+        const source=corporate.source(docConnection[1]);corporate.check(p,'connect',source);const settings=corporate.settings(source);assert(new URL(settings.redirectUri).origin===ui.local(req),400,'DOCUMENTOS_REDIRECT','La dirección de retorno debe coincidir con esta dirección HTTPS de Central.');
+        const result=corporate.beginConnect(p,source.id);res.setHeader('set-cookie',`central_docs_${source.provider}=${result.state}; HttpOnly; SameSite=Lax; Path=/api/corporate-documents/oauth; Max-Age=300${req.socket.encrypted?'; Secure':''}`);store.audit(p.actor,'documents.connect.start',source.id);return send(res,200,result);
+      }
+      if(url.pathname==='/api/investigations'){
+        if(req.method==='GET')return send(res,200,jobs.list());
+        if(req.method==='POST'){const input=await body(req);return send(res,202,jobs.create(input.itemId,input.branch));}
+      }
+      const investigation=/^\/api\/investigations\/([a-f0-9-]{36})(\/action)?$/.exec(url.pathname);
+      if(investigation){if(req.method==='GET'&&!investigation[2])return send(res,200,jobs.get(investigation[1]));if(req.method==='POST'&&investigation[2])return send(res,200,jobs.act(investigation[1],(await body(req)).action));}
       if(req.method==='GET'&&url.pathname==='/api/approvals/automation'){guard('aprobacionesCompras');assert(principal.role==='writer',403,'ROL_REQUERIDO','Requiere operador de escritura');return send(res,200,{status:approvalScheduler?.status()||{enabled:false},...store.escalationHistory()});}
       if(url.pathname.startsWith('/api/price-imports')){
         assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere permiso para preparar precios.');
@@ -249,6 +303,8 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
           throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
         }
         const branch=url.searchParams.get('sucursal')||principal.branches[0];branchGuard(branch);
+        if(url.pathname==='/api/attention/daily/settings'){if(req.method==='GET')return send(res,200,attention.settings());if(req.method==='PUT')return send(res,200,attention.settings(await body(req)));}
+        if(url.pathname==='/api/attention/daily'&&['GET','POST'].includes(req.method)){const b=req.method==='POST'?(await body(req)).sucursal||branch:branch;branchGuard(b);return send(res,200,attention.currentDaily({branch:b,generate:req.method==='POST'}));}
         if(req.method==='GET'&&url.pathname==='/api/attention')return send(res,200,attention.list({branch,following:url.searchParams.get('following')==='true',all:url.searchParams.get('all')==='true'}));
         if(req.method==='POST'&&url.pathname==='/api/attention/review'){void attention.run();return send(res,202,{queued:true,message:'La revisión sigue en segundo plano.'});}
         const alert=/^\/api\/attention\/([a-f0-9-]{36})(\/action)?$/.exec(url.pathname);
@@ -307,14 +363,14 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       }
       if(req.method==='POST' && url.pathname==='/api/changes/preview'){
         assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere clave de planificación');
-        const input=await body(req);assertAction(principal,input.action);return send(res,201,await changes.preview(principal.actor,input));
+        const input=await body(req);assertAction(principal,input.action);return send(res,201,await prepareCase(principal.actor,input));
       }
       if(req.method==='POST' && (match=/^\/api\/changes\/([a-f0-9-]{36})\/renew-attention$/.exec(url.pathname))){const p=store.get(match[1],principal.actor);assert(p,404,'PROPUESTA_NO_EXISTE','Propuesta inexistente');assertAction(principalNow(),p.action);assert(p.origin?.attention&&['pedidoVenta','pedidoCompra'].includes(p.action),404,'PROPUESTA_NO_EXISTE','No hay una propuesta del seguimiento para revisar.');const item=attention.get(p.origin.attention);assert(item.branch===p.target.sucursal&&item.snapshot.rows?.some(r=>r.registro===p.target.registro)&&((p.action==='pedidoVenta'&&item.kind==='sale')||(p.action==='pedidoCompra'&&item.kind==='purchase')),403,'LECTURA_DENEGADA',denied);return send(res,200,await changes.renewAttention(principal.actor,p.id));}
       if(req.method==='POST' && (match=/^\/api\/changes\/([a-f0-9-]{36})\/check$/.exec(url.pathname))){assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere clave de planificación');return send(res,200,await changes.check(principal.actor,match[1]));}
       if(req.method==='GET' && (match=/^\/api\/changes\/([a-f0-9-]{36})$/.exec(url.pathname))){assert(['planner','writer'].includes(principal.role),403,'ROL_INSUFICIENTE','Se requiere permiso de planificación');const saved=store.get(match[1],principal.actor);if(saved)assertAction(principal,saved.action);return send(res,200,changes.status(principal.actor,match[1]));}
-      if(req.method==='POST' && (match=/^\/api\/changes\/([a-f0-9-]{36})\/execute$/.exec(url.pathname))){assert(principal.role==='writer',403,'ROL_INSUFICIENTE','Se requiere permiso de escritura');return send(res,200,await changes.execute(principal.actor,match[1],await body(req)));}
+      if(req.method==='POST' && (match=/^\/api\/changes\/([a-f0-9-]{36})\/execute$/.exec(url.pathname))){assert(principal.role==='writer',403,'ROL_INSUFICIENTE','Se requiere permiso de escritura');const saved=store.get(match[1],principal.actor);if(saved?.origin?.attention)attention.get(saved.origin.attention);const result=await changes.execute(principal.actor,match[1],await body(req));if(saved?.origin?.attention)attention.linkProposal(saved.origin.attention,{id:saved.id,status:result.status||'verified',reason:'Resultado registrado por el circuito de confirmación; consultar el comprobante de ejecución.',requiredResources:[changePolicies[saved.action].resource]});return send(res,200,result);}
       throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
-      });
+      }));
     }catch(error){
       const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:503;
       send(res,status,{error:{code:error.code||'FUENTE_NO_DISPONIBLE',message:error.code==='PROTHEUS_NO_DISPONIBLE'?'Protheus está sin conexión. Voy a reconectar automáticamente cuando vuelva la red o VPN.':status<500?error.message:'Fuente o función no disponible; consultar diagnóstico local'},mode});
@@ -323,5 +379,6 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   server.requestTimeout=20_000;server.headersTimeout=10_000;
   server.attention=attention;
   server.notifications=notifications;
+  server.jobs=jobs;
   return server;
 }
