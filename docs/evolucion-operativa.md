@@ -37,4 +37,6 @@ Implementación integrada: los estados KAIQEN/ERP son independientes; los casos 
 
 Distribución real: el principal realizó integración, revisión de permisos/concurrencia/privacidad y publicación; tres subagentes Sol 6.1 en esfuerzo medio resolvieron módulos y pruebas acotadas. No se modificó la configuración global ni se afirma un ahorro de tokens no medido. Ver `alojamiento-permanente.md` para respaldo, restauración y migración futura sin contratar infraestructura.
 
-El commit de implementación y el estado de activación se informan en la entrega después de verificarlos; este documento no sustituye esas comprobaciones.
+Publicación: implementación subida a `main` en `ea489da`. Complemento final: batería consultiva con los tres circuitos de atención y exposición SC7 (máximo cuatro lecturas extra), 7 pruebas del paquete aprobadas; interfaz compatible con el servidor anterior mientras se completa un reinicio administrativo. La carga de módulos ausentes no inhabilita el chat ni activa datos sustitutos.
+
+Activación, comprobación del 21/10/2026: `/health` devuelve 200, pero `/api/agent/status` todavía identifica `erp-reconnect-2`. Windows dejó pendiente la autorización de administrador del reinicio solicitado porque el servidor corre como LOCAL SERVICE. No se acredita `operativo-integral-1` activo hasta aceptar ese aviso y verificar de nuevo versión, fuentes y recursos estáticos. Este bloqueo no impidió publicar ni probar la implementación aislada; no se intentó eludir permisos del sistema.

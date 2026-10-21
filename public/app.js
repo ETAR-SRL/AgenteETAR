@@ -1,7 +1,10 @@
-import {installCorporateDocumentsUI} from './corporate-documents-ui.js';
-import {installApprovedKnowledgeUI} from './knowledge-ui.js';
-import {installInvestigations} from './investigation-ui.js';
-import {addReportDownload} from './report-download-ui.js';
+// Durante un reinicio administrativo pendiente el servidor anterior puede seguir
+// entregando la interfaz. Un módulo nuevo ausente no debe inutilizar el chat vigente.
+let operationalPending=false;
+const pendingModule=()=>{operationalPending=true;const ui=()=>({load(){},render(){},destroy(){}});return {installCorporateDocumentsUI:ui,installApprovedKnowledgeUI:ui,installInvestigations:ui,addReportDownload(){}};};
+const [{installCorporateDocumentsUI},{installApprovedKnowledgeUI},{installInvestigations},{addReportDownload}]=await Promise.all([
+ import('./corporate-documents-ui.js').catch(pendingModule),import('./knowledge-ui.js').catch(pendingModule),import('./investigation-ui.js').catch(pendingModule),import('./report-download-ui.js').catch(pendingModule)
+]);
 import {installAttention} from './attention-ui.js';
 import {installErpConnection} from './erp-connection-ui.js';
 import {accessReady,loadAccessPanel} from './access-ui.js';
@@ -345,6 +348,7 @@ async function start(){
     if(conversationId){try{const history=await api('/api/agent/conversations/'+conversationId);const conversation=$('#conversation');for(const message of history.messages){if(message.role==='user'){const q=node('div','question');q.append(node('span','',message.content));conversation.append(q);}else{let saved;try{saved=JSON.parse(message.content);}catch{continue;}const a=node('article','answer-card');a.append(node('div','result-meta','Conversación anterior · valores históricos, consultá nuevamente para actualizarlos'),formatAnswer(saved.answer));conversation.append(a);}}}catch{conversationId=undefined;localStorage.removeItem('central-conversation-id');}}
     attention=installAttention({api,branch:()=>$('#branch').value,switchView,notice,revision:capabilities.user?.revision,canPrepare:kind=>Boolean(capabilities.proposalActions?.[kind==='sale'?'pedidoVenta':kind==='purchase'?'pedidoCompra':'']),ask:(text,id,targetBranch)=>{if(targetBranch)$('#branch').value=targetBranch;return query(text,undefined,{attentionId:id});}});void attention.load();
     if(new URLSearchParams(location.search).get('attention')==='updates'){void attention.openUpdates();history.replaceState(null,'',location.pathname);}
+    if(operationalPending)notice('Actualización pendiente de reinicio. Las funciones anteriores siguen disponibles.');
     investigations?.destroy();investigations=installInvestigations({api,container:document.querySelector('#attention'),branch:()=>$('#branch').value,notice,onResult:result=>{switchView('assistant');const target=node('div','');$('#conversation').append(target);renderAnswer(target,result);target.scrollIntoView({behavior:'smooth',block:'start'});}});
     $('#branch').addEventListener('change',()=>{attention?.load();investigations?.load();});
     if(capabilities.mode==='live'&&capabilities.erp.connection)installErpConnection({api,initial:capabilities.erp.connection,onChange:async()=>{
