@@ -25,3 +25,5 @@ SE1 se verificó localmente en `dbo.SE1010`, sucursal física `0101`, con diccio
 La documentación de [compensación FINA330](https://tdn.totvs.com/pages/viewpage.action?pageId=505768648) y [compensación entre carteras](https://tdn.totvs.com/pages/viewpage.action?pageId=516194467) distingue monedas y títulos de crédito/anticipos. Esta implementación muestra los saldos almacenados separados por tipo: no pretende reproducir esas rutinas ni un estado de cuenta neto oficial de Protheus Argentina.
 
 Las pruebas automatizadas usan dobles. Las comprobaciones reales sólo consultan: no se ejecutan altas, pagos, compensaciones, actualizaciones ni cambios de permisos productivos para probar la ficha.
+
+La respuesta conversacional muestra hasta 15 dígitos significativos para evitar residuos de representación binaria (por ejemplo 59,999999999999998 se muestra como 60). Las fuentes y el CSV conservan los valores originales leídos; no se modifica ni redondea el dato del ERP.
