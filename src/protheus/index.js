@@ -22,6 +22,7 @@ export async function createErp({ env = process.env, configPath } = {}) {
     const writes=createWriter({db,catalog,enabled:env.ERP_WRITE_ENABLED==='true',allowedBranches:(env.ERP_BRANCHES||'0101').split(','),triggerHashes:config.writeTriggerHashes||{},getWriteDb:()=>writeDbPromise??=connect(env,{writable:true}).catch(error=>{writeDbPromise=undefined;throw error;})});
     return {
       writes,
+      ping:()=>db.query('SELECT 1 AS alive'),
       list: (name, params) => Object.hasOwn(attentionResources,name)?attention.list(name,params):Object.hasOwn(commercialResources,name)?commercial.list(name,params):service.list(name, params),
       metadata: () => {const meta=service.metadata();return {...meta,entities:{...meta.entities,...commercial.metadata(),...attention.metadata()}};},
       close: async()=>{await db.close();if(writeDbPromise)await (await writeDbPromise).close();}

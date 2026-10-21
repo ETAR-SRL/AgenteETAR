@@ -37,9 +37,9 @@ export function createApprovalScheduler({adapter,store,enabled=false,intervalMs=
   finally{Object.assign(state,summary,{running:false,lastRun:new Date().toISOString()});}
   return {...state};
  }
- return {status:()=>({...state,intervalMs,scope:'SCR SC/IP/PC de las filiales autorizadas; CR_PRAZO vencido y CR_ESCALSP=T',...store.escalationSummary()}),
-  run(){if(!state.enabled||stopped)return Promise.resolve({...state});if(running)return running;running=cycle().finally(()=>{running=null;});return running;},
-  start(){if(timer||!state.enabled||stopped)return;void this.run();timer=setInterval(()=>void this.run(),intervalMs);timer.unref?.();},
+ return {status:()=>({...state,enabled:enabled&&adapter?.enabled===true,intervalMs,scope:'SCR SC/IP/PC de las filiales autorizadas; CR_PRAZO vencido y CR_ESCALSP=T',...store.escalationSummary()}),
+  run(){state.enabled=enabled&&adapter?.enabled===true;if(!state.enabled||stopped)return Promise.resolve({...state});if(running)return running;running=cycle().finally(()=>{running=null;});return running;},
+  start(){if(timer||!enabled||!adapter||stopped)return;void this.run();timer=setInterval(()=>void this.run(),intervalMs);timer.unref?.();},
   async stop(){stopped=true;clearInterval(timer);await running;}
  };
 }

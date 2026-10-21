@@ -1,5 +1,5 @@
-const CACHE='central-shell-v46';
-const SHELL=['/','/notifications-ui.js','/attention-ui.js','/access-ui.js','/app.js','/import-ui.js','/import-batch-ui.js','/style.css','/manifest.webmanifest','/icon.svg','/icon-192.png','/icon-512.png'];
+const CACHE='central-shell-v47';
+const SHELL=['/','/erp-connection-ui.js','/notifications-ui.js','/attention-ui.js','/access-ui.js','/app.js','/import-ui.js','/import-batch-ui.js','/style.css','/manifest.webmanifest','/icon.svg','/icon-192.png','/icon-512.png'];
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('central-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 // No se guardan respuestas de negocio, audio ni sesiones en el caché offline.

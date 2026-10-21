@@ -98,6 +98,11 @@ test('scheduler is automatic, coalesces runs, persists receipt and never cascade
 test('disabled scheduler never scans or writes',async t=>{
  const f=fixture(),store=new Store(':memory:');t.after(()=>store.close());const w=createApprovalScheduler({adapter:f.adapter,store});await w.run();w.start();assert.equal(f.state.calls.length,0);await w.stop();
 });
+test('configured scheduler can start offline and resumes scanning only when its adapter returns; disabled configuration stays disabled',async t=>{
+ const store=new Store(':memory:');t.after(()=>store.close());let available=false,scans=0;const adapter={get enabled(){return available;},branches:['0101'],scan:async()=>{scans++;return [];}};
+ const worker=createApprovalScheduler({adapter,store,enabled:true});assert.equal(worker.status().enabled,false);await worker.run();assert.equal(scans,0);available=true;await worker.run();assert.equal(scans,1);assert.equal(worker.status().enabled,true);available=false;await worker.run();assert.equal(scans,1);await worker.stop();
+ const disabled=createApprovalScheduler({adapter,store,enabled:false});available=true;await disabled.run();assert.equal(scans,1);await disabled.stop();
+});
 test('unknown commit and durable in-flight claim survive restart without retry',async t=>{
  const dir=mkdtempSync(join(tmpdir(),'approval-test-'));t.after(()=>cleanup(dir));
  const path=join(dir,'audit.sqlite'),f=fixture('PC',{unknown:true});let store=new Store(path);const worker=createApprovalScheduler({adapter:f.adapter,store,enabled:true});await worker.run();assert.equal(worker.status().receipts.unknown,1);assert.equal(store.escalationHistory().receipts[0].result.planned.to,'APR002');const planIdentity=store.escalationHistory().receipts[0];store.close();

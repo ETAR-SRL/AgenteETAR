@@ -61,3 +61,5 @@ button:focus-visible,a:focus-visible,select:focus-visible,textarea:focus-visible
 .attention-new{float:right;background:#e6efea;color:#245745;border-radius:20px;padding:4px 9px;font-size:.75rem;font-weight:700}
 
 .notification-settings{display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:1.3rem 0;padding:1rem 1.2rem;border:1px solid var(--line,#ddd);border-radius:16px;background:var(--surface,#fff)}.notification-settings p{margin:.4rem 0 0;max-width:65ch}.notification-settings button{flex-shrink:0}@media(max-width:640px){.notification-settings{align-items:stretch;flex-direction:column}.notification-settings button{align-self:flex-start}}
+
+.erp-connection-status{margin:1rem 2rem 0;padding:1rem 1.2rem;border:1px solid #e3d5ac;border-radius:12px;background:#fff9eb;color:#655021;line-height:1.5;font-size:.9rem}@media(max-width:640px){.erp-connection-status{margin:1rem 1rem 0}}

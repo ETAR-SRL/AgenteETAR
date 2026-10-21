@@ -1,10 +1,7 @@
 import sql from 'mssql';
 import {HttpError} from '../errors.js';
 export async function connect(env = process.env,{writable=false}={}) {
-  for (const key of ['DB_SERVER', 'DB_DATABASE', 'DB_USER', 'DB_PASSWORD']) {
-    if (!env[key]) throw new Error(`Falta la variable ${key}`);
-  }
-  if (env.DB_PORT && (!/^\d+$/.test(env.DB_PORT) || Number(env.DB_PORT) < 1 || Number(env.DB_PORT) > 65535)) throw new Error('DB_PORT inválido');
+  validateDatabaseConfig(env);
   const options = {
     encrypt: env.DB_ENCRYPT !== 'false',
     trustServerCertificate: env.DB_TRUST_SERVER_CERTIFICATE === 'true',
@@ -12,13 +9,25 @@ export async function connect(env = process.env,{writable=false}={}) {
     useUTC: true
   };
   if (!env.DB_PORT && env.DB_INSTANCE) options.instanceName = env.DB_INSTANCE;
-  const pool = await new sql.ConnectionPool({
+  const pool = new sql.ConnectionPool({
     server: env.DB_SERVER, database: env.DB_DATABASE,
     user: env.DB_USER, password: env.DB_PASSWORD,
     ...(env.DB_PORT ? { port: Number(env.DB_PORT) } : {}),
     options, connectionTimeout: 10000, requestTimeout: 15000,
     pool: { max: 5, min: 0, idleTimeoutMillis: 30000 }
-  }).connect();
+  });
+  // Una caída del socket no debe terminar el servidor HTTP por un evento sin listener.
+  pool.on('error',()=>{});
+  try{await pool.connect();}catch(error){await pool.close().catch(()=>{});throw error;}
+  return database(pool,writable);
+}
+export function validateDatabaseConfig(env){
+  for (const key of ['DB_SERVER', 'DB_DATABASE', 'DB_USER', 'DB_PASSWORD']) {
+    if (!env[key]) throw new Error(`Falta la variable ${key}`);
+  }
+  if (env.DB_PORT && (!/^\d+$/.test(env.DB_PORT) || Number(env.DB_PORT) < 1 || Number(env.DB_PORT) > 65535)) throw new Error('DB_PORT inválido');
+}
+function database(pool,writable){
   function queries(owner){return {async query(text,params={}){
       const req = owner.request ? owner.request() : new sql.Request(owner);
       for (const [key, value] of Object.entries(params)) {

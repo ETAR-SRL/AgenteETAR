@@ -48,7 +48,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   },legacyActor:actor=>{const id=/^user:([^:]+)/.exec(actor)?.[1],u=id&&access.user(id);return {name:u?`${u.name} (${u.username})`:id?'Usuario eliminado · '+id:'Identidad de servicio',currentName:!!u};},accessReport:input=>dashboardAccess(access,input),assignedNames:targets=>targets.map(t=>{const value=t.kind==='user'?access.user(t.target):access.role(t.target);return {...t,name:value?(t.kind==='user'?`${value.name} (${value.username})`:value.name):'Destinatario eliminado · '+t.target};})});
   const rawErp=erp,rawKaiqen=kaiqen;
   erp={...rawErp,list:async(resource,params)=>{guard(resource);branchGuard(params.get('sucursal'));const value=await rawErp.list(resource,params);principalNow();return value;}};
-  if(rawErp.writes){erp.writes={...rawErp.writes};for(const method of ['prepare','check','execute'])erp.writes[method]=async(...args)=>{
+  if(rawErp.writes){erp.writes={...rawErp.writes};for(const property of ['enabled','policy','creation','escalation'])Object.defineProperty(erp.writes,property,{enumerable:true,get:()=>rawErp.writes[property]});for(const method of ['prepare','check','execute'])erp.writes[method]=async(...args)=>{
     const action=method==='prepare'?args[0]:args[0].action,target=method==='prepare'?args[1].target:args[0].target;
     const p=principalNow();assertAction(p,action,method==='execute');if(method==='execute'&&p.userId)assert(localWrites,403,'ESCRITURA_LOCAL_DESHABILITADA','La ejecución está deshabilitada para usuarios en esta instalación.');branchGuard(target.sucursal);
     return rawErp.writes[method](...args);
@@ -276,6 +276,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       if(req.method==='GET' && url.pathname==='/api/openapi.json')return send(res,200,JSON.parse(readFileSync(new URL('../docs/openapi.json',import.meta.url))));
       if(req.method==='GET' && url.pathname==='/api/agent/examples')return send(res,200,{examples});
       let match;
+      if(req.method==='GET'&&url.pathname==='/api/erp/status')return send(res,200,erp.status?.()||{state:'available',available:true});
       if(req.method==='GET' && (match=/^\/api\/erp\/([A-Za-z]+)$/.exec(url.pathname))){for(const key of url.searchParams.keys())assert(url.searchParams.getAll(key).length===1,400,'FILTRO_DUPLICADO','Filtro repetido');const result=await executeRead({resource:match[1],filters:Object.fromEntries(url.searchParams)});store.audit(principal.actor,'erp.read',match[1]);return send(res,200,result);}
       if(req.method==='GET' && url.pathname==='/api/kaiqen/projects')return send(res,200,await kaiqen.projects(Object.fromEntries(url.searchParams)));
       if(req.method==='GET' && (match=/^\/api\/kaiqen\/projects\/([A-Za-z0-9][A-Za-z0-9_-]{0,127})$/.exec(url.pathname)))return send(res,200,await kaiqen.project(match[1]));
@@ -316,7 +317,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       });
     }catch(error){
       const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:503;
-      send(res,status,{error:{code:error.code||'FUENTE_NO_DISPONIBLE',message:status<500?error.message:'Fuente o función no disponible; consultar diagnóstico local'},mode});
+      send(res,status,{error:{code:error.code||'FUENTE_NO_DISPONIBLE',message:error.code==='PROTHEUS_NO_DISPONIBLE'?'Protheus está sin conexión. Voy a reconectar automáticamente cuando vuelva la red o VPN.':status<500?error.message:'Fuente o función no disponible; consultar diagnóstico local'},mode});
     }
   });
   server.requestTimeout=20_000;server.headersTimeout=10_000;

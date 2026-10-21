@@ -1,4 +1,5 @@
 import {installAttention} from './attention-ui.js';
+import {installErpConnection} from './erp-connection-ui.js';
 import {accessReady,loadAccessPanel} from './access-ui.js';
 import {installPriceImports} from './import-ui.js';
 import {renderImportBatch,formatAnswer} from './import-batch-ui.js';
@@ -220,6 +221,16 @@ $('#query-form').onsubmit=event=>{event.preventDefault();query($('#query').value
 $('#query').onkeydown=event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();query($('#query').value);}};
 document.querySelectorAll('[data-query]').forEach(el=>el.onclick=()=>query(el.dataset.query));
 function resourceMeta(resource){return capabilities?.erp?.entities?.[resource==='remitos'?'documentosSalida':resource]||{};}
+function updateErpResources(){
+ const selected=$('#resource').value,values=new Map([...document.querySelectorAll('#filters [name]')].map(n=>[n.name,n.value]));
+ $('#resource').replaceChildren();
+ const resources=Object.keys(capabilities.erp.entities||{}).filter(k=>!capabilities.erp.entities[k].operational);
+ const keys=[...resources,...(resources.includes('documentosSalida')&&!resources.includes('remitosEmitidos')?['remitos']:[]),...(resources.includes('ventas')?['entregas']:[])];
+ for(const key of keys){const o=node('option','',labels[key]||key);o.value=key;$('#resource').append(o);}
+ $('#resource').value=keys.includes(selected)?selected:resources.includes('costos')?'costos':resources[0]||'';
+ if(resources.length){buildFilters();if($('#resource').value===selected)for(const n of document.querySelectorAll('#filters [name]'))if(values.has(n.name))n.value=values.get(n.name);}
+ else $('#resource-status').textContent='El catálogo estará disponible cuando se conecte Protheus.';
+}
 function buildFilters(){
   const resource=$('#resource').value,meta=resourceMeta(resource),container=$('#filters');container.replaceChildren();
   const keys=Object.keys(meta.filters||{}).filter(k=>k!=='sucursal'&&!(resource==='remitos'&&k==='tipoDocumento'));
@@ -316,13 +327,17 @@ const canExecuteAction=action=>capabilities?.canExecute&&(capabilities.user?.adm
 async function start(){
   try{const user=await accessReady();if(localStorage.getItem('central-access-actor')!==user.actor){conversationId=undefined;for(const key of Object.keys(localStorage))if(key.startsWith('central-'))localStorage.removeItem(key);localStorage.setItem('central-access-actor',user.actor);}await session();capabilities=await api('/api/capabilities');if(capabilities.user?.admin)loadAiSettings();renderAutomationStatus(capabilities.approvalAutomation);$('#automation-refresh').disabled=!capabilities.canExecute;$('#connection').textContent=capabilities.mode==='live'?'Servicio real':'Modo DEMO';$('#connection').classList.toggle('warn',capabilities.mode!=='live');
     capabilities.branches.forEach(v=>{const o=node('option','',v);o.value=v;$('#branch').append(o);});
-    const resources=Object.keys(capabilities.erp.entities||{}).filter(k=>!capabilities.erp.entities[k].operational);for(const key of [...resources,...(resources.includes('documentosSalida')&&!resources.includes('remitosEmitidos')?['remitos']:[]),...(resources.includes('ventas')?['entregas']:[])]){const o=node('option','',labels[key]||key);o.value=key;$('#resource').append(o);}$('#resource').value=resources.includes('costos')?'costos':resources[0]||'';if(resources.length)buildFilters();
+    updateErpResources();
     $('#voice-status').textContent=capabilities.voice.available?'Dictado en español · transcripción local · hasta 45 segundos':'Transcripción local no instalada. Las consultas por texto están disponibles.';
     api('/api/agent/status').then(status=>{if(status.languageLearningVersion)languageButton.classList.remove('hidden');if(status.priceContextVersion<3||!status.priceContextVersion)notice('Está activo el servicio anterior. Reiniciá Central para aplicar las correcciones del chat y del contexto de precios.');$('#ai-status').textContent=status.available?(status.local===false?'IA externa configurada · ':'IA local activa · ')+status.model:'Motor de IA no disponible';}).catch(()=>{$('#ai-status').textContent='No se pudo verificar el modelo';});
     if(conversationId){try{const history=await api('/api/agent/conversations/'+conversationId);const conversation=$('#conversation');for(const message of history.messages){if(message.role==='user'){const q=node('div','question');q.append(node('span','',message.content));conversation.append(q);}else{let saved;try{saved=JSON.parse(message.content);}catch{continue;}const a=node('article','answer-card');a.append(node('div','result-meta','Conversación anterior · valores históricos, consultá nuevamente para actualizarlos'),formatAnswer(saved.answer));conversation.append(a);}}}catch{conversationId=undefined;localStorage.removeItem('central-conversation-id');}}
     attention=installAttention({api,branch:()=>$('#branch').value,switchView,notice,revision:capabilities.user?.revision,canPrepare:kind=>Boolean(capabilities.proposalActions?.[kind==='sale'?'pedidoVenta':kind==='purchase'?'pedidoCompra':'']),ask:(text,id,targetBranch)=>{if(targetBranch)$('#branch').value=targetBranch;return query(text,undefined,{attentionId:id});}});void attention.load();
     if(new URLSearchParams(location.search).get('attention')==='updates'){void attention.openUpdates();history.replaceState(null,'',location.pathname);}
     $('#branch').addEventListener('change',()=>attention?.load());
+    if(capabilities.mode==='live'&&capabilities.erp.connection)installErpConnection({api,initial:capabilities.erp.connection,onChange:async()=>{
+      const next=await api('/api/capabilities');if(next.user?.actor!==capabilities.user?.actor){location.reload();return;}
+      Object.assign(capabilities,next);updateErpResources();await attention.load();
+    }});
     attachments=installPriceImports({api,capabilities});
     $('#branch').addEventListener('change',()=>attachments?.clear());
     await restoreProposal();

@@ -119,6 +119,15 @@ export function createAttention({store,principal,users,runAs,read,kaiqen,clock=(
   }finally{db.release(token);}
  }
  const service={db,list,resolve,act,get:id=>view(lookup(id)),review,projectSnapshot,
+  erpUnavailable(){
+   // Cambia sólo la disponibilidad local; conserva objetivos, preferencias e historial.
+   for(const r of db.db.prepare("SELECT owner,id FROM op_items WHERE kind IN ('sale','purchase','remit') AND status<>'unknown'").all())db.unavailable(r.owner,r.id);
+  },
+  erpAvailable(){
+   db.db.prepare("UPDATE op_items SET next_check=NULL WHERE kind IN ('sale','purchase','remit') AND status='unknown'").run();
+   db.db.prepare("UPDATE op_sources SET next_check=NULL WHERE source IN ('atencionVentas','atencionCompras','atencionRemitos')").run();
+   void service.run();
+  },
   acknowledge(id){const item=lookup(id);db.seen(owner(),item.id);},
   async refresh(id){return view(await review(lookup(id)));},
   run(){if(stopped||!enabled)return Promise.resolve();if(running)return running;running=cycle().catch(()=>{try{db.set('lastFailure',clock().toISOString());db.set('nextRun',new Date(+clock()+intervalMs).toISOString());}catch{}}).finally(()=>{running=null;});return running;},
