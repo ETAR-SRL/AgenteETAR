@@ -1,4 +1,5 @@
 import {createAttention} from './attention.js';
+import {createAttentionNotifications} from './attention-notifications.js';
 import {createAttentionChat} from './intelligence/attention-chat.js';
 import {historyExcel} from './history-excel.js';
 import {dashboardAccess} from './dashboard-access.js';
@@ -33,7 +34,7 @@ async function body(req,maxBytes=16384){
   for await(const chunk of req){bytes+=chunk.length;assert(bytes<=maxBytes,413,'CUERPO_GRANDE','Solicitud demasiado grande');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new HttpError(400,'JSON_INVALIDO','JSON inválido');}
 }
-export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,attentionOptions={},voice=createVoice(),documents=createDocumentReader(),model,modelSettings,network=createNetworkAccess()}){
+export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,attentionOptions={},notificationOptions={},voice=createVoice(),documents=createDocumentReader(),model,modelSettings,network=createNetworkAccess()}){
   assert(readKey?.length>=32 && planKey?.length>=32 && readKey!==planKey,500,'CLAVES_INVALIDAS','Configurar dos claves distintas de al menos 32 caracteres');
   assert(!writeKey || (writeKey.length>=32 && writeKey!==readKey && writeKey!==planKey),500,'CLAVES_INVALIDAS','La clave de escritura debe ser distinta y de al menos 32 caracteres');
   const access=new Access(store,branches),context=new AsyncLocalStorage();
@@ -120,6 +121,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   const attachmentChat=createAttachmentChat({imports:priceImports,authorize:authorizeImport,model:model||createModel()});
   const dashboardChat=createDashboardChat({dashboards,principal:principalNow,executeRead,read,authorizeRead:guard});
   const attention=createAttention({store,principal:principalNow,read,kaiqen,users:()=>access.db.prepare('SELECT id FROM access_users WHERE active=1 ORDER BY id').all().map(u=>access.principal(u.id)),runAs:async(id,fn)=>{const p=access.principal(id);if(p)return context.run(p,fn);},...attentionOptions});
+  const notifications=createAttentionNotifications({attention,principal:principalNow,user:id=>access.principal(id),...notificationOptions});
   const attentionChat=createAttentionChat({attention,read,executeRead,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),metadata:()=>erp.metadata(),kaiqen});
   const intelligence=createIntelligence({attentionChat,erp,kaiqen,store,read,executeRead,branches,dashboardChat,model,attachmentChat,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:(actor,input)=>{assertAction(principalNow(),input.action);return changes.preview(actor,input);}});
   const federated=createFederatedLogin({access,ui});
@@ -234,6 +236,18 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
       }
       if(url.pathname.startsWith('/api/attention')){
         assert(principal.userId,403,'USUARIO_REQUERIDO','Ingresá con tu usuario para ver tus avisos.');
+        if(url.pathname.startsWith('/api/attention/notifications')){
+          const origin=ui.local(req);
+          if(req.method==='GET'&&url.pathname==='/api/attention/notifications')return send(res,200,notifications.settings());
+          if(req.method==='POST'){
+            const input=await body(req);
+            if(url.pathname==='/api/attention/notifications/subscribe')return send(res,200,notifications.subscribe(input.subscription,origin));
+            if(url.pathname==='/api/attention/notifications/status')return send(res,200,notifications.status(input.id,origin));
+            if(url.pathname==='/api/attention/notifications/disable')return send(res,200,notifications.disable(input.id,origin));
+            if(url.pathname==='/api/attention/notifications/claim')return send(res,200,notifications.claim(input.id,origin));
+          }
+          throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
+        }
         const branch=url.searchParams.get('sucursal')||principal.branches[0];branchGuard(branch);
         if(req.method==='GET'&&url.pathname==='/api/attention')return send(res,200,attention.list({branch,following:url.searchParams.get('following')==='true',all:url.searchParams.get('all')==='true'}));
         if(req.method==='POST'&&url.pathname==='/api/attention/review'){void attention.run();return send(res,202,{queued:true,message:'La revisión sigue en segundo plano.'});}
@@ -307,5 +321,6 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   });
   server.requestTimeout=20_000;server.headersTimeout=10_000;
   server.attention=attention;
+  server.notifications=notifications;
   return server;
 }

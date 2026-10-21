@@ -37,12 +37,12 @@ test('local session requires exact origin, rejects DNS rebinding and cross-site,
 });
 test('PWA serves local shell without credentials, cache limited to static allowlist',async t=>{
  const {request}=await setup(t);
- for(const path of ['/','/access-ui.js','/app.js','/style.css','/manifest.webmanifest','/icon-192.png','/icon-512.png','/sw.js']){
+ for(const path of ['/','/notifications-ui.js','/access-ui.js','/app.js','/style.css','/manifest.webmanifest','/icon-192.png','/icon-512.png','/sw.js']){
   const response=await request(path);assert.equal(response.status,200);assert.match(response.headers.get('content-security-policy'),/frame-ancestors 'none'/);
   const text=await response.text();assert.ok(!text.includes(readKey));assert.ok(!text.includes(planKey));
  }
  const manifest=await(await request('/manifest.webmanifest')).json();assert.equal(manifest.display,'standalone');
- const sw=await(await request('/sw.js')).text();assert.match(sw,/!SHELL\.includes\(url\.pathname\)/);assert.ok(!sw.includes("'/api/"));
+ const sw=await(await request('/sw.js')).text();assert.match(sw,/!SHELL\.includes\(url\.pathname\)/);assert.ok(!/const SHELL=\[[^\]]*\/api\//.test(sw));assert.match(sw,/notifications\/claim/);
  assert.equal((await request('/.env')).status,401);
 });
 test('voice phrasing preserves exact scopes and never silently drops unsupported filters',()=>{

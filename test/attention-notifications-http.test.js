@@ -1,0 +1,24 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {Store} from '../src/store.js';
+import {Access} from '../src/access.js';
+import {createApp} from '../src/app.js';
+import {createDemoErp,createDemoKaiqen} from '../src/demo.js';
+test('PWA notification routes require personal sessions and same origin, isolate devices, revalidate roles and exclude global keys',async t=>{
+ const store=new Store(':memory:'),access=new Access(store,['0101']),password='Prueba-Notificaciones-1234',admin=await access.setup({username:'admin',name:'Admin',password});
+ const role=access.saveRole(admin.principal,{name:'Ventas',permissions:['read:ventas','read:clientes','read:preciosVenta','read:catalogo'],branches:['0101']});await access.saveUser(admin.principal,{username:'operador',name:'Operador',roleId:role.id,active:true,password});
+ const server=createApp({store,erp:createDemoErp(),kaiqen:createDemoKaiqen(),readKey:'r'.repeat(40),planKey:'p'.repeat(40)});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(async()=>{await server.notifications.stop();server.close();server.closeAllConnections();store.close();});
+ const origin=`http://127.0.0.1:${server.address().port}`,login=await fetch(origin+'/api/auth/login',{method:'POST',headers:{origin,'content-type':'application/json'},body:JSON.stringify({username:'operador',password})}),cookie=login.headers.get('set-cookie').split(';')[0];
+ const req=async(path,{body,headers={}}={})=>{const r=await fetch(origin+path,{method:body?'POST':'GET',headers:{cookie,origin,...(body?{'content-type':'application/json'}:{}),...headers},...(body?{body:JSON.stringify(body)}:{})});return {status:r.status,data:await r.json()};};
+ let r=await req('/api/attention/notifications');assert.equal(r.status,200);assert.ok(r.data.publicKey);assert.equal(r.data.privateKey,undefined);
+ const subscription={endpoint:'https://fcm.googleapis.com/fcm/send/test',keys:{p256dh:Buffer.concat([Buffer.from([4]),Buffer.alloc(64,1)]).toString('base64url'),auth:Buffer.alloc(16,2).toString('base64url')}};
+ r=await req('/api/attention/notifications/subscribe',{body:{subscription}});assert.equal(r.status,200);const id=r.data.id;
+ r=await req('/api/attention/notifications/claim',{body:{id},headers:{origin:'https://attacker.test'}});assert.equal(r.status,403);
+ r=await req('/api/attention/notifications/status',{body:{id},headers:{cookie:'',authorization:'Bearer '+admin.token}});assert.equal(r.status,404);
+ r=await req('/api/attention/notifications',{headers:{cookie:'',authorization:'Bearer '+'r'.repeat(40)}});assert.equal(r.status,403);
+ r=await req('/api/attention/notifications/claim',{body:{id}});assert.equal(r.status,200);assert.equal(r.data.notification,null);
+ access.saveRole(admin.principal,{name:'Sin acceso',permissions:[],branches:['0101']},role.id);
+ r=await req('/api/attention/notifications/status',{body:{id}});assert.equal(r.status,200);assert.equal(r.data.enabled,false);r=await req('/api/attention/notifications/claim',{body:{id}});assert.equal(r.data.notification,null);
+ await req('/api/auth/logout',{body:{}});r=await req('/api/attention/notifications/claim',{body:{id}});assert.equal(r.status,401);
+});

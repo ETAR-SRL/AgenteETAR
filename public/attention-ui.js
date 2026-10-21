@@ -1,9 +1,11 @@
+import {installNotifications} from './notifications-ui.js';
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const num=v=>Number(v).toLocaleString('es-AR',{maximumFractionDigits:9});
 const stamp=v=>v?new Date(v).toLocaleString('es-AR',{dateStyle:'short',timeStyle:'short'}):'Todavía no se revisó';
 const money=g=>/dolar|dollar|usd/i.test(g.monedaNombre)?'Dólares':/peso|ars/i.test(g.monedaNombre)?'Pesos':g.monedaNombre||'Moneda sin verificar';
 const qty=g=>g.unidad==='UN'?`${num(g.cantidad)} ${Number(g.cantidad)===1?'unidad':'unidades'} · ${num(g.millares??Number(g.cantidad)/1000)} millares`:`${num(g.cantidad)} ${g.unidad||'(unidad sin informar)'}`;
 export function installAttention({api,ask,branch,switchView,notice,revision,canPrepare=()=>false}){
+ const notifications=installNotifications({api,notice});
  let mode='inbox',latest,loading=false,lastRevision=revision;
  const area=document.querySelector('#attention-content'),status=document.querySelector('#attention-status');
  const tell=text=>notice(text);
@@ -43,5 +45,5 @@ export function installAttention({api,ask,branch,switchView,notice,revision,canP
  document.querySelector('#attention-refresh').onclick=async()=>{await api('/api/attention/review',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(()=>tell('Revisión en marcha. Podés seguir trabajando.')).catch(e=>tell(e.message));await load();};
  for(const [id,value]of [['attention-inbox','inbox'],['attention-following','following'],['attention-hidden','hidden']])document.querySelector('#'+id).onclick=()=>{mode=value;renderList();};
  const poll=setInterval(()=>{if(!document.hidden)void load();},60000);window.addEventListener('pagehide',()=>clearInterval(poll),{once:true});document.addEventListener('visibilitychange',()=>{if(!document.hidden)void load();});
- return {load,render,renderInvestigation,renderChanges,open(){switchView('attention');return load();}};
+ return {load,render,renderInvestigation,renderChanges,open(){switchView('attention');return load();},openUpdates(){mode='following';switchView('attention');void notifications.check();return load();}};
 }

@@ -1,3 +1,4 @@
+import {stopNotifications} from './notifications-ui.js';
 const $=s=>document.querySelector(s);
 const element=(tag,text)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;return el;};
 async function request(path,body,method='POST'){
@@ -43,7 +44,7 @@ export async function accessReady(){
  };
  return new Promise(()=>{});
 }
-$('#logout').onclick=async()=>{await request('/api/auth/logout',{});clearLocal();location.reload();};
+$('#logout').onclick=async()=>{await stopNotifications().catch(()=>{});await request('/api/auth/logout',{});clearLocal();location.reload();};
 let accessData;
 function checks(where,items,selected=[]){
  where.replaceChildren();for(const {key,label} of items){const row=element('label'),input=element('input');input.type='checkbox';input.value=key;input.checked=selected.includes(key);row.append(input,document.createTextNode(label));where.append(row);}
