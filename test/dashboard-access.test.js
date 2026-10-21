@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {Store} from '../src/store.js';
+import {Access} from '../src/access.js';
+import {createApp} from '../src/app.js';
+import {createDemoErp,createDemoKaiqen} from '../src/demo.js';
+
+test('access inspection resolves direct plus current role paths, permissions, disabled users and ambiguity without exposing directory',async t=>{
+ const store=new Store(':memory:'),access=new Access(store,['0101','0201']),admin=await access.setup({username:'admin',name:'Admin',password:'Clave-de-prueba-123'}),permissions=['read:ventas','read:clientes','read:preciosVenta','read:catalogo'];
+ const role=access.saveRole(admin.principal,{name:'Ventas',permissions,branches:['0101']}),other=access.saveRole(admin.principal,{name:'Otro',permissions,branches:['0101']});
+ const add=async(username,name,roleId)=>access.saveUser(admin.principal,{username,name,roleId,active:true,password:'Clave-de-prueba-123'});
+ const ana=await add('ana.perez','Ana Pérez',role.id),ana2=await add('ana.ruiz','Ana Ruiz',role.id),luis=await add('luis','Luis',other.id);await add('private','Usuario ajeno',other.id);
+ const server=createApp({erp:createDemoErp(),kaiqen:createDemoKaiqen(),store,mode:'demo',branches:['0101','0201'],readKey:'r'.repeat(40),planKey:'p'.repeat(40),model:{name:'No usar',status:async()=>({}),generate:async()=>{throw Error('Inspección no debe llamar al modelo');}}});server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>{server.close();server.closeAllConnections();store.close();});
+ const origin=`http://127.0.0.1:${server.address().port}`,headers=id=>({'content-type':'application/json',Authorization:'Bearer '+access.session(id)}),a=headers(admin.principal.userId),v=headers(ana.id),request=(path,h=a,method='GET',body)=>fetch(origin+path,{headers:h,method,...(body?{body:JSON.stringify(body)}:{})});
+ const saved=await(await request('/api/dashboards',a,'POST',{name:'Ventas del equipo',period:'este mes',dashboard:{resource:'resumenVentas',filters:{sucursal:'0101'}}})).json(),path='/api/dashboards/'+saved.id;
+ await request(path+'/sharing',a,'PUT',{targets:[{kind:'role',target:role.id},{kind:'user',target:ana.id},{kind:'user',target:luis.id}]});
+ let r=await request(path+'/access');assert.equal(r.status,200);let data=await r.json();assert.equal(data.roles[0].members,2);assert.equal(data.users.find(u=>u.id===ana.id).direct,true);assert.equal(data.users.find(u=>u.id===ana.id).roles[0].name,'Ventas');assert.equal(data.users.find(u=>u.id===ana2.id).direct,false);assert.deepEqual(data.users.find(u=>u.id===luis.id).roles,[]);assert.ok(data.users.every(u=>u.canOpen));assert.ok(!JSON.stringify(data).includes('Usuario ajeno'));assert.ok(data.users.every(u=>!('password'in u)&&!('permissions'in u)));
+ assert.equal((await request(path+'/access',v)).status,404);assert.equal((await fetch(origin+path+'/access')).status,401);
+ const chat=async(text,conversationId,h=a)=>{const r=await request('/api/agent/chat',h,'POST',{text,conversationId,context:{sucursal:'0101'}});assert.equal(r.status,200);return r.json();};
+ r=await chat('¿Con quién está compartido el dashboard Ventas del equipo?');assert.match(r.answer,/Ana Pérez.*directamente y por el rol Ventas/);assert.match(r.answer,/Ana Ruiz.*por el rol Ventas/);assert.match(r.answer,/Luis.*directamente/);assert.doesNotMatch(r.answer,/Usuario ajeno/);let id=r.conversationId;
+ r=await chat('¿Ana accede directamente o por un rol?',id);assert.equal(r.choices.length,2);r=await chat('Ana Pérez',id);assert.match(r.answer,/directamente y por el rol Ventas/);assert.doesNotMatch(r.answer,/Ana Ruiz/);
+ r=await chat('Mostrame con quién está compartido el dashboard Ventas del equipo',id);assert.match(r.answer,/Accesos de Ventas del equipo/);
+ r=await chat('¿Quién tiene acceso al dashboard Ventas del equipo?',id);assert.match(r.answer,/Accesos de Ventas del equipo/);
+ r=await chat('¿Luis accede al dashboard Ventas del equipo directamente o por un rol?',id);assert.match(r.answer,/Luis.*directamente/);assert.doesNotMatch(r.answer,/Ana Pérez/);
+ access.saveRole(admin.principal,{name:'Ventas',permissions:['read:catalogo'],branches:['0101']},role.id);data=await(await request(path+'/access')).json();assert.equal(data.users.find(u=>u.id===ana.id).canOpen,false);assert.match(data.users.find(u=>u.id===ana.id).status,/Sin permisos/);
+ await access.saveUser(admin.principal,{username:'ana.perez',name:'Ana Pérez',roleId:role.id,active:false},ana.id);data=await(await request(path+'/access')).json();assert.match(data.users.find(u=>u.id===ana.id).status,/deshabilitado/);
+ await access.saveUser(admin.principal,{username:'ana.ruiz',name:'Ana Ruiz',roleId:other.id,active:true},ana2.id);data=await(await request(path+'/access')).json();assert.ok(!data.users.some(u=>u.id===ana2.id));assert.equal(data.roles[0].members,1);
+ r=await chat('¿Ana Pérez accede directamente o por un rol?',id);assert.match(r.answer,/Usuario deshabilitado/);
+ r=await chat('¿Con quién está compartido el dashboard Ventas del equipo?',undefined,headers(luis.id));assert.doesNotMatch(r.answer,/Ana/);assert.deepEqual(r.evidence,[]);
+ const personal=await(await request('/api/dashboards',headers(luis.id),'POST',{name:'Personal de Luis',period:'este mes',dashboard:{resource:'resumenVentas',filters:{sucursal:'0101'}}})).json();
+ access.saveRole(admin.principal,{name:'Otro',permissions,branches:['0201']},other.id);data=await(await request(path+'/access')).json();assert.match(data.users.find(u=>u.id===luis.id).status,/sucursal/);
+ assert.equal((await request('/api/dashboards/'+personal.id+'/access',headers(luis.id))).status,403,'owner must retain branch authorization');
+ await request(path+'/unshare',a,'POST',{targets:[{kind:'user',target:ana.id}]});data=await(await request(path+'/access')).json();assert.equal(data.users.find(u=>u.id===ana.id).direct,false);assert.equal(data.users.find(u=>u.id===ana.id).roles.length,1);
+ await request(path+'/unshare',a,'POST',{targets:[{kind:'role',target:role.id}]});data=await(await request(path+'/access')).json();assert.equal(data.roles.length,0);assert.ok(!data.users.some(u=>u.id===ana.id));assert.ok(data.users.some(u=>u.id===luis.id));
+ const second=await(await request('/api/dashboards',a,'POST',{name:'Ventas del equipo',period:'este mes',dashboard:{resource:'resumenVentas',filters:{sucursal:'0101'}}})).json();r=await chat('¿Con quién está compartido el dashboard Ventas del equipo?');assert.equal(r.choices.length,2);assert.notEqual(second.id,saved.id);
+});

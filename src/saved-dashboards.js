@@ -3,7 +3,7 @@ import {assert} from './errors.js';
 import {dashboardInput} from './intelligence/report-input.js';
 import {reportPeriod} from './intelligence/report-chat.js';
 import {commercialParams} from './protheus/commercial.js';
-export function savedDashboards(store,{authorize,clock=()=>new Date(),recipients=()=>({users:[],roles:[]}),assignedNames=targets=>targets.map(t=>({...t,name:t.target}))}={}){
+export function savedDashboards(store,{authorize,clock=()=>new Date(),recipients=()=>({users:[],roles:[]}),assignedNames=targets=>targets.map(t=>({...t,name:t.target})),accessReport=()=>({roles:[],users:[]})}={}){
  store.db.exec(`CREATE TABLE IF NOT EXISTS saved_dashboards(id TEXT PRIMARY KEY,owner TEXT NOT NULL,name TEXT NOT NULL,definition TEXT NOT NULL,created TEXT NOT NULL); CREATE INDEX IF NOT EXISTS saved_dashboard_owner ON saved_dashboards(owner);`);
  store.db.exec(`CREATE TABLE IF NOT EXISTS dashboard_shares(dashboard_id TEXT NOT NULL,kind TEXT NOT NULL,target TEXT NOT NULL,PRIMARY KEY(dashboard_id,kind,target)); CREATE INDEX IF NOT EXISTS dashboard_shares_target ON dashboard_shares(kind,target);`);
  const owner=p=>{assert(p.userId,403,'USUARIO_REQUERIDO','Ingresá con tu usuario para guardar dashboards.');return p.userId;};
@@ -27,6 +27,7 @@ export function savedDashboards(store,{authorize,clock=()=>new Date(),recipients
   save(p,input){const user=owner(p),value=validate(p,input);assert(store.db.prepare('SELECT count(*) n FROM saved_dashboards WHERE owner=?').get(user).n<100,400,'LIMITE_DASHBOARDS','Podés guardar hasta 100 dashboards.');const id=randomUUID();store.db.prepare('INSERT INTO saved_dashboards VALUES(?,?,?,?,?)').run(id,user,value.name,JSON.stringify(value),clock().toISOString());return {id,...value};},
   list(p){const user=owner(p);return store.db.prepare(`SELECT id FROM saved_dashboards d WHERE owner=? OR EXISTS(SELECT 1 FROM dashboard_shares s WHERE s.dashboard_id=d.id AND ((s.kind='user' AND s.target=?) OR (s.kind='role' AND s.target=?))) ORDER BY created DESC`).all(user,user,p.roleId||'').flatMap(r=>{try{return [get(p,r.id)];}catch(e){if(e.status===403||e.statusCode===403||e.code==='LECTURA_DENEGADA')return [];throw e;}});},
   sharing,
+  inspect(p,id){const value=get(p,id,true),targets=store.db.prepare('SELECT kind,target FROM dashboard_shares WHERE dashboard_id=? ORDER BY kind,target').all(id);return {id,name:value.name,branch:value.dashboard.filters.sucursal,...accessReport({resource:value.dashboard.resource,branch:value.dashboard.filters.sucursal,targets,ownerId:p.userId})};},
   revocation(p,id){get(p,id,true);return {assigned:assignedNames(store.db.prepare('SELECT kind,target FROM dashboard_shares WHERE dashboard_id=? ORDER BY kind,target').all(id))};},
   unshare(p,id,input){
    get(p,id,true);assert(input&&Object.keys(input).length===1&&Array.isArray(input.targets)&&input.targets.length>0&&input.targets.length<=200&&input.targets.every(t=>t&&Object.keys(t).length===2&&['user','role'].includes(t.kind)&&typeof t.target==='string'&&t.target.length>0&&t.target.length<=128),400,'DESTINATARIOS_INVALIDOS','Indicá usuarios o roles concretos para dejar de compartir.');
