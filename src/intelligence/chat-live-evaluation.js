@@ -39,6 +39,7 @@ export async function createChatEvaluationHarness({erp,model,branch='0101'}={}){
    return {status:response.status,data:await response.json()};
   };
   return {store,access,admin,users,counts,request,branch,
+   rotateOperator:async()=>{const user=await access.saveUser(admin.principal,{username:'evalop'+randomBytes(8).toString('hex'),name:'Evaluación aislada',roleId:users.operator.roleId,active:true,password});users.operator={...user,roleId:users.operator.roleId,token:access.session(user.id)};},
    observeDecisions:callback=>{decisionObserver=callback;},
    chat:(text,conversationId,user)=>request('/api/agent/chat',{user,body:{text,...(conversationId?{conversationId}:{}),context:{sucursal:branch}}}),
    conversation:id=>{const row=store.db.prepare('SELECT body FROM conversations WHERE id=?').get(id);return row?JSON.parse(row.body):null;},

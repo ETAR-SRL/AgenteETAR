@@ -1,11 +1,12 @@
 import {supplierPrice} from './order-list-price.js';
 import Decimal from 'decimal.js';
 import {assert} from '../errors.js';
-import {purchaseValues,purchaseValueAmbiguity,negatedReferences,unambiguousPurchaseValues} from './purchase-chat.js';
+import {purchaseValues,purchaseValueAmbiguity,negatedReferences,unambiguousPurchaseValues,applyReferenceIntake} from './purchase-chat.js';
 import {priceCommand,priceWriteIntent,preparePriceCommand,requestedPriceBase} from './price-commands.js';
 import {assertPriceCurrency} from './references.js';
 import {createBusinessTools} from './tools.js';
 import {supplierReferenceIntent,unresolvedSupplierReference} from './supplier-reference.js';
+import {unresolvedReference} from './reference-corrections.js';
 
 const D=Decimal.clone({precision:50});
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
@@ -38,6 +39,7 @@ function parse(text,state){
  else if(state?.kind==='order'&&/^(?:de )?(compra|venta)[.!]?$/.test(n))kind=n.includes('compra')?'purchase':'sale';
  const pricing=/\b(precios?|listas?|listados?)\b|\ba cuan[td]o\b|\b(?:vendemos|vendiendo|vale|cuesta)\b/.test(n);
  if(!kind&&pricing)kind=/\bproveedor(?:es)?\b|\baib\b/.test(n)?'supplierList':/\blistas?\b/.test(n)?'saleList':'salePrice';
+ if(pricing&&state?.kind==='supplierList'&&!/\bcliente(?:s)?\b|\bventa\b|\bda[01]\b/.test(n))kind='supplierList';
  if(pricing&&state?.kind==='vendor'&&!/\bcliente\b/.test(n))kind='supplierList';
  if(!kind&&/\bproveedor\b/.test(n))kind=state&&['supplierList','purchase'].includes(state.kind)?state.kind:'vendor';
  if(!kind&&/\bcliente\b/.test(n))kind=state&&['saleList','salePrice','sale'].includes(state.kind)?state.kind:'customer';
@@ -53,7 +55,7 @@ function parse(text,state){
  if(list&&!/^(?:proveedor|cliente|precios|de precios|de venta|de compra)\b/i.test(list))refs.list=list;
  const order=/\b(?:pedido|solicitud)(?: de (?:venta|compra))?\s*(?:n(?:ro|umero)?[°º.]?\s*)?(\d+)\b/.exec(n);
  if(order)refs.number=order[1];
- for(const [key,re] of [['shop',/\btienda\s+([a-z0-9_-]+)/i],['item',/\b[ií]tem\s+([a-z0-9_-]+)/i]]){const m=re.exec(text);if(m)refs[key]=m[1];}
+ for(const [key,re] of [['shop',/\btienda\s+([a-z0-9_-]+)/i],['item',/(?:^|\s)[ií]tem\s+([a-z0-9_-]+)/i]]){const m=re.exec(text);if(m)refs[key]=m[1];}
  const listIntent=/\b(usa|usar|utiliza|utilizar|aplica|aplicar|toma|tomar|actualiza)\b/.test(n)&&/\blista\b/.test(n);
  if(listIntent&&state&&kinds[state.kind]?.order&&!/pedido(?: de)? (compra|venta)/.test(n))kind=state.kind;
  const write=listIntent||priceWriteIntent(text)||/\b(subilo|bajalo|aumentalo|reducilo|prepara|preparame)\b|\barma(?:me)?\s+(?:la |una )?propuesta\b/.test(n);
@@ -80,10 +82,24 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  if(/\b(crea(?:r|me)?|genera(?:r|me)?)\b/.test(n)||/\barma(?:r|me)?\b/.test(n)&&!/\bpropuesta\b/.test(n))return null;
  let old=conversation.businessContext;
  if(old?.branch!==branch){delete conversation.businessContext;old=null;}
- if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&old){delete conversation.businessContext;return {answer:'Descarté el cambio pendiente de esta conversación. No se modificó el ERP.',evidence:[],trace:[]};}
+ if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&(old||conversation.pausedBusiness?.branch===branch)){delete conversation.businessContext;delete conversation.pausedBusiness;return {answer:'Descarté el cambio pendiente de esta conversación. No se modificó el ERP.',evidence:[],trace:[]};}
  if(/\b(resumen|dashboard|facturas?|remitos?|ventas del|compras del|total vendido|stock|costos?|calidad|proyecto)\b/.test(n)){delete conversation.businessContext;return null;}
  if(/\b(no|nunca|sin)\s+(?:lo\s+|me\s+)?(?:cambi|modifi|actuali|ajust|sub|baj)|\b(simula|simular|que pasaria)\b/.test(n)){delete conversation.businessContext;return null;}
  const parsed=parse(text,old);
+ // A concrete catalog read may interrupt a pending operation without inheriting
+ // its unresolved commercial references or losing its explicitly entered values.
+ const catalogRead=!parsed.write&&/\b(?:mostra\w*|consulta\w*|busca\w*|ver)\b/.test(n)&&!/^\s*no\b/.test(n)
+  ?[['product','producto|articulo'],['customer','cliente'],['vendor','proveedor']].find(([key,word])=>parsed.refs[key]&&!(key==='vendor'?unresolvedSupplierReference(parsed.refs[key]):unresolvedReference(parsed.refs[key],key))&&new RegExp('\\b(?:'+word+')\\b').test(n))?.[0]:undefined;
+ if(old&&catalogRead&&catalogRead!==old.kind){
+  if(old.pending)conversation.pausedBusiness=structuredClone(old);
+  old=null;parsed.kind=catalogRead;
+ }
+ const referenceState=old||{refs:{},kind:parsed.kind};
+ const referenceIntent=applyReferenceIntake(referenceState,parsed.refs,text);
+ if(referenceIntent.corrections.order?.replacement){
+  const affirmative=text.split(/[,;\n]/).find(clause=>!/^\s*no\b/i.test(clause)&&/\bpedido(?: de)? (?:venta|compra)\b/i.test(clause));
+  if(affirmative)parsed.kind=/\bcompra\b/i.test(affirmative)?'purchase':'sale';
+ }
  const supplierIntent=supplierReferenceIntent(text,{active:!!old&&(['vendor','supplierList','purchase'].includes(old.kind)||!!old.refs?.vendor)});
  if(supplierIntent.rejected&&old){
   delete old.refs.vendor;
@@ -112,7 +128,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  // Keep the mature DA1 bulk-price route and its validations.
  if(priceCommand(text,conversation.messages,branch,true)&&parsed.edits.quantity===undefined&&!['purchase','sale','request','supplierList'].includes(parsed.kind||old?.kind))return null;
  const ordinal=/\b(?:el|la)\s+(primero|primera|segundo|segunda|tercero|tercera)\b/.exec(n);
- const follow=old&&(supplierIntent.rejected||unresolvedSupplier||Object.keys(parsed.edits).length||Object.keys(parsed.refs).length||/\b(ese|esa|este|esta|su|lo mismo|verlo|verla|confirmar|confirmo)\b/.test(n)||ordinal);
+ const follow=old&&(referenceIntent.corrected||supplierIntent.rejected||unresolvedSupplier||Object.keys(parsed.edits).length||Object.keys(parsed.refs).length||/\b(ese|esa|este|esta|su|lo mismo|verlo|verla|confirmar|confirmo)\b/.test(n)||ordinal);
  if(!parsed.kind&&!follow){delete conversation.businessContext;return null;}
  const kind=parsed.kind||old.kind;
  if(!kinds[kind]&&kind!=='order')return null;
@@ -121,14 +137,20 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   :changed&&old.kind==='product'&&['salePrice','saleList'].includes(kind)?{product:old.refs.product}
   :changed&&old.kind==='vendor'&&kind==='supplierList'?{vendor:old.refs.vendor,shop:old.refs.shop}
   :changed&&old.kind==='customer'&&['saleList','salePrice'].includes(kind)?{customer:old.refs.customer,shop:old.refs.shop}:{};
- const state=old&&!changed?old:{branch,kind,refs:inherited,pending:old?.awaitingOperation&&kinds[kind]?.order?old.pending:null,base:old?.awaitingOperation?old.base:undefined};
+ const orderTransition=changed&&kinds[old.kind]?.order&&kinds[kind]?.order;
+ const state=old&&!changed?old:{branch,kind,refs:inherited,pending:(old?.awaitingOperation||orderTransition)&&kinds[kind]?.order?old.pending:null,base:old?.awaitingOperation?old.base:undefined};
  state.kind=kind;
+ if(!old)state.unresolvedReferences=[...(referenceState.unresolvedReferences||[])];
+ else if(changed){
+  const relevant=new Set([...Object.keys(inherited),...Object.keys(parsed.refs),...(orderTransition?['number','item','product']:[])]);
+  state.unresolvedReferences=(referenceState.unresolvedReferences||[]).filter(key=>relevant.has(key));
+ }
  if(unresolvedSupplier)state.unresolvedReferences=[...new Set([...(state.unresolvedReferences||[]),'vendor'])];
  const explicitTarget=Object.entries(parsed.refs).some(([k,v])=>state.refs[k]!==undefined&&state.refs[k]!==v);
- if(explicitTarget){delete state.selected;delete state.candidates;delete state.base;if(!parsed.write)state.pending=null;}
+ if(explicitTarget){delete state.selected;delete state.candidates;delete state.candidateRef;delete state.base;}
  Object.assign(state.refs,parsed.refs);
  if(parsed.write){
-  state.pending={...(!explicitTarget?state.pending:null),...parsed.edits};
+  state.pending={...state.pending,...parsed.edits};
   if(parsed.edits.percent!==undefined){delete state.pending.price;delete state.pending.useList;}
   else if(parsed.edits.price!==undefined){delete state.pending.percent;delete state.pending.direction;delete state.pending.useList;}
   else if(parsed.edits.useList){delete state.pending.price;delete state.pending.percent;delete state.pending.direction;}
@@ -157,18 +179,19 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   state.candidateRef=ref;
   return answer(result.data?.length?`Encontré varias coincidencias de ${what}. ¿Cuál corresponde?\n${result.data.slice(0,10).map((r,i)=>`${i+1}. ${label(r)}`).join('\n')}${result.meta?.hasMore?'\nHay más resultados; precisá el código o filtro.':''}`:`No encontré ${what} con ese dato en esta sucursal. ¿Podés precisar el código o nombre?`);
  };
- if(kind==='order')return answer('¿El pedido es de compra o de venta? Conservo el número que indicaste.');
  const profile=kinds[kind],refs=state.refs;
  if(state.pending){
   assert(canPlan&&prepare,403,'ROL_INSUFICIENTE','Tu rol no permite preparar cambios.');
-  if(!profile.action)return answer('Puedo verificar el producto en SB1, pero la modificación de su ficha no tiene un ejecutor habilitado. No modifiqué el ERP.');
-  await authorizePlan?.(profile.action);
+  if(kind!=='order'&&!profile.action)return answer('Puedo verificar el producto en SB1, pero la modificación de su ficha no tiene un ejecutor habilitado. No modifiqué el ERP.');
+  if(profile?.action)await authorizePlan?.(profile.action);
  }
- const rejected=negatedReferences(text).filter(key=>!(key==='vendor'&&supplierIntent.replacement)),unresolved=new Set(state.unresolvedReferences||[]);
+ const correctedKeys={product:'product',customer:'customer',number:'order',list:'list'};
+ const rejected=negatedReferences(text).filter(key=>!(key==='vendor'&&supplierIntent.replacement)&&!correctedKeys[key]),unresolved=new Set(state.unresolvedReferences||[]);
  for(const key of Object.keys(parsed.refs))if(!rejected.includes(key))unresolved.delete(key);
- for(const key of rejected){delete refs[key];unresolved.add(key);delete state.selected;delete state.candidates;}
+ for(const key of rejected){delete refs[key];unresolved.add(key);delete state.selected;delete state.candidates;delete state.candidateRef;}
  state.unresolvedReferences=[...unresolved];
  if(unresolved.size)return answer('Conservo los demás datos. Indicá de forma afirmativa '+[...unresolved].map(key=>({product:'el producto',vendor:'el proveedor',customer:'el cliente',number:'el documento',list:'la lista',shop:'la tienda',item:'el ítem'})[key]).join(' y ')+' que corresponde; no usaré la referencia negada.');
+ if(kind==='order')return answer('¿El pedido es de compra o de venta? Conservo el número que indicaste.');
  if(state.pending?.quantity!==undefined&&['salePrice','saleList','supplierList'].includes(kind)){state.awaitingOperation=true;return answer('Conservo el precio y la cantidad con sus bases. ¿Querés preparar un pedido de compra, un pedido de venta o una solicitud? Indicá si es un documento nuevo o uno existente y, en ese caso, su número.');}
  delete state.awaitingOperation;
  const numeric=(resource,key,value)=>{
@@ -223,8 +246,16 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   const result=await query(profile.resource,{lista:refs.list});
   return answer(`Lista ${refs.list}: ${result.data.length} precios en esta página${result.meta?.hasMore?'; hay más páginas':''}. Valores actuales del ERP; no se calculó un total global.`);
  }
- let filters={};
+ let filters={},orderParty;
  if(profile.order){
+  const partyKey=kind==='sale'?'customer':kind==='purchase'?'vendor':undefined;
+  if(partyKey&&refs[partyKey]){
+   const resource=partyKey==='customer'?'clientes':'proveedores';
+   const party=await find(resource,refs[partyKey],refs.shop?{tienda:refs.shop}:{});
+   if(party.data.length!==1||party.meta?.hasMore)return choose(party,partyKey==='customer'?'cliente y tienda':'proveedor y tienda',partyKey);
+   orderParty={code:party.data[0].codigo,shop:party.data[0].tienda,customer:partyKey==='customer'};
+   refs[partyKey]=orderParty.code;refs.shop=orderParty.shop;
+  }
   if(!refs.number&&!state.selected)return answer('¿Cuál es el número del documento existente?');
   if(refs.number)filters.numero=numeric(profile.resource,'numero',refs.number);
   if(refs.item)filters.item=numeric(profile.resource,'item',refs.item);
@@ -247,6 +278,9 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  }
  if(state.selected?.registro)filters.registro=state.selected.registro;
  let result=await query(profile.resource,filters,100),rows=result.data;
+ const partyMatches=row=>!orderParty||String(row[orderParty.customer?'clienteCodigo':'proveedorCodigo'])===String(orderParty.code)&&String(row[orderParty.customer?'clienteTienda':'proveedorTienda'])===String(orderParty.shop);
+ const partyMismatch=()=>answer(`El pedido consultado no corresponde al ${orderParty.customer?'cliente':'proveedor'} ${orderParty.code}, tienda ${orderParty.shop}, verificado en el ERP. Indicá el pedido y el ítem que corresponden. Conservo los importes y cantidades pendientes; no preparé cambios ni cambié el tercero del documento.`);
+ if(rows.some(row=>!partyMatches(row)))return partyMismatch();
  if(state.selected)assert(rows.length===1&&sameIdentity(rows[0],state.selected),409,'REFERENCIA_CAMBIADA','Cambió la identidad seleccionada; consultá de nuevo.');
  if(!state.pending){
   state.candidates=rows.slice(0,25).map(identifier);
@@ -262,6 +296,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   assert(page<=100,409,'ALCANCE_EXCEDIDO','Demasiados registros. Acotá el alcance.');
   result=await query(profile.resource,{...filters,page:String(page)},100);assert(result.data.length,409,'PAGINACION_INVALIDA','La paginación cambió.');rows.push(...result.data);
  }
+ if(rows.some(row=>!partyMatches(row)))return partyMismatch();
  assert(new Set(rows.map(r=>String(r.registro))).size===rows.length,409,'REGISTROS_DUPLICADOS','La lectura contiene registros duplicados.');
  if(v.price===undefined&&v.percent===undefined&&v.quantity===undefined&&!v.useList)return answer('Conservo el documento y sus referencias. ¿Qué precio o cantidad querés cambiar?');
  const plans=[];

@@ -1,6 +1,7 @@
 import {HttpError} from '../errors.js';
 import {checkInput,validateLimits,validatedOutput} from './model-contract.js';
 import {localDecisionMessages,localSupplierDecision} from './local-decision-prompt.js';
+import {localReferenceDecision} from './reference-corrections.js';
 export function createModel({url=process.env.AI_LOCAL_URL||'http://127.0.0.1:11434',model=process.env.AI_MODEL||'qwen3:4b',fetchImpl=fetch}={}){
   const base=new URL(url);
   if(base.protocol!=='http:'||!['127.0.0.1','localhost'].includes(base.hostname)||base.username||base.password||base.pathname!=='/')throw new Error('El modelo debe ejecutarse en loopback local');
@@ -8,8 +9,8 @@ export function createModel({url=process.env.AI_LOCAL_URL||'http://127.0.0.1:114
     async status(){try{const r=await fetchImpl(new URL('/api/tags',base),{signal:AbortSignal.timeout(1500),redirect:'error'});const j=await r.json();return {available:r.ok&&j.models?.some(m=>m.name===model),model,local:true};}catch{return {available:false,model,local:true};}},
     async complete(messages,schema,limits=validateLimits({timeoutMs:180000}),onUsage=()=>{}){
       checkInput(messages,schema,limits);
-      const originalSchema=schema,supplier=localSupplierDecision(messages,schema);
-      if(supplier){messages=supplier.messages;schema=supplier.schema;}
+      const originalSchema=schema,clarification=localReferenceDecision(messages,schema)||localSupplierDecision(messages,schema);
+      if(clarification){messages=clarification.messages;schema=clarification.schema;}
       messages=localDecisionMessages(messages,schema);
       checkInput(messages,schema,limits);
       try{

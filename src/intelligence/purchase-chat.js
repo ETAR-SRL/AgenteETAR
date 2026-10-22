@@ -5,6 +5,7 @@ import {literalAttachmentIntent} from './attachment-chat.js';
 import {importDate} from './purchase-imports.js';
 import {importedNumber} from './document-reader.js';
 import {supplierReferenceIntent,unresolvedSupplierReference} from './supplier-reference.js';
+import {referenceCorrections,unresolvedReference} from './reference-corrections.js';
 
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 const number='(\\d+(?:[.,]\\d+)?)';
@@ -12,6 +13,48 @@ const quantity=new RegExp('\\b'+number+'\\s*(unidad(?:es)?|un|millar(?:es)?|kg|g
 const price=new RegExp('(?:\\bprecio\\s*(?:es|de|a|:)?\\s*|\\ba\\s+)'+number+'(?:\\s*(?:pesos?|d[oó]lares?|ars|usd))?\\s*(?:por\\s+(unidad|millar|kg|g|mt|m|lt|l))?','i');
 const codePattern=/\b(?:producto|articulo|codigo)\s+(?:es\s+|codigo\s+)?([a-z0-9][a-z0-9_./-]*)(?=\s|[,;!?]|$)/i;
 const quantityMatches=text=>[...text.matchAll(new RegExp(quantity.source,'ig'))].filter(match=>!/\b(?:lista|codigo|producto|articulo|pedido(?: de (?:compra|venta))?|solicitud(?: de compra)?|numero|item|tienda)\s*$/i.test(text.slice(0,match.index)));
+
+// Apply the same literal correction rules to the two structured intakes. Source
+// selections are disposable; separately stated amounts remain user input.
+export function applyReferenceIntake(state,input,text,{purchase=false}={}){
+ const refs=purchase?state.values:state.refs;
+ const mapping={product:'product',customer:'customer',order:'number',list:'list'};
+ const activeKinds=Object.keys(mapping).filter(kind=>refs[mapping[kind]]!==undefined||(state.unresolvedReferences||[]).includes(mapping[kind])||kind==='product'||kind==='order'&&['sale','purchase','request','order'].includes(state.kind)||kind==='customer'&&['customer','salePrice','saleList','sale'].includes(state.kind)||kind==='list'&&['salePrice','saleList','supplierList'].includes(state.kind));
+ const known=Object.fromEntries(Object.entries(mapping).map(([kind,key])=>[kind,refs[key]]));
+ const supplierCorrection=supplierReferenceIntent(text,{active:purchase?!!refs.party||(state.unresolvedReferences||[]).includes('party'):!!refs.vendor||['vendor','supplierList'].includes(state.kind)});
+ // A supplier clarification can contain an explicit product in another clause.
+ // Only typed clauses belong to this engine once the supplier route has claimed
+ // the unlabelled correction or command.
+ const canonicalText=supplierCorrection.rejected||supplierCorrection.replacement
+  ?text.split(/[,;\n]/).filter(clause=>/\b(producto|articulo|cliente|pedido|solicitud|lista)\b/.test(norm(clause))).join(';')
+  :text;
+ const corrections=referenceCorrections(canonicalText,{activeKinds,known});
+ const unresolved=new Set(state.unresolvedReferences||[]);
+ let corrected=false;
+ for(const [kind,key] of Object.entries(mapping)){
+  const intent=corrections[kind]||{};
+  if(intent.rejected){
+   corrected=true;delete refs[key];delete input[key];unresolved.add(key);
+   for(const field of ['selected','candidates','candidateRef','base'])delete state[field];
+   delete refs.resolvedPrice;
+   if(kind==='customer'){delete refs.shop;delete refs.list;}
+   if(kind==='order')delete refs.item;
+  }
+  if(intent.replacement)input[key]=intent.replacement;
+  if(input[key]&&unresolvedReference(input[key],kind)){delete input[key];if(unresolved.has(key))corrected=true;}
+  if(input[key]!==undefined){
+   if(refs[key]!==undefined&&refs[key]!==input[key]){
+    for(const field of ['selected','candidates','candidateRef','base'])delete state[field];
+    delete refs.resolvedPrice;
+    if(kind==='customer'){delete refs.shop;delete refs.list;}
+    if(kind==='order'&&!input.item)delete refs.item;
+   }
+   unresolved.delete(key);
+  }
+ }
+ state.unresolvedReferences=[...unresolved];
+ return {corrected,corrections};
+}
 export function purchaseValueAmbiguity(text){
  const n=norm(text);
  if(/\bno\s+(?:son?|es|eran?|serian?)\s+\d|\b(?:no|sin)\s+(?:(?:uses?|usar|tomes?|tomar|pongas?|poner)\s+)?(?:(?:el|la)\s+)?(?:precio|cantidad|importe|moneda)\s+(?:de\s+)?\d/.test(n))return 'No voy a usar el valor negado. Indicá de forma afirmativa el importe o cantidad que corresponde y su base. Conservo los datos anteriores; no preparé cambios.';
@@ -66,12 +109,15 @@ export function updateSupplierPendingDraft(conversation,text,branch,preferences=
  const resume=/\b(?:pedido|compra|borrador|orden)\b/.test(n)&&/\b(?:retoma(?:r|me)?|retomemos|continu(?:a(?:r|mos)?|emos)|segui(?:r|mos)?)\b/.test(n);
  const values=purchaseValueAmbiguity(text)?unambiguousPurchaseValues(text):purchaseValues(text);
  for(const key of ['party','shop','list','resolvedPrice'])delete values[key];
+ const referenceState=[conversation.purchaseDraft,conversation.pausedPurchase].find(state=>state?.branch===branch&&state.action==='crearPedidoCompra')||{values:{}};
+ referenceState.unresolvedReferences=[...new Set([...(referenceState.unresolvedReferences||[]),'party'])];
+ applyReferenceIntake(referenceState,values,text,{purchase:true});
  const fresh=/\b(?:nuevo|nueva|desde cero|un pedido|una compra|una orden|otro pedido)\b/.test(n);
  const existing=[conversation.purchaseDraft,conversation.pausedPurchase].some(state=>state?.branch===branch&&state.action==='crearPedidoCompra');
  if(start&&(!existing||values.product||fresh)){
   delete conversation.purchaseDraft;delete conversation.pausedPurchase;
   if(!values.product||/\bproductos\b/.test(n)||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n))return;
-  conversation.purchaseDraft={branch,action:'crearPedidoCompra',values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{}),...values},unresolvedReferences:['party']};
+  conversation.purchaseDraft={branch,action:'crearPedidoCompra',values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{}),...values},unresolvedReferences:[...new Set([...(referenceState.unresolvedReferences||[]),'party'])]};
   return;
  }
  if((resume||start&&!fresh)&&conversation.purchaseDraft?.branch!==branch&&conversation.pausedPurchase?.branch===branch&&conversation.pausedPurchase.action==='crearPedidoCompra'){
@@ -104,14 +150,16 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
  if(/\bproductos\b|\b(?:factura|venta)\b/.test(n)||/\bpedido\b/.test(n)&&!purchaseOrder&&state?.action!=='crearPedidoCompra'||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n)){
   pause();return null;
  }
- if(start&&!values.product){delete conversation.purchaseDraft;return null;}
+ const referenceState=state?.branch===branch?state:{values:{},unresolvedReferences:[]};
+ const referenceIntent=applyReferenceIntake(referenceState,values,text,{purchase:true});
+ if(start&&!values.product&&!referenceIntent.corrected){delete conversation.purchaseDraft;return null;}
  const supplierIntent=supplierReferenceIntent(text,{active:state?.branch===branch&&(state.action==='crearPedidoCompra'||!!state.values.party)});
  const ambiguous=purchaseValueAmbiguity(text);
- if(!start&&(!state||state.branch!==branch||(!Object.keys(values).length&&!resume&&!ambiguous&&!supplierIntent.rejected&&!unresolvedParty))){pause();return null;}
+ if(!start&&(!state||state.branch!==branch||(!Object.keys(values).length&&!resume&&!ambiguous&&!supplierIntent.rejected&&!unresolvedParty&&!referenceIntent.corrected))){pause();return null;}
  assert(canPlan&&prepare,403,'ROL_INSUFICIENTE','Tu rol no permite preparar solicitudes de compra.');
  const action=start&&purchaseOrder?'crearPedidoCompra':start?'crearSolicitudCompra':state.action||'crearSolicitudCompra',pc=action==='crearPedidoCompra';
  await authorizePlan?.(action);
- if(start)state={branch,action,values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{})}};
+ if(start)state={branch,action,values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{})},unresolvedReferences:referenceState.unresolvedReferences};
  if(supplierIntent.rejected||unresolvedParty){
   delete state.values.party;delete state.values.shop;delete state.values.list;delete state.values.resolvedPrice;
   delete values.party;delete values.shop;
@@ -124,7 +172,7 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
   if(start){state.values={...state.values,...unambiguousPurchaseValues(text)};conversation.purchaseDraft=state;}
   return {answer:ambiguous+(start?' Conservé el producto y las cantidades inequívocas; su verificación en SB1 queda pendiente de la aclaración.':''),evidence:[],trace:[]};
  }
- const rejected=negatedReferences(text).map(key=>key==='vendor'?'party':key).filter(key=>['product','party','shop','list'].includes(key)&&!(key==='party'&&(!pc||supplierIntent.replacement)));
+ const rejected=negatedReferences(text).map(key=>key==='vendor'?'party':key).filter(key=>['party','shop'].includes(key)&&!(key==='party'&&(!pc||supplierIntent.replacement)));
  const unresolved=new Set(state.unresolvedReferences||[]);
  for(const key of Object.keys(values))if(!rejected.includes(key))unresolved.delete(key);
  for(const key of rejected){delete values[key];delete state.values[key];unresolved.add(key);if(['party','shop','list','product'].includes(key))delete state.values.resolvedPrice;}
