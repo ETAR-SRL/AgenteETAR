@@ -49,3 +49,22 @@ El diagnóstico local encontró un error PostgreSQL ECONNRESET no manejado en un
 Pruebas aisladas: 41 aprobadas, incluyendo cinco regresiones de socket/adquisición/rollback/errores tardíos/recuperación, pruebas HTTP, permisos y seguimientos. No se modificaron documentos comerciales. La configuración local conserva IA local y no contiene claves externas ni las credenciales completas de Google/Microsoft documental.
 
 Referencia técnica: [eventos de pg.Client](https://node-postgres.com/apis/client) y [errores de pg.Pool](https://node-postgres.com/apis/pool). El error de un cliente prestado no queda cubierto solamente por el listener del pool.
+
+## Comprobaciones ampliadas del 22/10/2026
+
+La red empresarial volvió a estar accesible. Se ejecutó la batería consultiva real con una sola filial autorizada y muestras acotadas: ERP y KAIQEN respondieron; se verificaron un pedido vencido, SC5/SA1/SC6 y un remito con sus ítems SD2. No se hicieron escrituras comerciales ni se prepararon operaciones ejecutables. El [resultado real](resultado-validacion-real-2026-10-22.md) distingue los vínculos comprobados de las lecturas vacías y las diferencias de datos. Se corrigió el validador para respetar UM, precisión SX3 y SA1 compartida según los metadatos del adaptador existente.
+
+La suite completa del 22/10 aprobó **627 pruebas**, cero fallos, con concurrencia 2 (105 segundos). Incluye fallos de fuentes, reinicio/persistencia, confirmaciones, aislamiento y revocación, circuitos de adjuntos, cola consultiva y notificaciones. Son pruebas controladas; no sustituyen la homologación de escrituras o de todos los registros ERP.
+
+La PWA ahora reconsulta el estado de IA cada 15 segundos mientras está visible, al volver a la pestaña o red y después de guardar configuración. La comprobación no genera inferencias, admite una sola consulta en curso y descarta respuestas al cambiar de sesión. Un proveedor externo configurado no se presenta como verificado sin una respuesta exitosa. Se aprobaron después **13 pruebas focalizadas**, incluidas seis nuevas de este refresco, entrega HTTP del módulo y comportamiento del service worker. El shell pasa a v49 y la identificación del servidor a `operativo-integral-2` para comprobar el reinicio. También se comprobó a ancho móvil de 390 px sin desborde horizontal del documento; esto no acredita instalación en un teléfono físico.
+
+En Edge, con la sesión personal ya abierta, se comprobó el precio real por unidad/millar; dashboard mensual separado en pesos/dólares; continuidad «¿Y el mes pasado?» con relectura de ambos períodos; bandeja con vencidos y KAIQEN relacionado; investigación en segundo plano y seguimiento por chat con referencia contextual. Los hallazgos separaron hechos de causas sin evidencia y no certificaron recepción física. Las capturas y el historial comercial de estas comprobaciones permanecen sólo en almacenamiento local ignorado.
+
+Se agregó una evaluación explícita y acotada de modelos reales, independiente del arnés de transportes controlados. La medición de `qwen3:4b` encontró errores en los cuatro diálogos sintéticos: no se declara una mejora general de comprensión ni se confía al modelo autorización, cálculos o SQL. Las consultas directas conservan sus verificaciones estructuradas. Ver [método y resultado](ia-proveedores.md). El usuario confirmó que todavía no existen claves externas ni credenciales OAuth documentales; no se configuraron conexiones ficticias ni se enviaron datos comerciales a terceros para probarlas.
+
+Pendientes concretos que no se pueden cerrar por código:
+
+- Revisar registros heredados de muestra con `C6_MILLAR`/`D2_MILLAR` en cero y cantidades positivas en UN. Se detectó la diferencia, sin corregir el ERP ni atribuir su causa.
+- Homologar SC1/SC7 y compras con casos reales: la muestra autorizada devolvió cero filas. SC9 y remitos/facturas del pedido vencido tampoco aportaron filas; no se certifica su ausencia general ni el cierre de remitos pendientes.
+- Crear/configurar claves IA y aplicaciones documentales con ubicaciones y consentimiento explícitos para verificar los proveedores reales. Los adaptadores y sus controles están probados con escenarios aislados.
+- Probar micrófono, instalación móvil y push con el dispositivo y las autorizaciones personales correspondientes. No se activaron permisos del navegador como parte de estas comprobaciones.

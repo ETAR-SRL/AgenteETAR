@@ -37,7 +37,7 @@ test('local session requires exact origin, rejects DNS rebinding and cross-site,
 });
 test('PWA serves local shell without credentials, cache limited to static allowlist',async t=>{
  const {request}=await setup(t);
- for(const path of ['/','/notifications-ui.js','/access-ui.js','/app.js','/style.css','/manifest.webmanifest','/icon-192.png','/icon-512.png','/sw.js']){
+ for(const path of ['/','/ai-status-ui.js','/notifications-ui.js','/access-ui.js','/app.js','/style.css','/manifest.webmanifest','/icon-192.png','/icon-512.png','/sw.js']){
   const response=await request(path);assert.equal(response.status,200);assert.match(response.headers.get('content-security-policy'),/frame-ancestors 'none'/);
   const text=await response.text();assert.ok(!text.includes(readKey));assert.ok(!text.includes(planKey));
  }
