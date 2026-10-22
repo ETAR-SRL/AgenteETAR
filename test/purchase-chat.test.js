@@ -88,3 +88,23 @@ test('cancelled paused drafts never resume or prepare a document',async t=>{
  await f.query('Retomemos la solicitud',first.conversationId);assert.equal(f.prepared.length,0);
  assert.equal(f.calls.filter(c=>c.resource==='productos').length,1);
 });
+
+test('ambiguous price in another clause retains the newly supplied product and quantity through a full chat',async t=>{
+ const f=fixture(t);
+ const first=await f.query('Creame una solicitud de compra con producto 1, 7 millares; dejalo en 8 lucas o 5 verdes');
+ assert.match(first.answer,/importe exacto/);assert.match(first.answer,/verificación en SB1 queda pendiente/);assert.equal(f.modelCalls,0);
+ const fixed=await f.query('precio 8000 pesos por millar',first.conversationId);
+ assert.match(fixed.answer,/VARIOS-MIGRACION/);assert.doesNotMatch(fixed.answer,/• cantidad|confirmar la base de cantidad|confirmar si el precio/);assert.equal(f.modelCalls,0);
+ const done=await f.query('depósito 16; emisión 20/10/2026; necesidad 21/10/2026; solicitante Ana',first.conversationId);
+ assert.equal(f.prepared.length,1,done.answer);assert.equal(f.prepared[0].items[0].cantidad,'7');assert.equal(f.prepared[0].items[0].baseCantidad,'millares');assert.equal(f.prepared[0].items[0].precio,'8000');assert.equal(f.prepared[0].items[0].basePrecio,'millar');
+});
+
+test('an ambiguous shorthand followup preserves the active draft instead of pausing it before clarification',async t=>{
+ const f=fixture(t),first=await f.query('Creame una solicitud de compra con producto 1, 9 unidades a 14 pesos por unidad');
+ const calls=f.calls.length;
+ const ambiguous=await f.query('Dejalo en 8 lucas o 5 verdes, porfa',first.conversationId);
+ assert.match(ambiguous.answer,/importe exacto/);assert.equal(f.calls.length,calls);assert.equal(f.modelCalls,0);
+ const fixed=await f.query('precio 8000 pesos por millar',first.conversationId);assert.match(fixed.answer,/VARIOS-MIGRACION/);assert.doesNotMatch(fixed.answer,/• cantidad|confirmar si el precio/);
+ const done=await f.query('depósito 16; emisión 20/10/2026; necesidad 21/10/2026; solicitante Ana',first.conversationId);
+ assert.equal(f.prepared.length,1,done.answer);assert.equal(f.prepared[0].items[0].cantidad,'9');assert.equal(f.prepared[0].items[0].baseCantidad,'unidades');assert.equal(f.prepared[0].items[0].precio,'8000');assert.equal(f.prepared[0].items[0].basePrecio,'millar');assert.equal(f.modelCalls,0);
+});

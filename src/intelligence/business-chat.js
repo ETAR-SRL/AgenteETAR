@@ -1,7 +1,7 @@
 import {supplierPrice} from './order-list-price.js';
 import Decimal from 'decimal.js';
 import {assert} from '../errors.js';
-import {purchaseValues} from './purchase-chat.js';
+import {purchaseValues,purchaseValueAmbiguity,negatedReferences,unambiguousPurchaseValues} from './purchase-chat.js';
 import {priceCommand,priceWriteIntent,preparePriceCommand,requestedPriceBase} from './price-commands.js';
 import {assertPriceCurrency} from './references.js';
 import {createBusinessTools} from './tools.js';
@@ -55,7 +55,7 @@ function parse(text,state){
  for(const [key,re] of [['shop',/\btienda\s+([a-z0-9_-]+)/i],['item',/\b[ií]tem\s+([a-z0-9_-]+)/i]]){const m=re.exec(text);if(m)refs[key]=m[1];}
  const listIntent=/\b(usa|usar|utiliza|utilizar|aplica|aplicar|toma|tomar|actualiza)\b/.test(n)&&/\blista\b/.test(n);
  if(listIntent&&state&&kinds[state.kind]?.order&&!/pedido(?: de)? (compra|venta)/.test(n))kind=state.kind;
- const write=listIntent||priceWriteIntent(text)||/\b(subilo|bajalo|aumentalo|reducilo)\b/.test(n);
+ const write=listIntent||priceWriteIntent(text)||/\b(subilo|bajalo|aumentalo|reducilo|prepara|preparame)\b|\barma(?:me)?\s+(?:la |una )?propuesta\b/.test(n);
  const percent=/(\d+(?:[.,]\d+)?)\s*(?:%|por ciento)/.exec(n);
  const edits={};if(listIntent)edits.useList=true;
  if(values.price!==undefined)edits.price=values.price;
@@ -76,33 +76,49 @@ function parse(text,state){
 export async function businessChat({text,conversation,branch,read,executeRead,kaiqen,metadata,prepare,authorizePlan,canPlan,actor}){
  const n=norm(text);
  if(/\b(recorda|recordar|recuerda|aprende|clasifica|llamamos|guarda)\b/.test(n))return null;
- if(/\b(crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?)\b/.test(n))return null;
+ if(/\b(crea(?:r|me)?|genera(?:r|me)?)\b/.test(n)||/\barma(?:r|me)?\b/.test(n)&&!/\bpropuesta\b/.test(n))return null;
  let old=conversation.businessContext;
  if(old?.branch!==branch){delete conversation.businessContext;old=null;}
  if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&old){delete conversation.businessContext;return {answer:'Descarté el cambio pendiente de esta conversación. No se modificó el ERP.',evidence:[],trace:[]};}
  if(/\b(resumen|dashboard|facturas?|remitos?|ventas del|compras del|total vendido|stock|costos?|calidad|proyecto)\b/.test(n)){delete conversation.businessContext;return null;}
  if(/\b(no|nunca|sin)\s+(?:lo\s+|me\s+)?(?:cambi|modifi|actuali|ajust|sub|baj)|\b(simula|simular|que pasaria)\b/.test(n)){delete conversation.businessContext;return null;}
  const parsed=parse(text,old);
+ const ambiguous=purchaseValueAmbiguity(text);
+ if(ambiguous&&(old?.pending||parsed.write)){
+  if(!old&&parsed.kind){
+   const safe=unambiguousPurchaseValues(text),rejected=negatedReferences(text);
+   const refs=Object.fromEntries(Object.entries(parsed.refs).filter(([key,value])=>!rejected.includes(key)&&['number','item','shop'].includes(key)&&/^[a-z0-9_/-]+$/i.test(value)));
+   if(safe.product)refs.product=safe.product;
+   conversation.businessContext={branch,kind:parsed.kind,refs,pending:{...(safe.quantity!==undefined?{quantity:safe.quantity,quantityUnit:safe.quantityUnit}:{})}};
+  }
+  return {answer:ambiguous+(!old?' Conservé las referencias inequívocas; su verificación queda pendiente de la aclaración.':''),evidence:[],trace:[]};
+ }
  // Non-explicit references continue through the general reasoning tools.
  if(!old&&['salePrice','saleList'].includes(parsed.kind)&&!Object.keys(parsed.refs).length&&!/^(?:precio(?: de venta)?|lista(?: de precios)?)[?!.]?$/.test(n))return null;
  if(!old&&/precio de lista de\b/.test(n)&&!parsed.refs.product)return null;
  // Keep the mature DA1 bulk-price route and its validations.
- if(priceCommand(text,conversation.messages,branch,true)&&!['purchase','sale','request','supplierList'].includes(parsed.kind||old?.kind))return null;
+ if(priceCommand(text,conversation.messages,branch,true)&&parsed.edits.quantity===undefined&&!['purchase','sale','request','supplierList'].includes(parsed.kind||old?.kind))return null;
  const ordinal=/\b(?:el|la)\s+(primero|primera|segundo|segunda|tercero|tercera)\b/.exec(n);
  const follow=old&&(Object.keys(parsed.edits).length||Object.keys(parsed.refs).length||/\b(ese|esa|este|esta|su|lo mismo|verlo|verla|confirmar|confirmo)\b/.test(n)||ordinal);
  if(!parsed.kind&&!follow){delete conversation.businessContext;return null;}
  const kind=parsed.kind||old.kind;
  if(!kinds[kind]&&kind!=='order')return null;
  const changed=old&&kind!==old.kind&&!(old.kind==='order'&&['sale','purchase'].includes(kind));
- const inherited=changed&&old.kind==='product'&&['salePrice','saleList'].includes(kind)?{product:old.refs.product}
+ const inherited=changed&&old.awaitingOperation&&kinds[kind]?.order?{product:old.refs.product}
+  :changed&&old.kind==='product'&&['salePrice','saleList'].includes(kind)?{product:old.refs.product}
   :changed&&old.kind==='vendor'&&kind==='supplierList'?{vendor:old.refs.vendor,shop:old.refs.shop}
   :changed&&old.kind==='customer'&&['saleList','salePrice'].includes(kind)?{customer:old.refs.customer,shop:old.refs.shop}:{};
- const state=old&&!changed?old:{branch,kind,refs:inherited,pending:null};
+ const state=old&&!changed?old:{branch,kind,refs:inherited,pending:old?.awaitingOperation&&kinds[kind]?.order?old.pending:null,base:old?.awaitingOperation?old.base:undefined};
  state.kind=kind;
  const explicitTarget=Object.entries(parsed.refs).some(([k,v])=>state.refs[k]!==undefined&&state.refs[k]!==v);
- if(explicitTarget){delete state.selected;delete state.candidates;if(!parsed.write)state.pending=null;}
+ if(explicitTarget){delete state.selected;delete state.candidates;delete state.base;if(!parsed.write)state.pending=null;}
  Object.assign(state.refs,parsed.refs);
- if(parsed.write)state.pending={...parsed.edits};
+ if(parsed.write){
+  state.pending={...(!explicitTarget?state.pending:null),...parsed.edits};
+  if(parsed.edits.percent!==undefined){delete state.pending.price;delete state.pending.useList;}
+  else if(parsed.edits.price!==undefined){delete state.pending.percent;delete state.pending.direction;delete state.pending.useList;}
+  else if(parsed.edits.useList){delete state.pending.price;delete state.pending.percent;delete state.pending.direction;}
+ }
  else if(state.pending)Object.assign(state.pending,parsed.edits);
  state.base=parsed.edits.priceUnit||state.base;
  if(ordinal&&state.candidates){
@@ -134,6 +150,13 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   if(!profile.action)return answer('Puedo verificar el producto en SB1, pero la modificación de su ficha no tiene un ejecutor habilitado. No modifiqué el ERP.');
   await authorizePlan?.(profile.action);
  }
+ const rejected=negatedReferences(text),unresolved=new Set(state.unresolvedReferences||[]);
+ for(const key of Object.keys(parsed.refs))if(!rejected.includes(key))unresolved.delete(key);
+ for(const key of rejected){delete refs[key];unresolved.add(key);delete state.selected;delete state.candidates;}
+ state.unresolvedReferences=[...unresolved];
+ if(unresolved.size)return answer('Conservo los demás datos. Indicá de forma afirmativa '+[...unresolved].map(key=>({product:'el producto',vendor:'el proveedor',customer:'el cliente',number:'el documento',list:'la lista',shop:'la tienda',item:'el ítem'})[key]).join(' y ')+' que corresponde; no usaré la referencia negada.');
+ if(state.pending?.quantity!==undefined&&['salePrice','saleList','supplierList'].includes(kind)){state.awaitingOperation=true;return answer('Conservo el precio y la cantidad con sus bases. ¿Querés preparar un pedido de compra, un pedido de venta o una solicitud? Indicá si es un documento nuevo o uno existente y, en ese caso, su número.');}
+ delete state.awaitingOperation;
  const numeric=(resource,key,value)=>{
   const size=Number(metadata.entities?.[resource]?.fields?.find(f=>f.salida===key)?.diccionario?.X3_TAMANHO);
   return /^\d+$/.test(value||'')&&Number.isInteger(size)&&size>0&&size<=20?value.padStart(size,'0'):value;

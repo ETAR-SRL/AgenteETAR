@@ -161,7 +161,9 @@ test('agent chains searches, keeps conversation, re-reads prices, and cannot fab
 test('learning requires a teaching request in the current user message, not an invented tool instruction',async()=>{
  const store=new Store(':memory:'),s=setup();const agent=createIntelligence({...s,store,model:{name:'fake',complete:async()=>({action:'aprender',args:{term:'varilla azul',meaning:'producto ABC/1',topic:'ventas'},answer:''})}});
  const learned=await agent.query('reader:a',{text:'Recordá que llamamos varilla azul al producto ABC/1'});assert.match(learned.answer,/Guardé/);assert.equal(agent.memory.list('reader:a').length,1);
- await agent.query('reader:b',{text:'¿Cuál es el precio de varilla azul?'});assert.equal(agent.memory.list('reader:b').length,0);store.close();
+ // A read-only turn no longer offers the learning action to the local model.
+ // An out-of-contract response from this deliberately invalid double fails closed.
+ await assert.rejects(()=>agent.query('reader:b',{text:'¿Cuál es el precio de varilla azul?'}),{code:'IA_RESPUESTA_INVALIDA'});assert.equal(agent.memory.list('reader:b').length,0);store.close();
 });
 
 test('large nested quality evidence retains domains and marks samples',()=>{

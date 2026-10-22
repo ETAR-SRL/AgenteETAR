@@ -1,5 +1,7 @@
 # Agente ETAR · Protheus + KAIQEN
 
+La IA local conserva bases de precio/cantidad y aclaraciones sin perder el borrador, pide el proveedor faltante y rechaza saltos de permisos o confirmación antes de consultar. Las consultas locales de lectura usan un contexto específico más breve. Ver [los cuatro casos y su verificación real](docs/ia-local-cuatro-casos.md) y [el arnés HTTP completo](docs/evaluacion-chat-completo.md).
+
 La evolución operativa amplía los seguimientos con casos, investigación consultiva en segundo plano, pausa/retomar/cancelar, próximos pasos y prioridades explicadas. El resumen personal del día admite horario/zona horaria y permanece parcial cuando las fuentes no se verificaron. Los adjuntos AIB muestran impacto consultivo sobre precios de pedidos pendientes sin modificarlos. Los dashboards descargan informes HTML/XLSX con lectura nueva, fecha y alcance. Ver [casos y resumen](docs/casos-resumen-diario.md), [impacto de listas](docs/impacto-precios-proveedor.md) e [informes](docs/informes-terminados.md).
 
 En Conexiones se configuran IA local, OpenAI Responses, Anthropic Messages o API compatible, sin cambios de proveedor automáticos. Los conectores documentales Google/Microsoft requieren configuración y consentimiento separados del login; el conocimiento compartido sólo admite guías aprobadas y acceso explícito. Ver [proveedores IA](docs/ia-proveedores.md), [documentos](docs/documentos-corporativos.md), [conocimiento](docs/conocimiento-aprobado.md) y [avance/evidencia](docs/evolucion-operativa.md).

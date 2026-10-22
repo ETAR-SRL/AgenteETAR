@@ -5,7 +5,7 @@ const D=Decimal.clone({precision:50,rounding:Decimal.ROUND_HALF_UP});
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 const decimal=s=>s.replace(',','.');
 export function requestedPriceBase(text){
- const n=norm(text),millar=/\b(?:por|el|cada)\s+(?:un\s+)?millar|\bmillares\b/.test(n),unidad=/\b(?:por|la|cada)\s+unidad|\bunitario\b/.test(n);
+ const n=norm(text),millar=/\b(?:por|el|cada)\s+(?:un\s+)?millar(?:es)?\b|\bprecios?\s+(?:en\s+)?millares\b/.test(n),unidad=/\b(?:por|la|cada)\s+unidad(?:es)?\b|\bunitario\b/.test(n);
  return millar&&unidad?null:millar?'millar':unidad?'unidad':null;
 }
 export const priceWriteIntent=text=>/\b(cambia(?:r|me)?|cambies|modifica(?:r|me)?|actualiza(?:r|me)?|ajusta(?:r|me)?|subi(?:r|me)?|subas|baja(?:r|me)?|bajes|aumenta(?:r|me)?|incrementa(?:r|me)?|reduci(?:r|me)?|reduce|deja(?:r|lo|me)?)\b/.test(norm(text))&&!/\b(no|nunca|sin)\s+(?:lo\s+|me\s+)?(?:cambi|modifi|actuali|ajust|sub|baj|aument|increment|reduc|dej)|\b(solo consultar|sin modificar|que pasaria|simula|simular)\b/.test(norm(text));
