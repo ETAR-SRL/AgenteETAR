@@ -6,7 +6,7 @@ root = Path(__file__).resolve().parent.parent
 files = []
 for folder in ('src', 'public', 'test', 'docs', 'scripts', 'config'):
     files.extend(p for p in (root / folder).rglob('*') if p.is_file() and '__pycache__' not in p.parts)
-for name in ('README.md', 'AGENTS.md', 'package.json', 'package-lock.json', '.env.example', '.gitignore', 'iniciar.ps1', 'abrir-central.ps1'):
+for name in ('README.md', 'AGENTS.md', 'package.json', 'package-lock.json', '.env.example', '.gitignore', 'iniciar.ps1', 'abrir-central.ps1', 'Instalar-servicio.bat'):
     files.append(root / name)
 for name in ('erp-live-check.json', 'http-live-check.json', 'kaiqen-live-check.json', 'local-running-check.json', 'pwa-live-check.json', 'intelligence-live-check.json', 'learning-live-check.json', 'kaiqen-chat-live-check.json', 'ui-intelligence-check.json', 'quality-summary-live-check.json'):
     path = root / 'reports' / name

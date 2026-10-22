@@ -18,6 +18,6 @@ goto resultado
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\instalar-servicio-windows.ps1" -InstallOnly
 :resultado
 set "resultado=%errorlevel%"
-if not "%resultado%"=="0" echo No se completo la instalacion. Revisar el mensaje anterior.
+if not "%resultado%"=="0" echo No se completo la comprobacion o instalacion. Revisar el mensaje anterior.
 if "%~1"=="" pause
 exit /b %resultado%

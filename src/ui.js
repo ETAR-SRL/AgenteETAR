@@ -3,6 +3,7 @@ import { assert } from './errors.js';
 import {createNetworkAccess} from './network-access.js';
 
 const files=new Map([
+  ['/voice-controls.js','voice-controls.js'],
   ['/proposal-values.js','proposal-values.js'],['/chat-layout.js','chat-layout.js'],
   ['/corporate-documents-ui.js','corporate-documents-ui.js'],['/knowledge-ui.js','knowledge-ui.js'],['/investigation-ui.js','investigation-ui.js'],['/report-download-ui.js','report-download-ui.js'],
   ['/ai-status-ui.js','ai-status-ui.js'],['/','index.html'],['/erp-connection-ui.js','erp-connection-ui.js'],['/notifications-ui.js','notifications-ui.js'],['/attention-ui.js','attention-ui.js'],['/access-ui.js','access-ui.js'],['/app.js','app.js'],['/import-ui.js','import-ui.js'],['/import-batch-ui.js','import-batch-ui.js'],['/style.css','style.css'],

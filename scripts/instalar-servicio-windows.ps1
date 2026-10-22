@@ -25,12 +25,16 @@ trap {
     exit 1
 }
 if ([Environment]::OSVersion.Version -lt [version]'6.2') { throw 'Se requiere Windows 8 / Server 2012 o posterior.' }
-foreach ($relative in @('.env', 'package.json', 'scripts/auto-start.mjs', 'src/server.js', 'src/service-supervisor.js', 'scripts/windows-service-host.cs', 'scripts/service-path-access.ps1')) {
+foreach ($relative in @('.env', 'package.json', 'package-lock.json', 'scripts/auto-start.mjs', 'src/server.js', 'src/service-supervisor.js', 'scripts/windows-service-host.cs', 'scripts/service-path-access.ps1')) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $relative) -PathType Leaf)) { throw "Falta un archivo necesario: $relative" }
 }
 if ($NodePath) { $node = (Resolve-Path -LiteralPath $NodePath).Path }
 elseif (Test-Path -LiteralPath (Join-Path $data 'node-runtime/node.exe')) { $node = Join-Path $data 'node-runtime/node.exe' }
-else { $node = (Get-Command node.exe -ErrorAction Stop).Source }
+else {
+    $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
+    if (-not $nodeCommand) { throw 'Falta Node >=24.16.0 y <25. Instalarlo y ejecutar npm ci antes de continuar.' }
+    $node = $nodeCommand.Source
+}
 foreach ($path in @($root, $node, $hostExe)) {
     if ($path.Contains('"') -or $path.EndsWith('\')) { throw 'Ruta no admitida para el servicio.' }
 }
@@ -38,13 +42,77 @@ $nodeVersion = & $node --version
 if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v(\d+)\.(\d+)\.(\d+)$') { throw 'No se pudo verificar Node.' }
 $version = [version]$nodeVersion.Substring(1)
 if ($version -lt [version]'24.16.0' -or $version -ge [version]'25.0.0') { throw 'Instalar Node >=24.16.0 y <25 antes de continuar.' }
+# Inspeccion estatica: no importa la app, no conecta al ERP ni muestra .env.
+$readinessCode = @'
+import {readFileSync,existsSync} from 'node:fs';
+import {resolve,dirname,relative} from 'node:path';
+import {createRequire,isBuiltin} from 'node:module';
+const root=process.cwd(),require=createRequire(resolve(root,'package.json'));
+const pkg=JSON.parse(readFileSync('package.json','utf8').replace(/^\uFEFF/,''));
+const requiredModules=Object.keys(pkg.dependencies||{}).sort();
+try { for(const name of requiredModules) require.resolve(name); }
+catch { console.log(JSON.stringify({error:'No se pudieron validar .env y dependencias. Revisar configuracion y ejecutar npm ci.'})); process.exit(1); }
+const seen=new Set(),assets=new Set();
+function inspect(path,asset=false){
+ path=resolve(path);
+ if(!existsSync(path)) throw new Error('Falta un archivo necesario: '+relative(root,path));
+ if(asset) assets.add(relative(root,path).replaceAll('\\','/'));
+ if(seen.has(path))return;seen.add(path);
+ const source=readFileSync(path,'utf8');
+ if(/\.(m?js)$/.test(path)){
+   for(const match of source.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*)['"]([^'"]+)['"]/g)){
+     const name=match[1];if(name.startsWith('.'))inspect(resolve(dirname(path),name),asset);
+     else if(!isBuiltin(name))require.resolve(name);
+   }
+ }
+ if(path.endsWith('index.html'))for(const match of source.matchAll(/(?:src|href)=["'](\/[^"'?#]+)["']/g))inspect(resolve(root,'public',match[1].slice(1)),true);
+ if(path.endsWith('sw.js')){
+   const shell=source.match(/const SHELL=\[([^;]+)\];/);
+   if(!shell)throw new Error('No se pudo verificar el listado de recursos PWA.');
+   for(const match of shell[1].matchAll(/['"]([^'"]+)['"]/g))inspect(resolve(root,'public',match[1]==='/'?'index.html':match[1].slice(1)),true);
+ }
+}
+try{
+ for(const path of ['src/server.js','scripts/auto-start.mjs','scripts/transcribe.py'])inspect(resolve(root,path));
+ for(const path of ['index.html','sw.js','manifest.webmanifest'])inspect(resolve(root,'public',path),true);
+ if((process.env.MODE||'live')==='live')inspect(resolve(root,process.env.ERP_MAPPING_PATH||process.env.CONFIG_PATH||'config/mapping.json'));
+ if(process.env.LAN_HTTPS_ENABLED==='true')for(const key of ['LAN_TLS_PFX','LAN_TLS_PASSWORD_FILE']){
+   if(!process.env[key]||!existsSync(resolve(root,process.env[key])))throw new Error('Falta archivo privado requerido por '+key+'. Revisar configuracion local.');
+ }
+ const sw=readFileSync('public/sw.js','utf8');
+ const agentPath=resolve(root,'src/intelligence/agent.js');
+ const agentVersion=existsSync(agentPath)?readFileSync(agentPath,'utf8').match(/\bversion:\s*['"](operativo-local-[^'"]+)['"]/)?.[1]:undefined;
+ console.log(JSON.stringify({applicationVersion:pkg.version,agentVersion:agentVersion||'unknown',pwaVersion:sw.match(/const CACHE=['"]([^'"]+)['"]/)?.[1]||'unknown',requiredModules,publicAssets:[...assets].sort(),checkedFiles:seen.size,lanHttpsConfigured:process.env.LAN_HTTPS_ENABLED==='true'}));
+}catch(error){console.log(JSON.stringify({error:error.message}));process.exitCode=1;}
+'@
 Push-Location -LiteralPath $root
 try {
     $ErrorActionPreference = 'Continue'
-    & $node --env-file=.env --input-type=module -e "import {createRequire} from 'node:module'; const require=createRequire(process.cwd()+'/package.json'); for(const name of Object.keys(require('./package.json').dependencies)) require.resolve(name);" 2>$null
+    $readinessOutput = $readinessCode | & $node --env-file=.env --input-type=module 2>$null
+    $readinessExit = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
-    if ($LASTEXITCODE -ne 0) { throw 'No se pudieron validar .env y dependencias. Revisar configuracion y ejecutar npm ci.' }
+    try { $readiness = ($readinessOutput -join "`n") | ConvertFrom-Json } catch { throw 'No se pudieron validar .env y dependencias. Revisar configuracion y ejecutar npm ci.' }
+    if ($readinessExit -ne 0) { if ($readiness.error) { throw $readiness.error }; throw 'No se pudieron validar .env y dependencias. Revisar configuracion y ejecutar npm ci.' }
 } finally { $ErrorActionPreference = 'Stop'; Pop-Location }
+# Voz opcional: consulta paquetes locales sin cargar modelos ni descargarlos.
+$voicePython = Join-Path $root '.venv-voice/Scripts/python.exe'
+$missingVoiceModel = @(@('model.bin', 'config.json', 'tokenizer.json', 'vocabulary.txt') | Where-Object { -not (Test-Path -LiteralPath (Join-Path $root ('data/models/whisper-base/' + $_)) -PathType Leaf) })
+$voicePackages = $null
+if (Test-Path -LiteralPath $voicePython -PathType Leaf) {
+    $ErrorActionPreference = 'Continue'
+    $voiceOutput = & $voicePython -B -c "import json,sys,importlib.metadata as m; print(json.dumps({'python':sys.version.split()[0], 'fasterWhisper':m.version('faster-whisper'), 'pyav':m.version('av')}))" 2>$null
+    $voiceExit = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    if ($voiceExit -eq 0) { try { $voicePackages = ($voiceOutput -join "`n") | ConvertFrom-Json } catch { } }
+}
+$voiceReady = ($null -ne $voicePackages -and $missingVoiceModel.Count -eq 0)
+$voiceReadiness = [ordered]@{
+    ready = $voiceReady; optional = $true; pythonPresent = (Test-Path -LiteralPath $voicePython -PathType Leaf)
+    versions = $voicePackages; missingModelFiles = $missingVoiceModel
+    decoder = 'PyAV / bibliotecas FFmpeg del entorno Python; no requiere ffmpeg.exe separado'
+    browser = 'MediaRecorder, permiso de microfono y HTTPS en LAN (HTTP solo loopback)'
+    warning = $(if ($voiceReady) { 'Archivos y paquetes de voz presentes; probar dictado tras instalar con la cuenta del servicio.' } else { 'Dictado local no disponible: falta Python, paquetes de voz o modelo. No bloquea el arranque; no se descarga nada.' })
+}
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 if (-not (Test-Path -LiteralPath $compiler)) { $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework/v4.0.30319/csc.exe' }
 if (-not (Test-Path -LiteralPath $compiler)) { throw 'Falta el compilador local de .NET Framework 4.x. Habilitar .NET Framework en Windows.' }
@@ -60,6 +128,7 @@ if ($Check) {
     [ordered]@{
         mode = 'check'; mechanism = 'Windows SCM'; name = $serviceName; root = $root
         node = $node; nodeVersion = $nodeVersion; compiler = $compiler
+        readiness = $readiness; voice = $voiceReadiness
         account = 'NT AUTHORITY\LocalService'; startup = 'Automatic delayed'
         recovery = '3 reinicios, 60 segundos entre intentos; contador restablecido cada 24h'
         binaryPath = $binaryPath; workingDirectory = $root
@@ -70,6 +139,8 @@ if ($Check) {
     } | ConvertTo-Json
     exit 0
 }
+Write-Output ('Aplicacion ' + $readiness.applicationVersion + '; PWA ' + $readiness.pwaVersion + '; ' + $readiness.checkedFiles + ' archivos verificados.')
+Write-Output $voiceReadiness.warning
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -NodePath "' + $node + '"'

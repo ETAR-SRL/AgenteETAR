@@ -1,9 +1,9 @@
 // Durante un reinicio administrativo pendiente el servidor anterior puede seguir
 // entregando la interfaz. Un módulo nuevo ausente no debe inutilizar el chat vigente.
 let operationalPending=false;
-const pendingModule=()=>{operationalPending=true;const ui=()=>({load(){},render(){},destroy(){},check(){}});return {installAiStatus:ui,installCorporateDocumentsUI:ui,installApprovedKnowledgeUI:ui,installInvestigations:ui,addReportDownload(){}};};
-const [{installCorporateDocumentsUI},{installApprovedKnowledgeUI},{installInvestigations},{addReportDownload},{installAiStatus}]=await Promise.all([
- import('./corporate-documents-ui.js').catch(pendingModule),import('./knowledge-ui.js').catch(pendingModule),import('./investigation-ui.js').catch(pendingModule),import('./report-download-ui.js').catch(pendingModule),import('./ai-status-ui.js').catch(pendingModule)
+const pendingModule=()=>{operationalPending=true;const ui=()=>({load(){},render(){},destroy(){},check(){}});return {installAiStatus:ui,installCorporateDocumentsUI:ui,installApprovedKnowledgeUI:ui,installInvestigations:ui,installVoiceControls:()=>null,addReportDownload(){}};};
+const [{installCorporateDocumentsUI},{installApprovedKnowledgeUI},{installInvestigations},{addReportDownload},{installAiStatus},{installVoiceControls}]=await Promise.all([
+ import('./corporate-documents-ui.js').catch(pendingModule),import('./knowledge-ui.js').catch(pendingModule),import('./investigation-ui.js').catch(pendingModule),import('./report-download-ui.js').catch(pendingModule),import('./ai-status-ui.js').catch(pendingModule),import('./voice-controls.js').catch(pendingModule)
 ]);
 import {installAttention} from './attention-ui.js';
 import {installErpConnection} from './erp-connection-ui.js';
@@ -16,7 +16,7 @@ const $=s=>document.querySelector(s);
 const labels={liberacionesVentas:'Liberaciones del pedido · SC9',documentosPedidoVenta:'Remitos y facturas del pedido',saldosProveedores:'Saldos financieros de proveedores · SE2',saldosClientes:'Saldos financieros de clientes · SE1',recepcionesCompras:'Entradas registradas de proveedores · SD1',comprobantesVentas:'Ventas facturadas · NF/NC/ND',comprobantesCompras:'Compras facturadas · NF/NC/ND',remitosEmitidos:'Remitos emitidos',remitosPendientes:'Remitos pendientes de facturar',pedidosVentaPendientes:'Pedidos de venta pendientes',pedidosCompraPendientes:'Pedidos de compra pendientes',resumenVentas:'Resumen de ventas facturadas',resumenCompras:'Resumen de compras',resumenRemitosPendientes:'Resumen de remitos pendientes',resumenPedidosVenta:'Resumen de pedidos de venta',resumenPedidosCompra:'Resumen de pedidos de compra',condicionesPago:'Condiciones de pago',depositos:'Depósitos',centrosCosto:'Centros de costo',solicitudesCompra:'Solicitudes de compra',costos:'Costos',compras:'Órdenes de compra',produccion:'Producción',ventas:'Pedidos de venta',itemsVentas:'Ítems de ventas / pendientes',documentosSalida:'Documentos de salida',itemsDocumentosSalida:'Ítems de documentos de salida',remitos:'Remitos',entregas:'Entregas físicas',clientes:'Clientes',proveedores:'Proveedores',productos:'Productos',listasPreciosClientes:'Listas de precios de clientes',preciosClientes:'Precios de clientes · DA1',listasPreciosProveedores:'Listas de precios de proveedores',preciosProveedores:'Precios de proveedores',productoProveedor:'Productos por proveedor',productoCliente:'Productos por cliente',entradasCompras:'Entradas de compras',estructuras:'Estructuras',cotizaciones:'Cotizaciones',itemsCotizaciones:'Ítems de cotizaciones',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN'};
 const fieldLabels={monedaVista:'Moneda',importe:'Importe',fecha:'Fecha',clase:'Tipo',tercero:'Cliente / proveedor',serie:'Serie',item:'Ítem',precioPorMillar:'Precio por millar',cantidadMillares:'Cantidad en millares',registro:'Registro',codigo:'Código',descripcion:'Descripción',sucursal:'Sucursal',producto:'Producto',cliente:'Cliente',proveedor:'Proveedor',nombre:'Nombre',tienda:'Tienda',numero:'Número',lista:'Lista',precio:'Precio',desde:'Desde',hasta:'Hasta',pendiente:'Pendientes',status_name:'Estado registrado',phase_no:'Fase',name:'Nombre',code:'Código',customer:'Cliente',current_phase_name:'Fase actual',planned_start:'Inicio previsto',planned_end:'Fin previsto',actual_start:'Inicio real',actual_end:'Fin real',updated_at:'Actualizado',part_number:'N.º de pieza',part_name:'Pieza',sin_ia_externa:'Restricción IA externa',sin_ia_externa_por_cliente:'Restricción IA del cliente'};
 let capabilities,selectedProject=null,projectOffset=0,projectQuery='',page=1,activeParams=null,activeResource=null,deferredInstall;
-let conversationId=localStorage.getItem('central-conversation-id')||undefined,attachments,attention,investigations,corporateUI,knowledgeUI,aiStatus;
+let conversationId=localStorage.getItem('central-conversation-id')||undefined,attachments,attention,investigations,corporateUI,knowledgeUI,aiStatus,voiceControls;
 const node=(tag,cls,text)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
 function notice(text){$('#notice').textContent=text;$('#notice').classList.toggle('hidden',!text);}
 function busy(where,text='Consultando la fuente…'){where.replaceChildren(node('div','loading',text));}
@@ -24,7 +24,7 @@ async function session(){const res=await fetch('/api/ui/session',{method:'POST',
 async function api(path,options={},retry=true){
   let response;
   try{response=await fetch(path,{credentials:'same-origin',cache:'no-store',...options});}catch{throw Object.assign(new Error('No se puede acceder al servicio local. Iniciá Central en este equipo y verificá la red o VPN.'),{code:'SIN_CONEXION'});}
-  if(response.status===401&&retry){await accessReady();await session();return api(path,options,false);}
+  if(response.status===401&&retry){voiceControls?.cancel({silent:true});await accessReady();await session();return api(path,options,false);}
   const data=await response.json();if(!response.ok)throw Object.assign(new Error(data.error?.message||'No se pudo realizar la consulta'),{code:data.error?.code});return data;
 }
 function showError(where,error){
@@ -170,6 +170,7 @@ function renderQuality(where,envelope,append=false){
   if(append)where.append(section);else where.replaceChildren(section);
 }
 function switchView(view){
+  if(view!=='assistant')voiceControls?.cancel({silent:true});
   if(view==='access')loadAccessPanel();
   if(view==='attention')attention?.load();
   document.querySelectorAll('.view').forEach(el=>el.classList.toggle('hidden',el.id!==view));document.querySelectorAll('.nav').forEach(el=>{el.classList.toggle('active',el.dataset.view===view);el.setAttribute('aria-current',el.dataset.view===view?'page':'false');});
@@ -179,6 +180,8 @@ function switchView(view){
 document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>switchView(el.dataset.view));
 async function query(text,dashboard,extraContext={}){
   if(!text.trim()||$('#send').disabled)return;
+  if(text.length>2000){notice('El mensaje supera los 2000 caracteres. Acortalo o dividilo antes de enviarlo; conservé el texto completo.');return;}
+  if(voiceControls?.isBusy()){notice('Terminá o cancelá la grabación antes de enviar el mensaje.');return;}
   if(attachments?.busy){notice('Esperá a que termine la lectura del archivo.');return;}
   if(attachments?.id)document.dispatchEvent(new CustomEvent('attachment-revised',{detail:attachments.id}));
   attachments?.setChatBusy(true);
@@ -229,7 +232,7 @@ function renderAnswer(where,response){
   if(sources.children.length>1)card.append(sources);
   if(response.trace?.some(t=>t.status==='error')){provenance.append(node('p','metrics-note','No se pudo completar alguna consulta. Los datos sin verificar no se muestran como resultados actuales.'),node('p','result-meta','Referencia para soporte: '+response.trace.filter(t=>t.status==='error').map(t=>t.code).join(', ')));}
 }
-$('#new-chat').onclick=()=>{attachments?.clear();conversationId=undefined;localStorage.removeItem('central-conversation-id');$('#conversation').replaceChildren();notice('');};
+$('#new-chat').onclick=()=>{voiceControls?.cancel({silent:true});attachments?.clear();conversationId=undefined;localStorage.removeItem('central-conversation-id');$('#conversation').replaceChildren();notice('');};
 async function loadKnowledge(){const content=$('#knowledge-list');busy(content);try{const result=await api('/api/agent/knowledge');content.replaceChildren();if(!result.data.length)content.append(node('p','metrics-note','Todavía no guardaste clasificaciones.'));for(const item of result.data){const row=node('div','knowledge-row');row.append(node('strong','',item.term),node('p','',item.meaning),node('small','',item.topic));const remove=node('button','text-button','Olvidar');remove.onclick=async()=>{await api('/api/agent/knowledge/'+item.id,{method:'DELETE'});loadKnowledge();};row.append(remove);content.append(row);}}catch(error){showError(content,error);}}
 $('#teach').onclick=()=>{$('#knowledge-dialog').showModal();loadKnowledge();};$('#close-knowledge').onclick=()=>$('#knowledge-dialog').close();
 $('#knowledge-form').onsubmit=async event=>{event.preventDefault();const status=$('#knowledge-status');try{await api('/api/agent/knowledge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:$('#topic').value,term:$('#knowledge-term').value,meaning:$('#knowledge-meaning').value})});status.textContent='Guardado. Se usará para interpretar las próximas consultas; los valores se leerán nuevamente en las fuentes.';$('#knowledge-form').reset();loadKnowledge();}catch(error){status.textContent=error.message;}};
@@ -261,7 +264,7 @@ function buildFilters(){
   $('#explorer-result').replaceChildren();$('#pagination').classList.add('hidden');activeParams=null;
 }
 $('#resource').onchange=buildFilters;
-$('#branch').onchange=()=>{buildFilters();notice('Sucursal cambiada. Los resultados anteriores conservan el alcance de su consulta; volvé a consultar para actualizarlos.');};
+$('#branch').onchange=()=>{voiceControls?.cancel({silent:true});buildFilters();notice('Sucursal cambiada. Los resultados anteriores conservan el alcance de su consulta; volvé a consultar para actualizarlos.');};
 $('#explorer-form').onsubmit=event=>{event.preventDefault();page=1;activeResource=$('#resource').value;activeParams=new URLSearchParams({sucursal:$('#branch').value,limit:$('#limit').value});for(const [k,v] of new FormData($('#explorer-form')))if(String(v).trim())activeParams.set(k,String(v).trim());loadResource();};
 let resourceBusy=false;
 async function loadResource(){
@@ -312,30 +315,9 @@ function renderSources(){
   const k=node('div','source-card');k.append(node('h3','','KAIQEN'),node('p','',`${capabilities.kaiqen.configured?'Conexión configurada':'Sin conexión configurada'} · ${capabilities.kaiqen.source==='postgres'?'Lectura PostgreSQL de la planta configurada':'API'}. Proyectos, fases, registros de calidad y referencias ERP. No reproduce los permisos individuales ni el semáforo calculado de la aplicación.`));where.append(k);
   const voice=node('div','source-card');voice.append(node('h3','','Voz y aplicación local'),node('p','',`${capabilities.voice.available?'Whisper base instalado':'Transcripción no disponible'} · Audio procesado en este equipo. Los archivos temporales se borran al terminar. La PWA conserva únicamente su interfaz para abrir sin conexión; no guarda los datos consultados.`),node('p','','Asistente con IA configurable, búsqueda por nombre, consultas encadenadas y memoria del negocio. Prepara modificaciones; la ejecución se confirma desde la tarjeta de revisión.'));where.append(voice);
 }
-let recorder,recordStream,recordTimer,elapsedTimer,voiceBusy=false;
-function stopRecording(){if(recorder?.state==='recording')recorder.stop();clearTimeout(recordTimer);clearInterval(elapsedTimer);recordStream?.getTracks().forEach(track=>track.stop());$('#mic').classList.remove('recording');}
-async function record(){
-  if(recorder?.state==='recording'){stopRecording();return;}if(voiceBusy)return;
-  const status=$('#voice-status');
-  if(!capabilities?.voice.available){status.textContent='La transcripción local no está instalada. Podés consultar por texto.';return;}
-  if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){status.textContent='Este navegador no permite grabar. Abrí http://127.0.0.1:4310 en Microsoft Edge.';return;}
-  voiceBusy=true;$('#mic').disabled=true;
-  try{
-    recordStream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true}});
-    const type=['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/mp4'].find(t=>MediaRecorder.isTypeSupported(t));
-    recorder=new MediaRecorder(recordStream,type?{mimeType:type}:{});const chunks=[];
-    recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
-    recorder.onstop=async()=>{
-      stopRecording();$('#mic').disabled=true;status.textContent='Transcribiendo en este equipo…';
-      try{const blob=new Blob(chunks,{type:recorder.mimeType||'audio/webm'});const result=await api('/api/voice/transcribe',{method:'POST',headers:{'Content-Type':blob.type},body:blob});if(!result.text.trim()){status.textContent='No se detectó voz. Acercate al micrófono y probá otra vez.';}else{$('#query').value=result.text;status.textContent='Texto listo. Revisalo y presioná Consultar.';$('#query').focus();}}
-      catch(error){status.textContent=error.message;}finally{voiceBusy=false;$('#mic').disabled=false;$('#mic').textContent='♩ Dictar';$('#mic').setAttribute('aria-label','Grabar consulta de voz');}
-    };
-    recorder.onerror=()=>{status.textContent='No se pudo grabar. Probá otra vez.';stopRecording();};
-    recorder.start();$('#mic').disabled=false;$('#mic').classList.add('recording');$('#mic').textContent='■ Detener';$('#mic').setAttribute('aria-label','Detener grabación');
-    const started=Date.now();const tick=()=>{status.textContent=`Grabando · ${Math.floor((Date.now()-started)/1000)} / 45 s · Presioná Detener al terminar.`;};tick();elapsedTimer=setInterval(tick,1000);recordTimer=setTimeout(stopRecording,45_000);
-  }catch(error){recordStream?.getTracks().forEach(track=>track.stop());voiceBusy=false;$('#mic').disabled=false;status.textContent=error.name==='NotAllowedError'?'Permití el uso del micrófono desde el icono de permisos del navegador.':error.name==='NotFoundError'?'No se encontró un micrófono conectado.':'No se pudo acceder al micrófono. Cerrá otras aplicaciones que lo estén usando.';}
-}
-$('#mic').onclick=record;window.addEventListener('pagehide',stopRecording);
+voiceControls=installVoiceControls({button:$('#mic'),input:$('#query'),status:$('#voice-status'),api:(path,options)=>api(path,options,false),isAvailable:()=>capabilities?.voice.available===true,isChatBusy:()=>$('#send').disabled||attachments?.busy===true});
+if(!voiceControls)$('#mic').disabled=true;
+document.addEventListener('click',event=>{if(event.target.closest('#logout'))voiceControls?.cancel({silent:true});},true);
 $('#install-top').onclick=()=>$('#install').click();
 window.addEventListener('appinstalled',()=>{$('#install-top').textContent='App instalada';$('#install-top').disabled=true;});
 window.addEventListener('beforeinstallprompt',event=>{event.preventDefault();deferredInstall=event;$('#install').textContent='＋ Instalar Central';});
@@ -349,7 +331,7 @@ async function start(){
   try{const user=await accessReady();if(localStorage.getItem('central-access-actor')!==user.actor){conversationId=undefined;for(const key of Object.keys(localStorage))if(key.startsWith('central-'))localStorage.removeItem(key);localStorage.setItem('central-access-actor',user.actor);}await session();capabilities=await api('/api/capabilities');if(capabilities.user?.admin)loadAiSettings();renderAutomationStatus(capabilities.approvalAutomation);$('#automation-refresh').disabled=!capabilities.canExecute;$('#connection').textContent=capabilities.mode==='live'?'Servicio real':'Modo DEMO';$('#connection').classList.toggle('warn',capabilities.mode!=='live');
     capabilities.branches.forEach(v=>{const o=node('option','',v);o.value=v;$('#branch').append(o);});
     updateErpResources();
-    $('#voice-status').textContent=capabilities.voice.available?'Dictado en español · transcripción local · hasta 45 segundos':'Transcripción local no instalada. Las consultas por texto están disponibles.';
+    $('#voice-status').textContent=capabilities.voice.available?'Mantené apretado para grabar · ← cancelar · ↑ manos libres · máximo 45 s':'Transcripción local no instalada. Las consultas por texto están disponibles.';
     let warnedOldService=false;aiStatus=installAiStatus({api:(path,options)=>api(path,options,false),actor:user.actor,onSessionChanged:()=>location.reload(),onStatus:status=>{languageButton.classList.toggle('hidden',!status.languageLearningVersion);if(!warnedOldService&&(status.priceContextVersion<3||!status.priceContextVersion)){warnedOldService=true;notice('Está activo el servicio anterior. Reiniciá Central para aplicar las correcciones del chat y del contexto de precios.');}}});
     if(conversationId){try{const history=await api('/api/agent/conversations/'+conversationId);const conversation=$('#conversation');for(const message of history.messages){if(message.role==='user'){const q=node('div','question');q.append(node('span','',message.content));conversation.append(q);}else{let saved;try{saved=JSON.parse(message.content);}catch{continue;}const a=node('article','answer-card');a.append(node('div','result-meta','Conversación anterior · valores históricos, consultá nuevamente para actualizarlos'),formatAnswer(saved.answer));conversation.append(a);}}}catch{conversationId=undefined;localStorage.removeItem('central-conversation-id');}}
     attention=installAttention({api,branch:()=>$('#branch').value,switchView,notice,revision:capabilities.user?.revision,canPrepare:kind=>Boolean(capabilities.proposalActions?.[kind==='sale'?'pedidoVenta':kind==='purchase'?'pedidoCompra':'']),ask:(text,id,targetBranch)=>{if(targetBranch)$('#branch').value=targetBranch;return query(text,undefined,{attentionId:id});}});void attention.load();
