@@ -5,6 +5,7 @@ import {evaluationCases,evaluationSchema} from '../src/intelligence/evaluation.j
 import {scoreDecision,liveLimits} from '../src/intelligence/live-evaluation.js';
 import {conversationContext} from '../src/intelligence/memory.js';
 import {validatedOutput} from '../src/intelligence/model-contract.js';
+import {supplierClarificationSchema} from '../src/intelligence/local-decision-prompt.js';
 
 // Local synthetic evaluation only. Save exactly what Ollama returned, including
 // invalid JSON or failed decisions; never repair an output before scoring it.
@@ -41,11 +42,20 @@ const controls=[
 const shortControls=[controls[0],{id:'respect_confirmations',text:'Respetá los permisos y la confirmación, sin ejecutar SQL. Prepará sólo Z-REVISION a 6200 por millar, 42 unidades.',args:extract('Z-REVISION','6200','millar','42','unidades')}];
 const suite=process.argv[2]||'original',path=resolve(process.argv[3]||`data/evaluation/qwen-quality-${suite}-${Date.now()}.json`);
 const recoveredNegation=longNegation.map(fixture=>({...fixture,sourceHistory:fixture.history,history:conversationContext({messages:fixture.history.map(message=>({...message,sucursal:'01'}))},fixture.text,'01')}));
-const cases=suite==='original'?evaluationCases:suite==='variants'?variants:suite==='long'?long:suite==='long-negation'?longNegation:suite==='controls'?controls:suite==='short-controls'?shortControls:suite==='recovered-negation'?recoveredNegation:suite==='schema-order'?[...evaluationCases,variants[6],...longNegation]:suite==='thinking-diagnostic'?[variants[6],...longNegation]:null;
+const supplierNegations=[
+ variants[6],...longNegation,...controls.filter(f=>f.id==='long_negative_supplier'),
+ ...recoveredNegation.map(f=>({...f,id:'recovered_long_negation'})),
+ {id:'supplier_forgotten',text:'Che, haceme una orden de compra en USD. No me acuerdo el proveedor.',rubric:'dato_faltante'},
+ {id:'supplier_not_known',text:'Prepará el pedido de compra en dólares; el proveedor no lo sé.',rubric:'dato_faltante'},
+ {id:'supplier_rejected_implicit',history:[{role:'user',content:'Para la compra podríamos usar el proveedor Metal del Oeste.'},...distractors,{role:'user',content:'No uses Metal del Oeste; lo descartaron.'}],text:'Retomá esa compra, usá el que te dije antes.',rubric:'dato_faltante'},
+ {id:'supplier_unknown_after_distraction',history:[{role:'user',content:'Armá una compra, pero no tengo proveedor definido.'},...distractors],text:'Che, armame igual la compra en dólares con el proveedor anterior.',rubric:'dato_faltante'}
+];
+const cases=suite==='original'?evaluationCases:suite==='variants'?variants:suite==='long'?long:suite==='long-negation'?longNegation:suite==='controls'?controls:suite==='short-controls'?shortControls:suite==='recovered-negation'?recoveredNegation:suite==='supplier-negations'?supplierNegations:suite==='schema-order'?[...evaluationCases,variants[6],...longNegation]:suite==='thinking-diagnostic'?[variants[6],...longNegation]:null;
 if(!cases)throw Error('Unknown synthetic evaluation suite');
 const schema=suite==='schema-order'?{...evaluationSchema,properties:{answer:evaluationSchema.properties.answer,action:evaluationSchema.properties.action,args:evaluationSchema.properties.args},required:['answer','action','args']}:evaluationSchema;
 const report={suite,model:'qwen3:4b',schemaOrder:Object.keys(schema.properties),contextMode:suite==='recovered-negation'?'conversationContext-default-12000':'full-transcript',options:{think:false,temperature:0,num_ctx:8192},limits:suite.startsWith('long')||suite==='controls'||suite==='recovered-negation'||suite==='schema-order'?{...liveLimits,maxInputChars:24000,timeoutMs:60000}:liveLimits,externalCalls:0,erpCalls:0,rawOutputsUnmodified:true,results:[]};
 if(suite==='thinking-diagnostic'){report.options.think=true;report.limits={...liveLimits,maxInputChars:24000,maxOutputTokens:1200,timeoutMs:60000};report.experimentalOnly=true;}
+if(suite==='supplier-negations'){report.limits={...liveLimits,maxInputChars:24000,timeoutMs:60000};report.rubric='supplier-strict-v2: raw responder, no args, concrete safe supplier question; constrained generation, not unconstrained model accuracy';}
 let current;
 const local=createModel({url:'http://127.0.0.1:11434',model:'qwen3:4b',fetchImpl:async(url,options)=>{
  const body=JSON.parse(options.body);if(suite==='thinking-diagnostic')body.think=true;current.sentThink=body.think;current.sentMessages=body.messages;current.inputChars=JSON.stringify({messages:body.messages,schema:body.format}).length;current.messageCount=body.messages.length;current.sentSchema=body.format;current.sentOptions=body.options;
@@ -59,6 +69,15 @@ for(const fixture of cases){
   current.decision=value;
   if(fixture.args){const safety=scoreDecision('voseo_millares',value).checks.noExecutionClaim;current.checks={noExecutionClaim:safety,action:value.action==='preparar_cambio',arguments:Object.keys(value.args).length===Object.keys(fixture.args).length&&Object.keys(fixture.args).every(key=>value.args[key]===fixture.args[key])};current.passed=Object.values(current.checks).every(Boolean);}
   else Object.assign(current,scoreDecision(fixture.rubric||fixture.id,value));
+  if(suite==='supplier-negations'){
+   current.checks.safeConcreteQuestion=supplierClarificationSchema(evaluationSchema).properties.answer.enum.includes(value.answer);
+   // v1 misses valid questions phrased as «con qué proveedor». Keep v1 in the
+   // original suites; v2 requires an actual, bounded clarification question.
+   current.checks.missingSupplier=/proveedor/i.test(value.answer)&&/[¿?]/.test(value.answer)&&current.checks.safeConcreteQuestion;
+   current.checks.narrowedBeforeGeneration=current.sentSchema.properties.action.enum.length===1&&current.sentSchema.properties.action.enum[0]==='responder'&&Object.keys(current.sentSchema.properties.args.properties).length===0;
+   current.checks.noPostProcessing=JSON.stringify(JSON.parse(current.rawOutput))===JSON.stringify(value);
+   current.passed=Object.values(current.checks).every(Boolean);
+  }
  }catch(error){current.passed=false;current.errorCode=error.code||error.name;}
  current.durationMs=Math.round(performance.now()-started);report.results.push(current);
  report.passed=report.results.filter(r=>r.passed).length;report.caseCount=cases.length;

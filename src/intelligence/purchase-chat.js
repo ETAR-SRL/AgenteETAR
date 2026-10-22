@@ -4,6 +4,7 @@ import {assert} from '../errors.js';
 import {literalAttachmentIntent} from './attachment-chat.js';
 import {importDate} from './purchase-imports.js';
 import {importedNumber} from './document-reader.js';
+import {supplierReferenceIntent,unresolvedSupplierReference} from './supplier-reference.js';
 
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 const number='(\\d+(?:[.,]\\d+)?)';
@@ -21,7 +22,8 @@ export function purchaseValueAmbiguity(text){
 }
 export function negatedReferences(text){
  const n=norm(text),keys=[];
- for(const [key,word] of [['product','producto|articulo|codigo'],['vendor','proveedor'],['customer','cliente'],['number','pedido|solicitud'],['list','lista'],['shop','tienda'],['item','item']])if(new RegExp('\\b(?:no|sin|excepto|menos)\\s+(?:(?:es|era|el|la|del|de|ese|esa)\\s+)*(?:'+word+')\\b').test(n))keys.push(key);
+ for(const [key,word] of [['product','producto|articulo|codigo'],['customer','cliente'],['number','pedido|solicitud'],['list','lista'],['shop','tienda'],['item','item']])if(new RegExp('\\b(?:no|sin|excepto|menos)\\s+(?:(?:es|era|el|la|del|de|ese|esa)\\s+)*(?:'+word+')\\b').test(n))keys.push(key);
+ if(supplierReferenceIntent(text).rejected&&!keys.includes('vendor'))keys.push('vendor');
  return keys;
 }
 export function unambiguousPurchaseValues(text){
@@ -56,6 +58,32 @@ export function purchaseValues(text){
  return values;
 }
 
+// The guarded supplier clarification may bypass the normal intake. Preserve
+// only literal purchase inputs there, without claiming any ERP verification.
+export function updateSupplierPendingDraft(conversation,text,branch,preferences={}){
+ const n=norm(text),order=/\b(?:pedido(?: de)? compra|orden(?: de)? compra|compra)\b/.test(n)&&!/\bsolicitud\b/.test(n);
+ const start=order&&/\b(?:crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?|prepara(?:r|me)?)\b/.test(n);
+ const resume=/\b(?:pedido|compra|borrador|orden)\b/.test(n)&&/\b(?:retoma(?:r|me)?|retomemos|continu(?:a(?:r|mos)?|emos)|segui(?:r|mos)?)\b/.test(n);
+ const values=purchaseValueAmbiguity(text)?unambiguousPurchaseValues(text):purchaseValues(text);
+ for(const key of ['party','shop','list','resolvedPrice'])delete values[key];
+ const fresh=/\b(?:nuevo|nueva|desde cero|un pedido|una compra|una orden|otro pedido)\b/.test(n);
+ const existing=[conversation.purchaseDraft,conversation.pausedPurchase].some(state=>state?.branch===branch&&state.action==='crearPedidoCompra');
+ if(start&&(!existing||values.product||fresh)){
+  delete conversation.purchaseDraft;delete conversation.pausedPurchase;
+  if(!values.product||/\bproductos\b/.test(n)||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n))return;
+  conversation.purchaseDraft={branch,action:'crearPedidoCompra',values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{}),...values},unresolvedReferences:['party']};
+  return;
+ }
+ if((resume||start&&!fresh)&&conversation.purchaseDraft?.branch!==branch&&conversation.pausedPurchase?.branch===branch&&conversation.pausedPurchase.action==='crearPedidoCompra'){
+  conversation.purchaseDraft=conversation.pausedPurchase;delete conversation.pausedPurchase;
+ }
+ const state=conversation.purchaseDraft;
+ if(state?.branch===branch&&state.action==='crearPedidoCompra'){
+  state.values={...state.values,...values};
+  state.unresolvedReferences=[...new Set([...(state.unresolvedReferences||[]),'party'])];
+ }
+}
+
 // A bounded, single-item intake avoids repeated inference for explicit references.
 // Values remain user input, never executed SQL or instructions from an ERP row.
 export async function purchaseChat({text,conversation,branch,canPlan,authorizePlan,read,prepare,actor,preferences={}}){
@@ -67,7 +95,9 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
  if(start)delete conversation.pausedPurchase;
  const hadPaused=!!conversation.pausedPurchase;
  if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n))delete conversation.pausedPurchase;
- const values=purchaseValues(text);if(/\b(?:sin precio|no tengo precio)\b/.test(n))values.withoutPrice=true;
+ const values=purchaseValues(text),unresolvedParty=!!values.party&&unresolvedSupplierReference(values.party);
+ if(unresolvedParty)delete values.party;
+ if(/\b(?:sin precio|no tengo precio)\b/.test(n))values.withoutPrice=true;
  if(/\bno\s+(?:lo\s+|me\s+)?(?:cre|gener|arm)|\b(?:solo|solamente)\s+consult/.test(n)){delete conversation.purchaseDraft;return null;}
  if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&(state||hadPaused)){delete conversation.purchaseDraft;return {answer:'Descarté los datos de esta solicitud. No se creó ningún documento.',evidence:[],trace:[]};}
  // Do not turn a multi-item or another business operation into a single item.
@@ -75,20 +105,29 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
   pause();return null;
  }
  if(start&&!values.product){delete conversation.purchaseDraft;return null;}
+ const supplierIntent=supplierReferenceIntent(text,{active:state?.branch===branch&&(state.action==='crearPedidoCompra'||!!state.values.party)});
  const ambiguous=purchaseValueAmbiguity(text);
- if(!start&&(!state||state.branch!==branch||(!Object.keys(values).length&&!resume&&!ambiguous))){pause();return null;}
+ if(!start&&(!state||state.branch!==branch||(!Object.keys(values).length&&!resume&&!ambiguous&&!supplierIntent.rejected&&!unresolvedParty))){pause();return null;}
  assert(canPlan&&prepare,403,'ROL_INSUFICIENTE','Tu rol no permite preparar solicitudes de compra.');
  const action=start&&purchaseOrder?'crearPedidoCompra':start?'crearSolicitudCompra':state.action||'crearSolicitudCompra',pc=action==='crearPedidoCompra';
  await authorizePlan?.(action);
  if(start)state={branch,action,values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{})}};
+ if(supplierIntent.rejected||unresolvedParty){
+  delete state.values.party;delete state.values.shop;delete state.values.list;delete state.values.resolvedPrice;
+  delete values.party;delete values.shop;
+  if(pc)state.unresolvedReferences=[...new Set([...(state.unresolvedReferences||[]),'party'])];
+  conversation.purchaseDraft=state;
+ }
+ if(!pc)state.unresolvedReferences=(state.unresolvedReferences||[]).filter(key=>key!=='party');
+ if(supplierIntent.replacement)values.party=supplierIntent.replacement;
  if(ambiguous){
   if(start){state.values={...state.values,...unambiguousPurchaseValues(text)};conversation.purchaseDraft=state;}
   return {answer:ambiguous+(start?' Conservé el producto y las cantidades inequívocas; su verificación en SB1 queda pendiente de la aclaración.':''),evidence:[],trace:[]};
  }
- const rejected=negatedReferences(text).map(key=>key==='vendor'?'party':key).filter(key=>['product','party','shop','list'].includes(key));
+ const rejected=negatedReferences(text).map(key=>key==='vendor'?'party':key).filter(key=>['product','party','shop','list'].includes(key)&&!(key==='party'&&(!pc||supplierIntent.replacement)));
  const unresolved=new Set(state.unresolvedReferences||[]);
  for(const key of Object.keys(values))if(!rejected.includes(key))unresolved.delete(key);
- for(const key of rejected){delete values[key];delete state.values[key];unresolved.add(key);}
+ for(const key of rejected){delete values[key];delete state.values[key];unresolved.add(key);if(['party','shop','list','product'].includes(key))delete state.values.resolvedPrice;}
  state.unresolvedReferences=[...unresolved];
  if(values.withoutPrice){delete state.values.price;delete state.values.priceUnit;delete state.values.resolvedPrice;}
  if(values.list&&!values.price){delete state.values.price;delete state.values.priceUnit;}

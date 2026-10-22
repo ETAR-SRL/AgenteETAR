@@ -1,5 +1,7 @@
 # Evolución operativa · avance comprobable
 
+Actualización 22/10/2026: [negaciones de proveedor en Qwen](ia-local-negaciones-proveedor.md), con conservación del descarte fuera del historial seleccionado, borrador y reemplazo verificado; contrato de aclaración sin argumentos de operación. Ocho casos estrictos 8/8 y chat real de más de 100 mensajes, sin ejecutar cambios ERP. Suite completa 711/711. La rúbrica histórica v1 y sus rechazos por formulación se conservan por separado.
+
 Pedido del 21/10/2026. Repositorio real `C:\Users\vigil\Agente`, exclusivamente `main`. Punto de partida: `1f1d913`, 508 pruebas aprobadas. El ERP está fuera de alcance de red/VPN; no se modifica la red ni se usan datos simulados en la instalación operativa.
 
 | Etapa | Existente y reutilizado | Ampliación en curso | Comprobación pendiente |

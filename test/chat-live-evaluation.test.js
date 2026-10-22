@@ -52,7 +52,7 @@ test('four complete controlled HTTP conversations verify current drafts and reda
   for(const key of ['codigo','tienda'])if(params.has(key))data=data.filter(r=>r[key]===params.get(key));
   return {data,meta:{hasMore:false}};
  }};
- const h=await createChatEvaluationHarness({erp,model:{name:'controlled',local:true,status:async()=>({available:true}),complete:async()=>({action:'consultar_erp',args:{recurso:'costos',filtros:{}},answer:''})}});
+ const h=await createChatEvaluationHarness({erp,model:{name:'controlled',local:true,status:async()=>({available:true}),complete:async(_messages,schema)=>schema.properties.answer.enum?.length?{action:'responder',args:{},answer:schema.properties.answer.enum[0]}:{action:'consultar_erp',args:{recurso:'costos',filtros:{}},answer:''}}});
  t.after(()=>h.close());
  const report=await evaluateFullChat(h);
  assert.equal(report.status,'passed',JSON.stringify(report.results));assert.equal(report.results.length,4);

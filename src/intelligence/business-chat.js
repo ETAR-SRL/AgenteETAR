@@ -5,6 +5,7 @@ import {purchaseValues,purchaseValueAmbiguity,negatedReferences,unambiguousPurch
 import {priceCommand,priceWriteIntent,preparePriceCommand,requestedPriceBase} from './price-commands.js';
 import {assertPriceCurrency} from './references.js';
 import {createBusinessTools} from './tools.js';
+import {supplierReferenceIntent,unresolvedSupplierReference} from './supplier-reference.js';
 
 const D=Decimal.clone({precision:50});
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
@@ -83,6 +84,18 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  if(/\b(resumen|dashboard|facturas?|remitos?|ventas del|compras del|total vendido|stock|costos?|calidad|proyecto)\b/.test(n)){delete conversation.businessContext;return null;}
  if(/\b(no|nunca|sin)\s+(?:lo\s+|me\s+)?(?:cambi|modifi|actuali|ajust|sub|baj)|\b(simula|simular|que pasaria)\b/.test(n)){delete conversation.businessContext;return null;}
  const parsed=parse(text,old);
+ const supplierIntent=supplierReferenceIntent(text,{active:!!old&&(['vendor','supplierList','purchase'].includes(old.kind)||!!old.refs?.vendor)});
+ if(supplierIntent.rejected&&old){
+  delete old.refs.vendor;
+  if(['vendor','supplierList','purchase'].includes(old.kind))delete old.refs.list;
+  if(!old.refs.customer)delete old.refs.shop;
+  delete old.selected;delete old.candidates;delete old.candidateRef;
+  old.unresolvedReferences=[...new Set([...(old.unresolvedReferences||[]),'vendor'])];
+  delete parsed.refs.vendor;
+ }
+ if(supplierIntent.replacement)parsed.refs.vendor=supplierIntent.replacement;
+ const unresolvedSupplier=old?.unresolvedReferences?.includes('vendor')&&parsed.refs.vendor&&unresolvedSupplierReference(parsed.refs.vendor);
+ if(unresolvedSupplier)delete parsed.refs.vendor;
  const ambiguous=purchaseValueAmbiguity(text);
  if(ambiguous&&(old?.pending||parsed.write)){
   if(!old&&parsed.kind){
@@ -99,7 +112,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  // Keep the mature DA1 bulk-price route and its validations.
  if(priceCommand(text,conversation.messages,branch,true)&&parsed.edits.quantity===undefined&&!['purchase','sale','request','supplierList'].includes(parsed.kind||old?.kind))return null;
  const ordinal=/\b(?:el|la)\s+(primero|primera|segundo|segunda|tercero|tercera)\b/.exec(n);
- const follow=old&&(Object.keys(parsed.edits).length||Object.keys(parsed.refs).length||/\b(ese|esa|este|esta|su|lo mismo|verlo|verla|confirmar|confirmo)\b/.test(n)||ordinal);
+ const follow=old&&(supplierIntent.rejected||unresolvedSupplier||Object.keys(parsed.edits).length||Object.keys(parsed.refs).length||/\b(ese|esa|este|esta|su|lo mismo|verlo|verla|confirmar|confirmo)\b/.test(n)||ordinal);
  if(!parsed.kind&&!follow){delete conversation.businessContext;return null;}
  const kind=parsed.kind||old.kind;
  if(!kinds[kind]&&kind!=='order')return null;
@@ -110,6 +123,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   :changed&&old.kind==='customer'&&['saleList','salePrice'].includes(kind)?{customer:old.refs.customer,shop:old.refs.shop}:{};
  const state=old&&!changed?old:{branch,kind,refs:inherited,pending:old?.awaitingOperation&&kinds[kind]?.order?old.pending:null,base:old?.awaitingOperation?old.base:undefined};
  state.kind=kind;
+ if(unresolvedSupplier)state.unresolvedReferences=[...new Set([...(state.unresolvedReferences||[]),'vendor'])];
  const explicitTarget=Object.entries(parsed.refs).some(([k,v])=>state.refs[k]!==undefined&&state.refs[k]!==v);
  if(explicitTarget){delete state.selected;delete state.candidates;delete state.base;if(!parsed.write)state.pending=null;}
  Object.assign(state.refs,parsed.refs);
@@ -150,7 +164,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   if(!profile.action)return answer('Puedo verificar el producto en SB1, pero la modificación de su ficha no tiene un ejecutor habilitado. No modifiqué el ERP.');
   await authorizePlan?.(profile.action);
  }
- const rejected=negatedReferences(text),unresolved=new Set(state.unresolvedReferences||[]);
+ const rejected=negatedReferences(text).filter(key=>!(key==='vendor'&&supplierIntent.replacement)),unresolved=new Set(state.unresolvedReferences||[]);
  for(const key of Object.keys(parsed.refs))if(!rejected.includes(key))unresolved.delete(key);
  for(const key of rejected){delete refs[key];unresolved.add(key);delete state.selected;delete state.candidates;}
  state.unresolvedReferences=[...unresolved];
