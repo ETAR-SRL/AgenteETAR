@@ -39,3 +39,9 @@ Evidencia privada ignorada por Git:
 No se guardan filas comerciales, IDs ni conversaciones en esos informes. El método y los comandos reproducibles están en [evaluación del chat completo](evaluacion-chat-completo.md). Los resultados del modelo aislado y del asistente completo son diferentes: no se declara que Qwen haya pasado 4/4 por sí solo.
 
 La suite completa del árbol final aprobó **659/659 pruebas**, sin fallos, con concurrencia 2 (103,4 segundos). Incluye confirmaciones falsas/desactualizadas, ejecución local deshabilitada, permisos y revocación, aislamiento, fuentes caídas y las regresiones nuevas. La denegación de evidencia parcial conserva su prueba original; las peticiones explícitas de elusión tienen una prueba separada más estricta: cero llamadas al modelo y a las fuentes.
+
+## Versión activa y comprobación en la PWA
+
+Código publicado en `main` mediante `43123d8`. El reinicio del mecanismo Windows existente terminó correctamente; `/health` devolvió 200 y `/api/agent/status` identificó `operativo-local-3`, con IA local disponible. ERP y KAIQEN recuperaron disponibilidad. No hubo cambios de credenciales ni de permisos de usuarios operativos.
+
+Con la sesión personal ya abierta en Edge se repitieron los cuatro casos: solicitud con ambas bases, jerga y aclaración posterior sin repetir producto/cantidad, pedido USD sin proveedor y rechazo de SQL libre. Los borradores de prueba se cancelaron, sin preparar ni confirmar documentos comerciales. En otra conversación se consultó un producto real y después «del que vimos recién, decime cuánto le cobramos a quien nos compra…». La respuesta de `qwen3:4b` conservó la referencia y adjuntó el precio actual verificado, con base por millar/unidad y aclaración de precio de lista. La captura de esa versión permanece en `data/ia-local-chat-verificado-2026-10-22.jpg`, ignorada por Git. La PWA quedó abierta en ese resultado.
