@@ -1,5 +1,5 @@
 import {assert} from '../errors.js';
-import {valueCorrections} from './value-corrections.js';
+import {commercialCorrections as valueCorrections} from './commercial-corrections.js';
 import {applyCommercialValueIntake} from './purchase-chat.js';
 import {valueClarificationSchema,valueClarificationMessages,valueResume,independentValueRead} from './value-decision.js';
 import {conversationContext} from './memory.js';
@@ -17,7 +17,7 @@ export async function valueChat({text,conversation,branch,authorizeRead=()=>{},a
  if(independentValueRead(text))return null;
  const n=norm(text);
  if(/\b(?:cancela(?:lo)?|cancelar|olvida(?:lo)?)\b/.test(n)||/\b(?:crea\w*|genera\w*|arma\w*)\b/.test(n)&&/\b(?:solicitud|pedido|orden)\b/.test(n))return null;
- const numeric=/\b(?:precio|cantidad|moneda|millares?|unidades?|pesos?|dolares?|usd|ars)\b/.test(n);
+ const numeric=/\b(?:precio|cantidad|moneda|millares?|unidades?|pesos?|dolares?|usd|ars|fecha|emision|entrega|necesidad|deposito|almacen|pago)\b/.test(n);
  const relevant=valueResume(text)||numeric||/^\s*(?:no|perdon|en realidad|mejor|son|es)\b/.test(n);
  if(!relevant)return null;
  const scoped=state=>state?.branch===branch;
@@ -30,18 +30,24 @@ export async function valueChat({text,conversation,branch,authorizeRead=()=>{},a
  if(!state)return null;
  const isPurchase=purchases.includes(state),values=isPurchase?state.values:state.pending;
  const correction=valueCorrections(text,{values});
+ const dateSelection=!!correction.dateField&&state.unresolvedValues?.includes('date');
  const pending=new Set(state.unresolvedValues||[]);
  for(const field of correction.rejected)pending.add(field);
  for(const field of correction.pending)pending.add(field);
+ if(correction.dateField&&pending.has('date')){pending.delete('date');if(!correction.changes[correction.dateField]&&!state.dateCandidate)pending.add(correction.dateField);}
  for(const field of Object.keys(correction.changes))pending.delete(field);
  if(correction.optionalPriceRemoved&&state.action==='crearSolicitudCompra'){pending.delete('price');pending.delete('priceUnit');}
- if(!correction.rejected.length&&!Object.keys(correction.changes).length&&!pending.size)return null;
+ if(!correction.rejected.length&&!Object.keys(correction.changes).length&&!pending.size&&!dateSelection)return null;
  const action=isPurchase?state.action:operations[state.kind];
  assert(canPlan&&prepare,403,'ROL_INSUFICIENTE','Tu rol no permite preparar cambios.');
  if(action)await authorizePlan?.(action);
  for(const resource of isPurchase?['productos',...(action==='crearPedidoCompra'?['proveedores']:[])]:resources[state.kind]||[])await authorizeRead(resource,branch);
+ for(const [field,resource] of [['warehouse','depositos'],['payment','condicionesPago']])if(pending.has(field)||correction.changes[field]!==undefined||correction.rejected.includes(field))await authorizeRead(resource,branch);
  if(isPurchase&&state===conversation.pausedPurchase){conversation.purchaseDraft=state;delete conversation.pausedPurchase;}
  if(!isPurchase&&state===conversation.pausedBusiness){conversation.businessContext=state;delete conversation.pausedBusiness;}
+ // Existing documents have no enabled writer for logistics. The normal intake
+ // explains that boundary and must not prepare an unrelated price/quantity edit.
+ if(!isPurchase&&['emission','due','warehouse','payment','date'].some(field=>pending.has(field)||correction.changes[field]!==undefined||correction.rejected.includes(field)||values[field]!==undefined))return {continueIntake:true};
  // A turn can reject an identity and an amount together. Keep its literal
  // amounts but let the identity preflight invalidate and resolve the reference
  // first; neither clarification may revive the other discarded field.

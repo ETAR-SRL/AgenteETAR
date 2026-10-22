@@ -9,12 +9,18 @@ export function unresolvedSupplierReference(value){
 export function supplierReferenceIntent(text,{active=false}={}){
  const literal=String(text||'').replace(/"[^"]*"|“[^”]*”|«[^»]*»/g,quote=>/\b(?:no|sin|descarta)/i.test(norm(quote))?'':quote);
  const clauses=literal.split(/[,;\n]|\.(?=\s|$)/),rejected=[];
- let replacement,affirmativeCommand=false;
+ let replacement,affirmativeCommand=false,otherFocus=false;
  for(const clause of clauses){
   const n=norm(clause);
   if(/\b(?:si\s+(?:te\s+)?(?:digo|dijera|dijese)|por ejemplo|hipoteticamente|supongamos)\b/.test(n))continue;
   if(/\bno\s+(?:cambies|cambiar|modifiques|modificar|descartes|borres)\b/.test(n))continue;
   const explicit=/\bproveedor\b/.test(n);
+  // Logistic corrections belong to their own draft fields, including a bare
+  // replacement in the next clause. A supplier context cannot claim them.
+  const logistics=/\b(?:fecha|emision|entrega|necesidad|vencimiento|deposito|almacen|condicion(?:es)? de pago|forma de pago|pago)\b/.test(n);
+  if(logistics&&(!explicit||/^(?:(?:el|la|ese|esa)\s+)?(?:fecha|emision|entrega|necesidad|deposito|almacen|condicion(?:es)? de pago|forma de pago|pago)\b/.test(n))){otherFocus=true;continue;}
+  if(explicit)otherFocus=false;
+  if(otherFocus&&!explicit)continue;
   // A supplier context does not make every rejected entity a supplier.
   if(!explicit&&/\b(?:no\s+(?:es|era|uses|usar|utilices|tomes|tomar|tengo)|descarta(?:r)?)\s+(?:(?:el|la|al|ese|esa|este|esta)\s+)*(?:cliente|producto|articulo|codigo|precio|cantidad|importe|moneda|deposito|solicitante|pedido|solicitud|lista|tienda)\b/.test(n))continue;
   const unknown=/\b(?:(?:no\s+(?:se|conozco|tengo|recuerdo|me\s+acuerdo)|desconozco|se\s+me\s+borro)\b[^:]*\bproveedor|proveedor\b[^:]*\b(?:desconocido|sin\s+definir|no\s+(?:lo\s+)?se))\b/.test(n)||active&&/\bno\s+(?:se|recuerdo)\s+con\s+quien\b/.test(n);

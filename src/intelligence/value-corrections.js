@@ -10,8 +10,8 @@ const numericField=label=>label?label.startsWith('cantidad')?'quantity':'price':
 const denied=text=>/\b(?:no|sin|descarta|descartar|quita|quitar|borra|borrar)\b/.test(text);
 const preservation=text=>/\bno\s+(?:me\s+)?(?:cambies|cambiar|modifiques|modificar|toques|tocar|borres|borrar)\b/.test(text);
 const money=value=>/^(?:usd|dolar|dolares|u\$s|us\$)$/.test(value)?'USD':/^(?:ars|peso|pesos)$/.test(value)?'ARS':'EUR';
-const refPrefix=/\b(?:producto|articulo|codigo|pedido(?:\s+de\s+(?:compra|venta))?|solicitud(?:\s+de\s+compra)?|orden(?:\s+de\s+compra)?|numero|item|tienda|lista|registro)\s*(?:(?:es|el|la|nro|numero|codigo)\s+|[:#]\s*)*$/;
-const otherNumericPrefix=/\b(?:fecha|emision|entrega|necesidad|vencimiento|deposito|almacen|sucursal|filial|centro\s+de\s+costo|solicitante|comprador|condicion\s+de\s+pago|cotizacion|total)\s*(?:(?:es|el|la|de|para|a|nro|numero|codigo)\s+|[:#]\s*)*$/;
+const refPrefix=/\b(?:producto|articulo|codigo|proveedor|cliente|pedido(?:\s+de\s+(?:compra|venta))?|solicitud(?:\s+de\s+compra)?|orden(?:\s+de\s+compra)?|numero|item|tienda|lista|registro)\s*(?:(?:es|el|la|nro|numero|codigo)\s+|[:#]\s*)*$/;
+const otherNumericPrefix=/\b(?:fecha|emision|entrega|necesidad|vencimiento|deposito|almacen|sucursal|filial|centro\s+de\s+costo|solicitante|comprador|condicion(?:es)?\s+de\s+pago|forma\s+de\s+pago|cotizacion|total)\s*(?:(?:es|el|la|de|para|a|nro|numero|codigo)\s+|[:#]\s*)*$/;
 
 // This only interprets user literals. It never converts bases, supplies prices,
 // resolves ERP identities, mutates the supplied context or authorizes execution.

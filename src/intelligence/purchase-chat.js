@@ -7,6 +7,7 @@ import {importedNumber} from './document-reader.js';
 import {supplierReferenceIntent,unresolvedSupplierReference} from './supplier-reference.js';
 import {referenceCorrections,unresolvedReference} from './reference-corrections.js';
 import {valueCorrections} from './value-corrections.js';
+import {commercialCorrections,commercialValueLabels} from './commercial-corrections.js';
 
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 export function commercialLiteralText(text){
@@ -24,11 +25,20 @@ const quantityMatches=text=>[...text.matchAll(new RegExp(quantity.source,'ig'))]
 // affirmative user input resolves this pending value; the two bases are separate.
 export function applyCommercialValueIntake(state,input,text,{purchase=false}={}){
  const stored=purchase?state.values:(state.pending||{});
- const intent=valueCorrections(text,{values:stored}),pending=new Set(state.unresolvedValues||[]);
+ const intent=commercialCorrections(text,{values:stored}),pending=new Set(state.unresolvedValues||[]);
+ if(intent.pending.includes('date'))state.dateCandidate=intent.dateCandidate;
+ if(intent.dateField&&pending.has('date')){
+  if(!intent.changes[intent.dateField]){
+   if(state.dateCandidate&&!intent.rejected.includes(intent.dateField)&&!intent.pending.includes(intent.dateField))intent.changes[intent.dateField]=state.dateCandidate;
+   else{delete stored[intent.dateField];intent.rejected.push(intent.dateField);intent.pending.push(intent.dateField);}
+  }
+  pending.delete('date');delete state.dateCandidate;
+ }
+ if(intent.changes.emission||intent.changes.due){pending.delete('date');delete state.dateCandidate;}
  if(!purchase&&intent.rejected.length&&!state.pending)state.pending=stored;
  for(const field of intent.rejected){
   delete stored[field];delete input[field];
-  if(['price','priceUnit','currency'].includes(field))delete stored.resolvedPrice;
+  if(['price','priceUnit','currency','emission'].includes(field))delete stored.resolvedPrice;
   if(field==='priceUnit')delete state.base;
   if(field==='price')for(const key of ['percent','direction','useList']){delete stored[key];delete input[key];}
  }
@@ -42,11 +52,11 @@ export function applyCommercialValueIntake(state,input,text,{purchase=false}={})
   input.withoutPrice=true;
  }else if(intent.optionalPriceRemoved)pending.add('price');
  if(input.price!==undefined)delete stored.withoutPrice;
- if(input.price!==undefined||input.currency!==undefined||input.priceUnit!==undefined)delete stored.resolvedPrice;
+ if(input.price!==undefined||input.currency!==undefined||input.priceUnit!==undefined||input.emission!==undefined)delete stored.resolvedPrice;
  state.unresolvedValues=[...pending];
  return intent;
 }
-const pendingValueAnswer=state=>'Conservo los demás datos. Indicá de forma afirmativa '+(state.unresolvedValues||[]).map(key=>({price:'el precio',quantity:'la cantidad',currency:'la moneda',priceUnit:'la base del precio',quantityUnit:'la base de la cantidad'})[key]||key).join(' y ')+' que corresponde; no usaré el valor negado.';
+const pendingValueAnswer=state=>'Conservo los demás datos. Indicá de forma afirmativa '+(state.unresolvedValues||[]).map(key=>commercialValueLabels[key]||key).join(' y ')+' que corresponde; no usaré el valor negado.';
 
 // Apply the same literal correction rules to the two structured intakes. Source
 // selections are disposable; separately stated amounts remain user input.
@@ -136,7 +146,8 @@ export function purchaseValues(text){
  if(priceBasis)values.priceUnit=priceBasis[1];
  const quantityBasis=/\bcantidades?\s+(?:en\s+)?(unidades|millares|kg|g|mt|m|lt|l)\b/.exec(norm(safeText));
  if(quantityBasis)values.quantityUnit=quantityBasis[1];
- const correction=valueCorrections(text);
+ for(const field of ['emission','due','warehouse','payment'])delete values[field];
+ const correction=commercialCorrections(text);
  for(const field of correction.rejected)delete values[field];
  Object.assign(values,correction.changes);
  return values;
@@ -160,7 +171,7 @@ export function updateSupplierPendingDraft(conversation,text,branch,preferences=
  if(newDraft){
   delete conversation.purchaseDraft;delete conversation.pausedPurchase;
   if(!values.product||/\bproductos\b/.test(n)||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n))return;
-  conversation.purchaseDraft={branch,action:'crearPedidoCompra',values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{}),...values},unresolvedValues:referenceState.unresolvedValues,unresolvedReferences:[...new Set([...(referenceState.unresolvedReferences||[]),'party'])]};
+  conversation.purchaseDraft={branch,action:'crearPedidoCompra',values:{...(preferences.warehouse&&!referenceState.unresolvedValues?.includes('warehouse')?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{}),...values},dateCandidate:referenceState.dateCandidate,unresolvedValues:referenceState.unresolvedValues,unresolvedReferences:[...new Set([...(referenceState.unresolvedReferences||[]),'party'])]};
   return;
  }
  if((resume||start&&!fresh)&&conversation.purchaseDraft?.branch!==branch&&conversation.pausedPurchase?.branch===branch&&conversation.pausedPurchase.action==='crearPedidoCompra'){
@@ -176,7 +187,7 @@ export function updateSupplierPendingDraft(conversation,text,branch,preferences=
 
 // A bounded, single-item intake avoids repeated inference for explicit references.
 // Values remain user input, never executed SQL or instructions from an ERP row.
-export async function purchaseChat({text,conversation,branch,canPlan,authorizePlan,read,prepare,actor,preferences={}}){
+export async function purchaseChat({text,conversation,branch,canPlan,authorizePlan,read,prepare,actor,preferences={},metadata={}}){
  const n=norm(text),purchaseOrder=/\bpedido(?: de)? compra\b/.test(n),start=/\b(crea(?:r|me)?|genera(?:r|me)?|arma(?:r|me)?)\b/.test(n)&&/\b(?:solicitud(?: de)? (?:compra|importacion)|pedido(?: de)? compra)\b/.test(n);
  const resume=/\b(retoma(?:r|me)?|retomemos|continu(?:a(?:r|mos)?|emos)|segui(?:r|mos)?)\b/.test(n)&&/\b(solicitud|pedido de compra)\b/.test(n);
  if(resume&&conversation.pausedPurchase?.branch===branch&&conversation.pausedPurchase.action===(purchaseOrder?'crearPedidoCompra':'crearSolicitudCompra')){conversation.purchaseDraft=conversation.pausedPurchase;delete conversation.pausedPurchase;}
@@ -204,7 +215,7 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
  assert(canPlan&&prepare,403,'ROL_INSUFICIENTE','Tu rol no permite preparar solicitudes de compra.');
  const action=start&&purchaseOrder?'crearPedidoCompra':start?'crearSolicitudCompra':state.action||'crearSolicitudCompra',pc=action==='crearPedidoCompra';
  await authorizePlan?.(action);
- if(start)state={branch,action,values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{})},unresolvedValues:referenceState.unresolvedValues,unresolvedReferences:referenceState.unresolvedReferences};
+ if(start)state={branch,action,values:{...(preferences.warehouse&&!referenceState.unresolvedValues?.includes('warehouse')?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{})},dateCandidate:referenceState.dateCandidate,unresolvedValues:referenceState.unresolvedValues,unresolvedReferences:referenceState.unresolvedReferences};
  if(supplierIntent.rejected||unresolvedParty){
   delete state.values.party;delete state.values.shop;delete state.values.list;delete state.values.resolvedPrice;
   delete values.party;delete values.shop;
@@ -262,9 +273,18 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
  if(!v.due)missing.push('fecha de necesidad');
  if(!pc&&!v.requester)missing.push('solicitante');
  if(!pc&&v.currency&&v.currency!=='ARS'&&v.currency!=='1'&&!v.requestType)missing.push('confirmar si corresponde una solicitud de importación (MATA113)');
+ const resolveCatalog=async(resource,term)=>{
+  const exact=await query(resource,{codigo:term});
+  const matches=(exact.data||[]).filter(row=>String(row.codigo)===String(term));
+  if(matches.length===1&&!exact.meta?.hasMore)return matches[0];
+  if(exact.data?.length||exact.meta?.hasMore||!metadata.entities?.[resource]?.filters?.q)return null;
+  const named=await query(resource,{q:term});
+  return named.data?.length===1&&!named.meta?.hasMore?named.data[0]:null;
+ };
  if(v.warehouse){
-  const result=await query('depositos',{codigo:v.warehouse});
-  if(result.data?.length!==1||result.meta?.hasMore){delete v.warehouse;missing.push('un depósito válido');}
+  const row=await resolveCatalog('depositos',v.warehouse);
+  if(row)v.warehouse=row.codigo;
+  else{delete v.warehouse;missing.push('un depósito válido (indicá su código)');}
  }
  const resolve=async(resource,term,extra={})=>{
   let r=await query(resource,{codigo:term,...extra});
@@ -276,7 +296,7 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
   if(!v.party)missing.push('proveedor');
   else{const r=await resolve('proveedores',v.party,v.shop?{tienda:v.shop}:{});if(r.data.length===1&&!r.meta?.hasMore){vendor=r.data[0];v.party=vendor.codigo;v.shop=vendor.tienda;}else missing.push('proveedor y tienda únicos (ver coincidencias)');}
   if(!v.payment)missing.push('condición de pago');
-  else{const r=await resolve('condicionesPago',v.payment);if(r.data.length===1&&!r.meta?.hasMore){payment=r.data[0];v.payment=payment.codigo;}else missing.push('una condición de pago válida');}
+  else{payment=await resolveCatalog('condicionesPago',v.payment);if(payment)v.payment=payment.codigo;else{delete v.payment;missing.push('una condición de pago válida (indicá su código)');}}
  }
  if(pc&&vendor&&!v.price){
   delete v.resolvedPrice;

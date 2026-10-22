@@ -1,10 +1,19 @@
 import {assert} from '../errors.js';
 import {importAction,importProfiles} from './price-imports.js';
 import {importedNumber} from './document-reader.js';
+import {logisticsCorrections} from './logistics-corrections.js';
+import {commercialDay,commercialValueLabels} from './commercial-corrections.js';
 
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 const fields=['party','shop','list','number','currency','unit','quantityUnit','updateFields','emission','due','warehouse','payment','requester','requesterCode','buyer','costCenter','requestType'];
 const properties=Object.fromEntries(fields.map(k=>[k,{type:'string'}]));
+const logisticsFields=['emission','due','warehouse','payment'];
+function logisticsInput(text,state={}){
+ const scope=state.missing?.length===1&&logisticsFields.includes(state.missing[0])?state.missing[0]:null;
+ const typed=/\b(?:fecha|emision|entrega|necesidad|vencimiento|deposito|almacen|pago)\b/.test(norm(text));
+ const scopedText=scope&&!typed?({emission:'emisión ',due:'entrega ',warehouse:'depósito ',payment:'condición de pago '}[scope]+text):text;
+ return logisticsCorrections(scopedText,{values:state.values||{},today:commercialDay()});
+}
 const schema={type:'object',properties:{kind:{type:'string',enum:['','proveedor','cliente','pedidoVenta','pedidoCompra','solicitudCompra']},update:{type:'boolean'},...properties,
  edits:{type:'array',maxItems:30,items:{type:'object',properties:{row:{type:'string'},product:{type:'string'},price:{type:'string'},quantity:{type:'string'},quantityUnit:{type:'string'},currency:{type:'string'},unit:{type:'string'},number:{type:'string'},item:{type:'string'},record:{type:'string'},exclude:{type:'boolean'}},required:['row'],additionalProperties:false}}},
  additionalProperties:false};
@@ -78,6 +87,11 @@ export function literalAttachmentIntent(text,state={}){
  if(state.values?.updateFields&&!out.update&&!onlyQuantity&&!onlyPrice&&(quantityBase||priceBase))delete out.updateFields;
  // When both bases are missing, an unqualified "millares" cannot select both.
  if(out.unit&&!asksPrice&&!asksQuantity&&state.missing?.includes('quantityUnit')&&state.missing?.includes('unit'))delete out.unit;
+ // Calendar/catalog corrections share the chat rules, including polarity. A
+ // legacy first-match expression must never restore the rejected literal.
+ const logistical=logisticsInput(text,state);
+ for(const field of logisticsFields)delete out[field];
+ Object.assign(out,logistical.changes);
  const row=/\bfila\s+(\d+)\b/.exec(n);
  if(row){
   const edit={row:row[1]};
@@ -85,7 +99,7 @@ export function literalAttachmentIntent(text,state={}){
   if(out.number){edit.number=out.number;delete out.number;}
   const amount=/\bcantidad\s+(?:(?:a|es)\s+)?(\d+(?:[.,]\d+)?)/i.exec(text);
   if(amount)edit.quantity=importedNumber(amount[1]);
-  if(/\b(exclui|omiti|quita|saca|descarta|ignora)/.test(n))edit.exclude=true;
+  if(/\b(exclui|omiti|quita|saca|descarta|ignora)/.test(n)&&!logistical.rejected.length&&!logistical.pending.length)edit.exclude=true;
   for(const k of ['unit','currency','quantityUnit','warehouse','due','costCenter'])if(out[k]){edit[k]=out[k];delete out[k];}
   delete out.updateFields; // A row correction must not change the selected columns for every other row.
   out.edits.push(edit);
@@ -96,6 +110,8 @@ export function literalAttachmentIntent(text,state={}){
 // instruction context, and monetary edits must be literal in the user's message.
 export async function attachmentIntent(text,state,model){
  const literal=literalAttachmentIntent(text,state);
+ const logistical=logisticsInput(text,state);
+ if(logistical.rejected.length||logistical.pending.length||logistical.dateField||state.logisticsPending?.length||state.unsupportedLogistics)return literal;
  if(state.missing?.includes('quantityUnit')&&state.missing?.includes('unit')&&/^(millares?|unidades?|un|kg|g|m|mt|l|lt)[.]?$/i.test(norm(text)))return literal;
  if(literal.update&&literal.kind||Object.keys(literal).some(k=>!['update','edits'].includes(k))||literal.edits.some(e=>Object.keys(e).length>1))return literal;
  if(!model)return literal;
@@ -146,16 +162,73 @@ export function createAttachmentChat({imports,authorize,model}){
   // Invalidate prior confirmations even when the next turn asks for missing data.
   imports.invalidate(actor,id);
   const intent=await attachmentIntent(input.text,state,model);
-  if(conversation.attachment&& !state.missing?.length&&!intent.update&&!intent.kind&&!fields.some(k=>intent[k])&&!intent.edits?.length)return null;
+  let logistical=logisticsInput(input.text,state);
+  if(conversation.attachment&& !state.missing?.length&&!intent.update&&!intent.kind&&!fields.some(k=>intent[k])&&!intent.edits?.length&&!logistical.rejected.length&&!logistical.pending.length&&!state.logisticsPending?.length)return null;
   if(/\bno\s+(?:actuali|cambi|modifi|apli|cre[ae]|gener|arm)/i.test(norm(input.text)))return {answer:'No aplicaré cambios. El archivo sigue disponible para revisarlo.',attachment:{id,name:draft.name}};
   if(intent.create&&!importProfiles[intent.kind||state.kind]?.creation)return {answer:'Desde adjuntos puedo crear pedidos de compra o solicitudes. Indicá cuál de esos documentos querés crear; no preparé ninguna actualización.',attachment:{id,name:draft.name}};
   if(intent.kind&&intent.kind!==state.kind){
+   authorize(intent.kind,branch);
    if(state.kind){
     state.values={...draft.defaults};state.rows=structuredClone(draft.rows);
     if(importProfiles[state.kind]?.party!==importProfiles[intent.kind]?.party)for(const key of ['party','shop','list'])delete state.values[key];
    }
+   for(const key of ['unsupportedLogistics','logisticsPending','logisticsScopes','dateCandidate','logisticsRow','missing'])delete state[key];
    state.kind=intent.kind;
+   logistical=logisticsInput(input.text,state);
   }
+  if(state.kind&&(logistical.rejected.length||logistical.pending.length||Object.keys(logistical.changes).length||logistical.dateField||state.logisticsPending?.length||state.unsupportedLogistics))authorize(state.kind,branch);
+  if(/\bcancela\w*\s+(?:el\s+)?cambio\b/.test(norm(input.text))&&/\b(?:fecha|emision|entrega|deposito|almacen|pago)\b/.test(norm(input.text))){delete state.unsupportedLogistics;state.logisticsPending=[];state.logisticsScopes=[];delete state.dateCandidate;delete state.logisticsRow;conversation.attachment=state;return {answer:'Descarté ese cambio de datos del documento. Conservé el archivo y los demás datos; no preparé cambios.',attachment:{id,name:draft.name,kind:state.kind,rows:state.rows,defaults:state.values}};}
+  // Pending corrections belong to a field and a row (null means document).
+  // Legacy labels remain a derived UI view; they never authorize resolution.
+  const scopes=state.logisticsScopes||(state.logisticsPending||[]).map(field=>({row:state.logisticsRow||null,field,...(field==='date'&&state.dateCandidate?{candidate:state.dateCandidate}:{})}));
+  const explicitRow=/\bfila\s+(\d+)\b/.exec(norm(input.text))?.[1];
+  const globalScope=/\b(?:todas? las filas|todas?|todo el documento|para el documento|del documento|documento completo|documento entero)\b/.test(norm(input.text));
+  const hasLogistics=logistical.rejected.length||logistical.pending.length||Object.keys(logistical.changes).length||logistical.dateField;
+  const pendingRows=[...new Set(scopes.map(scope=>scope.row))];
+  const rowId=explicitRow||(!globalScope&&hasLogistics&&pendingRows.length===1?pendingRows[0]:null);
+  const scopedAttachmentView=()=>({id,name:draft.name,kind:state.kind,rows:state.rows,defaults:state.values});
+  if(!explicitRow&&!globalScope&&hasLogistics&&pendingRows.length>1){
+   conversation.attachment=state;
+   return {answer:'Hay correcciones pendientes en distintas filas o en el documento. Indicá la fila o decí todas las filas para aplicar un mismo dato. No preparé cambios.',attachment:scopedAttachmentView()};
+  }
+  const rowTarget=rowId?state.rows.find(row=>row.id===rowId):null;
+  if(rowId)assert(rowTarget,400,'FILA_NO_EXISTE','No existe esa fila en el adjunto.');
+  if(rowTarget&&['emission','payment'].some(field=>logistical.changes[field]!==undefined||logistical.rejected.includes(field)||logistical.dateField===field)){
+   conversation.attachment=state;
+   return {answer:'La emisión y la condición de pago pertenecen al documento completo. Indicá el cambio para el documento, sin elegir una fila. No preparé cambios.',attachment:scopedAttachmentView()};
+  }
+  const sameScope=scope=>scope.row===(rowId||null);
+  const addPending=(field,candidate)=>{
+   const existing=scopes.find(scope=>sameScope(scope)&&scope.field===field);
+   if(existing){if(candidate)existing.candidate=candidate;else if(field==='date')delete existing.candidate;}
+   else scopes.push({row:rowId||null,field,...(candidate?{candidate}:{})});
+  };
+  const resolvePending=field=>{
+   for(let i=scopes.length-1;i>=0;i--)if(scopes[i].field===field&&(globalScope||sameScope(scopes[i])))scopes.splice(i,1);
+  };
+  const changes={...logistical.changes};
+  if(logistical.dateField){
+   const dates=scopes.filter(scope=>scope.field==='date'&&(globalScope||sameScope(scope)));
+   if(globalScope&&changes[logistical.dateField]===undefined&&new Set(dates.map(scope=>scope.candidate).filter(Boolean)).size>1)return {answer:'Hay fechas distintas pendientes en las filas. Indicá la fecha que querés aplicar a todas o elegí una fila. No preparé cambios.',attachment:scopedAttachmentView()};
+   for(const date of dates){
+    if(changes[logistical.dateField]!==undefined)continue;
+    if(date.candidate&&!logistical.rejected.includes(logistical.dateField)&&!logistical.pending.includes(logistical.dateField)){
+     if(date.row&&!globalScope){const row=state.rows.find(row=>row.id===date.row);row[logistical.dateField]=date.candidate;resolvePending(logistical.dateField);}
+     else changes[logistical.dateField]=date.candidate;
+    }else{delete (rowTarget||state.values)[logistical.dateField];addPending(logistical.dateField);}
+   }
+   if(dates.length)resolvePending('date');
+  }
+  for(const field of logistical.rejected){
+   delete intent[field];if(!rowTarget)delete state.values[field];addPending(field);
+   for(const row of rowTarget?[rowTarget]:state.rows)if(['due','warehouse'].includes(field))delete row[field];
+  }
+  for(const field of logistical.pending)addPending(field,field==='date'?logistical.dateCandidate:undefined);
+  for(const [field,value] of Object.entries(changes)){intent[field]=value;resolvePending(field);}
+  state.logisticsScopes=scopes;
+  state.logisticsPending=[...new Set(scopes.map(scope=>scope.field))];
+  delete state.dateCandidate;delete state.logisticsRow;
+  if(rowTarget)for(const field of ['due','warehouse'])if(intent[field]!==undefined){rowTarget[field]=intent[field];delete intent[field];}
   state.requested||=intent.update;
   for(const k of fields)if(intent[k])state.values[k]=intent[k];
   for(const edit of intent.edits||[]){
@@ -164,6 +237,10 @@ export function createAttachmentChat({imports,authorize,model}){
    for(const k of ['product','price','quantity','quantityUnit','unit','currency','number','item','record','exclude','warehouse','due','costCenter'])if(edit[k]!==undefined)row[k]=edit[k];
   }
   conversation.attachment=state;
+  const attachmentView={id,name:draft.name,kind:state.kind,rows:state.rows,defaults:state.values};
+  if(state.logisticsPending.length){state.missing=state.logisticsPending;return {answer:'Conservo el archivo y los demás datos. Indicame '+state.logisticsPending.map(field=>commercialValueLabels[field]).join(' y ')+'; no voy a recuperar el dato descartado. Todavía no preparé cambios.',attachment:attachmentView};}
+  if(!importProfiles[state.kind]?.creation&&logisticsFields.some(field=>logistical.rejected.includes(field)||logistical.changes[field]!==undefined))state.unsupportedLogistics=true;
+  if(state.unsupportedLogistics)return {answer:'Las fechas, depósitos y condiciones de pago pueden corregirse al preparar documentos nuevos. Para documentos existentes esa actualización no está habilitada. Conservé el archivo; no preparé otros cambios.',attachment:attachmentView,unsupportedLogistics:true};
   const rows=state.rows.filter(r=>!r.exclude).map(r=>({...r,...Object.fromEntries(['unit','currency','quantityUnit','warehouse','due','costCenter'].filter(k=>state.values[k]&&intent[k]).map(k=>[k,state.values[k]]))}));
   // Persist explicit global corrections, preserving later row-specific corrections.
   state.rows=state.rows.map(r=>rows.find(x=>x.id===r.id)||r);

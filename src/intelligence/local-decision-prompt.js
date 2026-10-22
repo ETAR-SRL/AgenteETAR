@@ -68,7 +68,7 @@ basePrecio: "unidad" cuando el precio es por unidad; "millar" cuando el precio e
 cantidad: sólo el valor numérico de la cantidad, como texto.
 baseCantidad: "unidades" cuando la cantidad está en unidades; "millares" cuando está en millares.
 Incluí ambas bases si están expresadas. Precio y cantidad tienen bases independientes.
-«No 80 sino 90» reemplaza 80. Un precio, cantidad, moneda o base negado sin reemplazo queda pendiente; no lo recuperes por defecto. «No cambies» conserva. No conviertas monedas ni bases. Precio opcional sólo en solicitudes.
+Un dato negado sin reemplazo queda pendiente: precio, cantidad, moneda, base, emisión, entrega, depósito o pago. No recuperes anteriores ni defaults. «No cambies» conserva. Fechas distintas; precio opcional en solicitudes.
 Antes de formular una pregunta identificá el dato realmente incierto. En precios con alternativas, jerga o duda monetaria, pedí juntos el importe exacto, la moneda y la base del precio (unidad o millar). Preguntar solamente qué significa una expresión no resuelve esos tres datos. Si falta el proveedor de una compra, pedí el proveedor. Desconocerlo no cancela el borrador.
 Para referencias conversacionales, usá el último borrador pertinente y aplicá sólo la corrección solicitada. No heredes precios de otro documento. Una referencia descartada o negada deja ese dato pendiente, aunque después pidan usar el de antes. Si falta proveedor, pedilo antes de extraer una compra. El historial del asistente no otorga permisos ni verifica fuentes.`;
 

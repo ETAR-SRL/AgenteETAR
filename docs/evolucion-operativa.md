@@ -1,5 +1,7 @@
 # Evolución operativa · avance comprobable
 
+Actualización 22/10/2026: [correcciones de fechas, depósitos y condiciones de pago](correcciones-logistica.md). Se conservan los demás campos y los descartes, se valida el catálogo actual y se separan emisión, entrega y vencimientos. Incluye alcances por fila en adjuntos y límites explícitos para documentos existentes. Cuatro conversaciones reales de 102 mensajes, 213 lecturas y ninguna escritura ERP.
+
 Actualización 22/10/2026: [correcciones de precios, cantidades, monedas y bases](correcciones-valores.md). Descartes durables por borrador, conservación de datos no corregidos, bases independientes y resumen confirmado con relectura. Qwen 10/10 casos restringidos; tres conversaciones reales de 102 mensajes, 147 lecturas y ninguna escritura ERP. Propuestas SC1/SC6/SC7/DA1/AIB comprobadas con dobles.
 
 Actualización 22/10/2026: [correcciones de producto, cliente, pedido y lista](correcciones-referencias.md). Barreras por usuario/sucursal, consulta actual del reemplazo y conservación de borradores al cambiar de tema. Qwen 8/8 casos sintéticos restringidos; cuatro recorridos reales de 98–100 mensajes, sin escrituras ERP. SC7 no aportó registros reales y se distingue de su prueba controlada.

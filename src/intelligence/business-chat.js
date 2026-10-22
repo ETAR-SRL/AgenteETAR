@@ -7,6 +7,7 @@ import {assertPriceCurrency} from './references.js';
 import {createBusinessTools} from './tools.js';
 import {supplierReferenceIntent,unresolvedSupplierReference} from './supplier-reference.js';
 import {unresolvedReference} from './reference-corrections.js';
+import {commercialValueLabels} from './commercial-corrections.js';
 
 const D=Decimal.clone({precision:50});
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
@@ -83,10 +84,21 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  if(/\b(crea(?:r|me)?|genera(?:r|me)?)\b/.test(n)||/\barma(?:r|me)?\b/.test(n)&&!/\bpropuesta\b/.test(n))return null;
  let old=conversation.businessContext;
  if(old?.branch!==branch){delete conversation.businessContext;old=null;}
- if(/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&(old||conversation.pausedBusiness?.branch===branch)){delete conversation.businessContext;delete conversation.pausedBusiness;return {answer:'Descarté el cambio pendiente de esta conversación. No se modificó el ERP.',evidence:[],trace:[]};}
+ const cancelLogistics=old&&/\b(?:cancelar|cancela|descarta|olvida)\b/.test(n)&&/\b(?:cambio|correccion)\b/.test(n)&&/\b(?:fecha|emision|entrega|necesidad|deposito|pago)\b/.test(n);
+ if(cancelLogistics){
+  const fields=/\bfecha\b/.test(n)?['date','emission','due']:[];
+  if(/\bemision\b/.test(n))fields.push('emission');
+  if(/\bentrega|necesidad\b/.test(n))fields.push('due');
+  if(/\bdeposito\b/.test(n))fields.push('warehouse');
+  if(/\bpago\b/.test(n))fields.push('payment');
+  for(const field of fields)if(old.pending)delete old.pending[field];
+  old.unresolvedValues=(old.unresolvedValues||[]).filter(field=>!fields.includes(field));
+  if(fields.includes('date'))delete old.dateCandidate;
+ }
+ if(!cancelLogistics&&/\b(cancelar|cancela|cancelalo|olvidalo)\b/.test(n)&&(old||conversation.pausedBusiness?.branch===branch)){delete conversation.businessContext;delete conversation.pausedBusiness;return {answer:'Descarté el cambio pendiente de esta conversación. No se modificó el ERP.',evidence:[],trace:[]};}
  if(/\b(resumen|dashboard|facturas?|remitos?|ventas del|compras del|total vendido|stock|costos?|calidad|proyecto)\b/.test(n)){delete conversation.businessContext;return null;}
  if(/\b(no|nunca|sin)\s+(?:lo\s+|me\s+)?(?:cambi|modifi|actuali|ajust|sub|baj)|\b(simula|simular|que pasaria)\b/.test(n)){delete conversation.businessContext;return null;}
- const parsed=parse(text,old);
+ const parsed=parse(cancelLogistics?'continuar':text,old);
  // A concrete catalog read may interrupt a pending operation without inheriting
  // its unresolved commercial references or losing its explicitly entered values.
  const catalogRead=!parsed.write&&/\b(?:mostra\w*|consulta\w*|busca\w*|ver)\b/.test(n)&&!/^\s*no\b/.test(n)
@@ -124,14 +136,15 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   return {answer:ambiguous+(!old?' Conservé las referencias inequívocas; su verificación queda pendiente de la aclaración.':''),evidence:[],trace:[]};
  }
  const readOnly=!parsed.write&&!old?.pending&&/\b(?:mostra\w*|consulta\w*|busca\w*|ver)\b/.test(n);
- const valueIntent=readOnly?{rejected:[]}:applyCommercialValueIntake(referenceState,parsed.edits,text);
+ const valueIntent=readOnly?{rejected:[]}:applyCommercialValueIntake(referenceState,parsed.edits,cancelLogistics?'continuar':text);
+ if(!readOnly&&['emission','due','warehouse','payment','date'].some(field=>parsed.edits[field]!==undefined||referenceState.unresolvedValues?.includes(field)))parsed.write=true;
  // Non-explicit references continue through the general reasoning tools.
  if(!old&&['salePrice','saleList'].includes(parsed.kind)&&!Object.keys(parsed.refs).length&&!/^(?:precio(?: de venta)?|lista(?: de precios)?)[?!.]?$/.test(n))return null;
  if(!old&&/precio de lista de\b/.test(n)&&!parsed.refs.product)return null;
  // Keep the mature DA1 bulk-price route and its validations.
  if(priceCommand(text,conversation.messages,branch,true)&&parsed.edits.quantity===undefined&&!['purchase','sale','request','supplierList'].includes(parsed.kind||old?.kind))return null;
  const ordinal=/\b(?:el|la)\s+(primero|primera|segundo|segunda|tercero|tercera)\b/.exec(n);
- const follow=old&&(referenceIntent.corrected||valueIntent.rejected.length||old.unresolvedValues?.length||supplierIntent.rejected||unresolvedSupplier||Object.keys(parsed.edits).length||Object.keys(parsed.refs).length||/\b(ese|esa|este|esta|su|lo mismo|verlo|verla|confirmar|confirmo)\b/.test(n)||ordinal);
+ const follow=old&&(cancelLogistics||referenceIntent.corrected||valueIntent.rejected.length||old.unresolvedValues?.length||supplierIntent.rejected||unresolvedSupplier||Object.keys(parsed.edits).length||Object.keys(parsed.refs).length||/\b(ese|esa|este|esta|su|lo mismo|verlo|verla|confirmar|confirmo)\b/.test(n)||ordinal);
  if(!parsed.kind&&!follow){delete conversation.businessContext;return null;}
  const kind=parsed.kind||old.kind;
  if(!kinds[kind]&&kind!=='order')return null;
@@ -144,6 +157,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  const state=old&&!changed?old:{branch,kind,refs:inherited,pending:(old?.awaitingOperation||orderTransition)&&kinds[kind]?.order?old.pending:null,base:old?.awaitingOperation?old.base:undefined};
  state.kind=kind;
  state.unresolvedValues=[...(referenceState.unresolvedValues||[])];
+ if(referenceState.dateCandidate)state.dateCandidate=referenceState.dateCandidate;
  if(!old)state.unresolvedReferences=[...(referenceState.unresolvedReferences||[])];
  else if(changed){
   const relevant=new Set([...Object.keys(inherited),...Object.keys(parsed.refs),...(orderTransition?['number','item','product']:[])]);
@@ -189,7 +203,11 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   if(kind!=='order'&&!profile.action)return answer('Puedo verificar el producto en SB1, pero la modificación de su ficha no tiene un ejecutor habilitado. No modifiqué el ERP.');
   if(profile?.action)await authorizePlan?.(profile.action);
  }
- if(state.unresolvedValues.length)return answer('Conservo los demás datos. Indicá de forma afirmativa '+state.unresolvedValues.map(key=>({price:'el precio',quantity:'la cantidad',currency:'la moneda',priceUnit:'la base del precio',quantityUnit:'la base de la cantidad'})[key]||key).join(' y ')+' que corresponde; no usaré el valor negado.');
+ const logisticsFields=['emission','due','warehouse','payment','date'];
+ if((profile?.order||kind==='order')&&(logisticsFields.some(field=>state.pending?.[field]!==undefined||state.unresolvedValues.includes(field))||state.dateCandidate)){
+  return {...answer('El ejecutor de documentos existentes no admite cambios de fechas, depósito ni condición de pago. Conservo el documento, sus referencias, importes y cantidades pendientes. Podés cancelar expresamente ese cambio para continuar con precio o cantidad. No preparé cambios.'),unsupportedLogistics:true};
+ }
+ if(state.unresolvedValues.length)return answer('Conservo los demás datos. Indicá de forma afirmativa '+state.unresolvedValues.map(key=>commercialValueLabels[key]||key).join(' y ')+' que corresponde; no usaré el valor negado.');
  const correctedKeys={product:'product',customer:'customer',number:'order',list:'list'};
  const rejected=negatedReferences(text).filter(key=>!(key==='vendor'&&supplierIntent.replacement)&&!correctedKeys[key]),unresolved=new Set(state.unresolvedReferences||[]);
  for(const key of Object.keys(parsed.refs))if(!rejected.includes(key))unresolved.delete(key);

@@ -18,7 +18,7 @@ function fixture(t,orderJourney=false){
  };
  if(orderJourney){data.ventas=[{numero:"000123",clienteCodigo:"C1",clienteTienda:"01",moneda:{codigo:"2",descripcion:"DOLAR"}}];Object.assign(data.itemsVentas[0],{unidadMedida:"UN",cantidadAtendida:"0",producto:{codigo:"Z100",nombre:"TERMINADO",unidadMedida:"UN"}});}
  const calls=[],prepared=[],authorized=[];
- const metadata={entities:Object.fromEntries(Object.keys(data).map(k=>[k,{fields:[{salida:'precio',diccionario:{X3_DECIMAL:6}},{salida:'precioUnitario',diccionario:{X3_DECIMAL:6}},{salida:'numero',diccionario:{X3_TAMANHO:6}},{salida:'item',diccionario:{X3_TAMANHO:2}}]}]))};
+ const metadata={entities:Object.fromEntries(Object.keys(data).map(k=>[k,{...(['depositos','condicionesPago'].includes(k)?{filters:{q:'búsqueda por código o nombre'}}:{}),fields:[{salida:'precio',diccionario:{X3_DECIMAL:6}},{salida:'precioUnitario',diccionario:{X3_DECIMAL:6}},{salida:'numero',diccionario:{X3_TAMANHO:6}},{salida:'item',diccionario:{X3_TAMANHO:2}}]}]))};
  let timeoutOnce=false;
  let denied,planDenied=false,modelCalls=0,pageSize=100,failRecord;
  const read=async(resource,params)=>{
