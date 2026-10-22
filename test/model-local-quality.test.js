@@ -25,3 +25,29 @@ test('local output is validated without fixing or fabricating failed model decis
  let calls=0;const local=createModel({fetchImpl:async()=>{calls++;return {ok:true,json:async()=>({done:true,message:{content:JSON.stringify({action:'SQL',args:{},answer:'OK'})}})};}});
  await assert.rejects(local.complete([{role:'user',content:'Otra pregunta'}],evaluationSchema,limits),{code:'IA_RESPUESTA_INVALIDA'});assert.equal(calls,1);
 });
+test('long decision history reaches the local model intact with its corrections and negations',async()=>{
+ const history=Array.from({length:100},(_,i)=>({role:i%2?'assistant':'user',content:`Turno sintético ${i}: conservar contexto.`}));
+ const messages=[{role:'system',content:'Las fuentes y permisos se verifican en servidor.'},...history,{role:'user',content:'No es el proveedor anterior. Corregí sólo la cantidad.'}];
+ let request;
+ const decision={action:'responder',args:{},answer:'Indicá el proveedor.'};
+ const local=createModel({fetchImpl:async(_url,options)=>{request=JSON.parse(options.body);return {ok:true,json:async()=>({done:true,message:{content:JSON.stringify(decision)}})};}});
+ assert.deepEqual(await local.complete(messages,evaluationSchema,{...limits,maxInputChars:24000}),decision);
+ assert.deepEqual(request.messages.slice(1),messages.slice(1));
+ assert.deepEqual(request.messages.at(-1),messages.at(-1));
+ assert.ok(request.messages[0].content.startsWith(messages[0].content));
+ assert.equal(request.options.num_ctx,8192);assert.equal(request.options.num_predict,limits.maxOutputTokens);
+});
+test('full long history and guide count against input budget without dropping turns',async()=>{
+ const messages=Array.from({length:10},(_,i)=>({role:i%2?'user':'assistant',content:'Contexto sintético.'}));
+ const expanded=localDecisionMessages(messages,evaluationSchema),before=structuredClone(messages);
+ const justBelow=JSON.stringify({messages:expanded,schema:evaluationSchema}).length-1;
+ let calls=0;const local=createModel({fetchImpl:async()=>{calls++;throw Error('must not send');}});
+ await assert.rejects(local.complete(messages,evaluationSchema,{...limits,maxInputChars:justBelow}),{code:'IA_CONTEXTO_EXCEDIDO'});
+ assert.equal(calls,0);assert.deepEqual(messages,before);
+});
+test('invalid extracted fields are rejected rather than coerced or removed',async()=>{
+ for(const args of [{precio:2.5},{producto:'Z-SINTETICO',sql:'SELECT 1'}]){
+  const local=createModel({fetchImpl:async()=>({ok:true,json:async()=>({done:true,message:{content:JSON.stringify({action:'preparar_cambio',args,answer:'Propuesta ficticia.'})}})})});
+  await assert.rejects(local.complete([{role:'user',content:'Prepará una propuesta ficticia.'}],evaluationSchema,limits),{code:'IA_RESPUESTA_INVALIDA'});
+ }
+});

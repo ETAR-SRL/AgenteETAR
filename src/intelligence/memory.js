@@ -4,6 +4,30 @@ const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 const stop=new Set('para como este esta esto ese esa esos esas del las los una uno que con por del me te lo el la de en un al y o ya ahora antes quiero podes favor mismo misma'.split(' '));
 const terms=text=>new Set((normalize(text).match(/[a-z0-9_./-]+/g)||[]).filter(w=>w.length>2&&!stop.has(w)));
 function saved(message){try{return JSON.parse(message.content);}catch{return {};}}
+const fromBeginning=text=>/\b(?:al principio|al comienzo|al arranque|(?:la |el )?primer(?:a|o)? (?:consulta|producto|pedido|cliente|proveedor|solicitud|lista)|(?:producto|pedido|cliente|proveedor|solicitud|lista) (?:de |del )?(?:la )?primera consulta)\b/.test(normalize(text));
+const correcting=text=>/^(?:no\b|perdon\b|correccion\b|mejor\b|en realidad\b|ese\b|esa\b|eso\b|descarta(?:lo)?\b|olvida(?:lo)?\b)/.test(normalize(text).trim());
+// A historical identity is a search reference, never a current ERP value or
+// permission. Only a unique SB1 identity actually returned in this scope qualifies.
+export function firstProductReference(conversation,text,branch,{singleBranch=false}={}){
+ if(!fromBeginning(text)||normalize(text).match(/\b(producto|pedido|cliente|proveedor|solicitud|lista)\b/)?.[1]!=='producto')return null;
+ const request=normalize(text);
+ if(/\bno\s+(?:(?:es|era|fue|uses|usar|quiero|el|al|ese|este)\s+)*(?:primer(?:o|a)?|principio|comienzo|arranque)\b|\b(?:descarta|descartalo|olvida|olvidalo)\b[^.!?]*\bprimer/.test(request))return null;
+ const turns=[];
+ for(let i=0;i<conversation.messages.length;i++){
+  const user=conversation.messages[i];if(user.role!=='user')continue;
+  const reply=conversation.messages[i+1]?.role==='assistant'?saved(conversation.messages[i+1]):{};
+  const scope=user.sucursal||reply.sucursal;
+  if(scope===branch||scope===undefined&&singleBranch)turns.push({user,reply});
+ }
+ const index=turns.findIndex(t=>/\bproducto\b/.test(normalize(t.user.content)));if(index<0)return null;
+ const matches=(turns[index].reply.evidence||[]).flatMap(e=>e.args?.recurso==='productos'?(e.identities||[]):e.action==='precio_venta'?(e.identities||[]).map(row=>({codigo:row.productoCodigo})):[]);
+ const codes=[...new Set(matches.map(row=>row.codigo).filter(code=>typeof code==='string'&&/^[a-z0-9_./-]{1,120}$/i.test(code)))];
+ if(codes.length!==1)return null;
+ const code=codes[0];
+ if(turns.slice(index+1,index+4).some(t=>correcting(t.user.content)))return null;
+ if(turns.slice(index+1).some(t=>normalize(t.user.content).includes(normalize(code))&&/\b(?:no|descarta|descartalo|correccion|perdon|reemplaza|cambia)\b/.test(normalize(t.user.content))))return null;
+ return {kind:'product',code,source:'verified_historical_SB1_identity',currentValuesVerified:false};
+}
 // History is durable; only the model view is bounded. No summarizer/model call.
 export function conversationContext(conversation,text,branch,{singleBranch=false,budget=12000}={}){
  const turns=[];
@@ -13,19 +37,42 @@ export function conversationContext(conversation,text,branch,{singleBranch=false
   const reply=assistant?saved(assistant):{};
   const scope=message.sucursal||reply.sucursal;
   if(scope!==branch&&!(scope===undefined&&singleBranch))continue;
-  const concise={answer:String(reply.answer||assistant?.content||'').slice(0,500),sucursal:scope,priceBase:reply.priceBase,evidence:reply.evidence};
+  const concise={answer:String(reply.answer||assistant?.content||'').slice(0,500),sucursal:scope,historyTurn:turns.length+1,priceBase:reply.priceBase,evidence:reply.evidence};
   // Large old tables cannot monopolize the context window.
   if(JSON.stringify(concise).length>2400)concise.evidence=(reply.evidence||[]).map(e=>({action:e.action,args:e.args,identities:e.identities?.slice?.(0,2)}));
   const messages=[{role:'user',content:message.content},...(assistant?[{role:'assistant',content:JSON.stringify(concise).slice(0,3000)}]:[])];
   turns.push({index:i,messages,words:terms(message.content+' '+JSON.stringify(concise)),size:messages.reduce((n,m)=>n+m.content.length,0)});
  }
- const selected=new Map();let used=0;
+ const selected=new Map(),positions=new Map(turns.map((turn,index)=>[turn.index,index]));let used=0;
  const add=t=>{if(!t||selected.has(t.index)||used+t.size>budget)return;selected.set(t.index,t);used+=t.size;};
+ const addContext=t=>{
+  if(!t)return;
+  const group=[t],position=positions.get(t.index);
+  // Keep adjacent corrections with their reference, including «no, ese no»
+  // that contains none of the original code/name's search terms.
+  for(let j=position+1;j<Math.min(turns.length,position+4);j++){
+   const next=turns[j];
+   if(!correcting(next.messages[0].content))break;
+   group.push(next);
+  }
+  if(used+group.filter(item=>!selected.has(item.index)).reduce((size,item)=>size+item.size,0)>budget)return;
+  for(const item of group)add(item);
+ };
+ // An explicit reference to the beginning must not compete only by recency.
+ // Restrict it to the requested subject and the already authorized branch.
+ const normalized=normalize(text),fromStart=fromBeginning(text);
+ const subject=fromStart&&normalized.match(/\b(producto|pedido|cliente|proveedor|solicitud|lista)\b/)?.[1];
+ const initial=fromStart?turns.find(t=>!subject||new RegExp('\\b'+subject+'\\b').test(normalize(t.messages[0].content))):null;
+ addContext(initial);
  // Reserve half for recent dialog, half for relevant older exchanges.
- for(const t of turns.slice().reverse()){if(used+t.size>budget/2)break;add(t);}
- const query=terms(text),anchors=terms(turns.at(-1)?.messages[0]?.content||'');
- const ranked=turns.map(t=>({...t,score:[...query].reduce((n,w)=>n+(t.words.has(w)?(/\d/.test(w)?8:3):0),0)+[...anchors].reduce((n,w)=>n+(t.words.has(w)?0.25:0),0)})).filter(t=>t.score>0).sort((a,b)=>b.score-a.score||b.index-a.index);
- for(const t of ranked)add(t);
+ if(!initial)for(const t of turns.slice().reverse()){if(used+t.size>budget/2)break;add(t);}
+ const query=terms(text+' '+(initial?.messages[0]?.content||'')),anchors=terms(turns.at(-1)?.messages[0]?.content||'');
+ const frequency=new Map();for(const t of turns)for(const word of t.words)if(query.has(word))frequency.set(word,(frequency.get(word)||0)+1);
+ const initialAnchors=initial?[...terms(initial.messages[0].content)].filter(word=>(frequency.get(word)||0)<=Math.max(1,turns.length/4)):[];
+ // Rare references outrank repeated conversational words in a long thread.
+ const weight=word=>(/\d/.test(word)?8:3)*(1+Math.log2((turns.length+1)/((frequency.get(word)||0)+1)));
+ const ranked=turns.map(t=>({turn:t,score:[...query].reduce((n,w)=>n+(t.words.has(w)?weight(w):0),0)+[...anchors].reduce((n,w)=>n+(t.words.has(w)?0.25:0),0)})).filter(t=>t.score>0&&(!initialAnchors.length||initialAnchors.some(word=>t.turn.words.has(word)))).sort((a,b)=>b.score-a.score||b.turn.index-a.turn.index);
+ for(const t of ranked)addContext(t.turn);
  return [...selected.values()].sort((a,b)=>a.index-b.index).flatMap(t=>t.messages);
 }
 export class Memory{

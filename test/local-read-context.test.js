@@ -2,18 +2,34 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Store} from '../src/store.js';
 import {createIntelligence} from '../src/intelligence/agent.js';
-import {localReadOnlyTurn,localReadDecisionSchema,localReadSystem} from '../src/intelligence/local-read-context.js';
+import {localReadOnlyTurn,localReadDecisionSchema,localReadSystem,localReadFocus} from '../src/intelligence/local-read-context.js';
 
 test('local consultation narrows only the decision contract and keeps proposal requests intact',()=>{
  assert.equal(localReadOnlyTurn('Del que vimos, cuánto cobramos; no cambies nada',true),true);
  assert.equal(localReadOnlyTurn('Prepará un cambio pero no cambies nada todavía',true),false);
  assert.equal(localReadOnlyTurn('Armame una propuesta, sin modificar',true),false);
  assert.equal(localReadOnlyTurn('Cambiá el precio',true),false);
+ assert.equal(localReadOnlyTurn('Volvamos al primer producto: ¿a cuánto lo vendemos hoy?',true),true);
+ assert.equal(localReadOnlyTurn('Mostrame una propuesta y cambiá el precio',true),false);
+ assert.equal(localReadOnlyTurn('Decime cómo ejecutar el cambio y confirmá el pedido',true),false);
+ assert.equal(localReadOnlyTurn('Decime cuánto sale y cambialo a 60',true),false);
+ assert.equal(localReadOnlyTurn('Mostrame el precio y actualizalo',true),false);
  assert.equal(localReadOnlyTurn('Un informe',false),true);
  assert.equal(localReadOnlyTurn('Recordá que a este código lo llamamos rotor',false),false);
  const schema={type:'object',properties:{action:{enum:['buscar','preparar_cambio','precio_venta','responder']},args:{properties:{producto:{type:'string'},precio:{type:'string'},cabecera:{type:'object'}},additionalProperties:false},answer:{type:'string'}},required:['action','args','answer'],additionalProperties:false};
  const read=localReadDecisionSchema(schema);assert.deepEqual(read.properties.action.enum,['buscar','precio_venta','responder']);assert.deepEqual(Object.keys(read.properties.args.properties),['producto']);assert.equal(read.properties.args.additionalProperties,false);assert.deepEqual(read.required,schema.required);assert.ok(schema.properties.args.properties.precio);
+ const price=localReadDecisionSchema({...schema,properties:{...schema.properties,args:{...schema.properties.args,properties:{producto:{type:'string'},cliente:{type:'string'},lista:{type:'string'}}}}},{priceProductOnly:true});
+ assert.deepEqual(price.properties.action.enum,['precio_venta','responder']);assert.deepEqual(Object.keys(price.properties.args.properties),['producto']);
  assert.ok(localReadSystem({branch:'TEST',date:'2026-10-22',entities:{productos:{}}}).length<3600);
+});
+
+test('price-only read context omits unrelated catalog metadata but preserves current price filters',()=>{
+ assert.equal(localReadFocus('Decime cuánto le cobramos hoy; sólo lectura'),'prices');
+ for(const text of ['Precio y costos del producto','Mostrame ventas y precios','Sus pedidos pendientes','Cuánto stock tenemos'])assert.equal(localReadFocus(text),null);
+ const entities={productos:{filters:{codigo:{}}},preciosClientes:{filters:{producto:{},lista:{},moneda:{}}},costos:{filters:{producto:{},deposito:{}}}};
+ const full=localReadSystem({branch:'0101',date:'2026-10-22',entities});
+ const focused=localReadSystem({branch:'0101',date:'2026-10-22',entities,focus:'prices'});
+ assert.match(full,/"costos":/);assert.doesNotMatch(focused,/"costos":/);assert.match(focused,/"filters":\["producto","lista","moneda"\]/);
 });
 
 test('full assistant uses a bounded read prompt with verified conversation identity and fresh tool result',async t=>{

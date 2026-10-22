@@ -79,7 +79,7 @@ test('schema validator enforces nested types, maps, arrays, required and forbids
 });
 test('local transport validates the same decision contract and honors explicit output budget',async()=>{
  let body;const local=createModel({fetchImpl:async(_url,opts)=>{body=JSON.parse(opts.body);return {ok:true,json:async()=>({done:true,message:{content:JSON.stringify({action:'responder',args:{},answer:'OK'})}})};}});
- assert.equal((await local.complete([],schema,{maxInputChars:2000,maxOutputTokens:500,timeoutMs:1000})).answer,'OK');assert.equal(body.options.num_predict,500);
+ assert.equal((await local.complete([],schema,{maxInputChars:3000,maxOutputTokens:500,timeoutMs:1000})).answer,'OK');assert.equal(body.options.num_predict,500);
  const bad=createModel({fetchImpl:async()=>({ok:true,json:async()=>({message:{content:JSON.stringify({action:'executeSQL'})}})})});await assert.rejects(bad.complete([],schema),{code:'IA_RESPUESTA_INVALIDA'});
 });
 test('failure circuit caps backoff, does not probe in status and recovers only on an explicit inference',async t=>{

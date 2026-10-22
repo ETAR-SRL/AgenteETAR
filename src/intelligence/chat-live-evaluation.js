@@ -12,7 +12,7 @@ export async function createChatEvaluationHarness({erp,model,branch='0101'}={}){
  if(erp?.writes?.enabled)throw Error('EVALUATION_WRITER_ENABLED');
  if(model?.local===false)throw Error('EVALUATION_LOCAL_MODEL_REQUIRED');
  const store=new Store(':memory:'),access=new Access(store,[branch]),counts={erpReads:0,executionCalls:0,modelCalls:0,inputChars:0,inputTokens:0,outputTokens:0};
- let server,inferenceBudget;
+ let server,inferenceBudget,decisionObserver;
  try{
   const password=randomBytes(24).toString('hex'),admin=await access.setup({username:'evaladmin',name:'Evaluación aislada',password});
   const users={};
@@ -25,7 +25,7 @@ export async function createChatEvaluationHarness({erp,model,branch='0101'}={}){
   const local={...model,local:true,complete:async(...args)=>{
    if(inferenceBudget){const remaining=Math.floor(inferenceBudget.deadline-performance.now());if(inferenceBudget.calls>=inferenceBudget.maxCalls||remaining<1000)throw Object.assign(Error('Evaluation inference budget exhausted'),{code:'IA_EVALUATION_BUDGET'});inferenceBudget.calls++;args[2]={...defaultLimits,...args[2],timeoutMs:Math.min(args[2]?.timeoutMs||60000,remaining)};}
    const usage=args[3];args[3]=event=>{for(const key of ['inputTokens','outputTokens'])if(Number.isSafeInteger(event[key])&&event[key]>=0)counts[key]+=event[key];usage?.(event);};
-   counts.modelCalls++;counts.inputChars+=JSON.stringify(args[0]).length;return model.complete(...args);
+   counts.modelCalls++;counts.inputChars+=JSON.stringify(args[0]).length;const value=await model.complete(...args);decisionObserver?.(value,args[0]);return value;
   }};
   // None of these four cases needs KAIQEN. Never connect an unused source.
   const kaiqen={};
@@ -39,6 +39,7 @@ export async function createChatEvaluationHarness({erp,model,branch='0101'}={}){
    return {status:response.status,data:await response.json()};
   };
   return {store,access,admin,users,counts,request,branch,
+   observeDecisions:callback=>{decisionObserver=callback;},
    chat:(text,conversationId,user)=>request('/api/agent/chat',{user,body:{text,...(conversationId?{conversationId}:{}),context:{sucursal:branch}}}),
    conversation:id=>{const row=store.db.prepare('SELECT body FROM conversations WHERE id=?').get(id);return row?JSON.parse(row.body):null;},
    revoke:()=>access.saveRole(admin.principal,{name:'Evaluación revocada',permissions:[],branches:[branch]},users.operator.roleId),

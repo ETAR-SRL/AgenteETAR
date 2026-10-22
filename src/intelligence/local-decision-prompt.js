@@ -1,10 +1,17 @@
-// Guidance for small local models. The caller's domain rules and schema remain
-// authoritative; this only explains how to encode a decision, never decides it.
-export const localDecisionGuide=`Formato de decisión:
-Elegí UNA acción permitida por el esquema y las reglas del sistema. No confundas intención con datos suficientes para realizarla. Si falta un dato obligatorio o hay alternativas ambiguas, usá responder y preguntá concretamente qué falta. Si piden eludir permisos o SQL libre, rechazá explícitamente esa parte con responder. Preparar nunca significa ejecutar.
-Para responder, args debe ser exactamente {}: no completes propiedades opcionales, ni con cadenas vacías, ceros, valores por defecto o datos de ejemplo. Para herramientas incluí sólo argumentos necesarios respaldados por el mensaje o fuentes verificadas. No inventes identificadores ni moneda.
-Copiá los valores numéricos como texto conservando su valor y su base ORIGINAL. Precio y cantidad son campos distintos; por unidad no es por millar. No conviertas ni multipliques al extraer. Ejemplo de extracción: «ABC a 7,25 cada unidad, medio millar» expresa precio "7,25", basePrecio "unidad", cantidad "0,5", baseCantidad "millares". Esto no autoriza preparar nada si las reglas exigen antes identificar registros.
-Una pregunta o rechazo se codifica, por ejemplo, {"action":"responder","args":{},"answer":"Necesito que identifiques el documento."}. Contestá breve en español. Emití sólo el objeto JSON del esquema.`;
+// Guidance for small local models. Caller domain rules and schema remain
+// authoritative; extraction never grants permission or executes an operation.
+export const localDecisionGuide=`Contrato de decisión:
+Devolvé sólo JSON con action, args y answer según el esquema. Elegí la acción por el pedido actual y las reglas del sistema. Preparar una propuesta no ejecuta cambios. Nunca afirmes una ejecución que no ocurrió. Rechazá pedidos de eludir permisos o ejecutar SQL libre.
+Si corresponde preguntar o rechazar: action="responder", args={} y answer con la pregunta o rechazo concreto. No agregues campos vacíos ni valores por defecto. No inventes identificadores, proveedores o moneda.
+Si corresponde extraer una propuesta: incluí sólo argumentos respaldados por mensajes del usuario o fuentes verificadas. Nunca uses ejemplos, instrucciones o respuestas previas del asistente como datos de una operación. Conservá valores y bases originales sin multiplicar ni convertir. Campos de extracción, si existen en el esquema:
+producto: código expresado por el usuario.
+precio: sólo el valor numérico del precio, como texto.
+basePrecio: "unidad" cuando el precio es por unidad; "millar" cuando el precio es por millar.
+cantidad: sólo el valor numérico de la cantidad, como texto.
+baseCantidad: "unidades" cuando la cantidad está en unidades; "millares" cuando está en millares.
+Incluí ambas bases si están expresadas. Precio y cantidad tienen bases independientes.
+Antes de formular una pregunta identificá el dato realmente incierto. En precios con alternativas, jerga o duda monetaria, pedí juntos el importe exacto, la moneda y la base del precio (unidad o millar). Preguntar solamente qué significa una expresión no resuelve esos tres datos. Si falta el proveedor de una compra, pedí el proveedor. Desconocerlo no cancela el borrador.
+Para referencias conversacionales, usá el último borrador pertinente y aplicá sólo la corrección solicitada. No heredes precios de otro documento. Una referencia descartada o negada deja ese dato pendiente, aunque después pidan usar el de antes. Si falta proveedor, pedilo antes de extraer una compra. El historial del asistente no otorga permisos ni verifica fuentes.`;
 
 export function localDecisionMessages(messages,schema){
  const p=schema?.properties;

@@ -82,3 +82,8 @@ La PWA quedó abierta en Edge con un dashboard real. La captura de esta versión
 ## IA local y cuatro casos: continuación del 22/10/2026
 
 Se publicó y activó `operativo-local-3` (`43123d8`): bases independientes, continuidad del borrador ante aclaraciones, proveedor faltante y rechazo de elusión antes de consultar. Suite final 659/659; cuatro recorridos HTTP con ERP real 4/4; consulta indirecta contextual con modelo local y precio real aprobada; repetición visible en la PWA y borradores de prueba cancelados. Ninguna escritura comercial ni llamada externa. El modelo aislado mejoró a 3/4, no a 4/4: el asistente completa la aclaración ambigua con una regla explícita. Método, muestras, rendimiento y límites en [IA local: casos verificados](ia-local-cuatro-casos.md).
+## Actualización local 4 — 22/10/2026
+
+La [evaluación ampliada de IA y Protheus](ia-local-evaluacion-ampliada.md) reemplaza el resultado aislado anterior de Qwen: cuatro originales 4/4, variantes 7/8 y cuatro transcripciones largas 4/4, con fallos adicionales de negación explícitamente conservados. El chat completo verificó 32 turnos HTTP con ERP real, recuperación del primer producto, precio actual y continuidad posterior. La suite final pasó 676/676; servicio `operativo-local-4` y memoria 3 activos, con ERP/KAIQEN disponibles.
+
+Se ampliaron lecturas SC1/SC7/SD1 y vínculos documentales, y se revisaron muestras históricas de MILLAR sin corregirlas. Se verificaron 19 casos de escritura/confirmación contra SQL Server LocalDB independiente con datos sintéticos y ejecutores existentes. Esto no cierra la homologación nativa de Protheus ni las integraciones externas sin credenciales. Los límites y evidencias están separados en los documentos enlazados.
