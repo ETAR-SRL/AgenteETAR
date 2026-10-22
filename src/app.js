@@ -1,4 +1,5 @@
 import {createAttention} from './attention.js';
+import {installationIdentity} from './installation-identity.js';
 import {createInvestigationJobs} from './investigation-jobs.js';
 import {CorporateDocuments} from './corporate-documents.js';
 import {createCorporateDocumentExtractor} from './corporate-document-extract.js';
@@ -312,7 +313,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         if(alert&&req.method==='POST'&&alert[2])return send(res,200,await attention.act(alert[1],await body(req)));
         throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
       }
-      if(req.method==='GET'&&url.pathname==='/api/agent/status')return send(res,200,await intelligence.status());
+      if(req.method==='GET'&&url.pathname==='/api/agent/status')return send(res,200,{...await intelligence.status(),installation:installationIdentity});
       if(req.method==='POST'&&url.pathname==='/api/agent/chat')return send(res,200,await intelligence.query(principal.actor,await body(req),{canPlan:['planner','writer'].includes(principal.role),allowedBranches:principal.branches||branches}));
       if(url.pathname==='/api/agent/knowledge'){
         if(req.method==='GET')return send(res,200,{data:intelligence.memory.list(principal.actor)});

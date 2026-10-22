@@ -1,72 +1,50 @@
 # Inicio al encender Windows
 
-## Instalador BAT: servicio nativo de Windows
+Para instalar dependencias, IA local, voz y verificar el arranque en otra máquina, seguir [Instalación en otro servidor](instalacion-otro-servidor.md). **Instalar-servicio.bat** sin opciones ejecuta ese recorrido completo. La vista previa no instala componentes.
 
-Con la aplicación ya configurada, abrir **Instalar-servicio.bat** en la carpeta raíz. Pide elevación de Windows una sola vez si hace falta. Instala y arranca el servicio **CentralETAR**, visible como **Central ETAR** en `services.msc`, con inicio automático diferido y cuenta **LOCAL SERVICE**. Funciona antes de iniciar sesión. La PC debe permanecer encendida; no modifica suspensión, VPN, firewall ni certificados.
+## Administración SCM de una instalación preparada
 
-Requisitos: Windows 8 / Server 2012 o posterior con .NET Framework 4.x y su compilador local, Node **>=24.16.0 y <25**, `.env` y las dependencias instaladas con `npm ci`. Se puede usar Node del sistema o el runtime portable existente en `data/node-runtime/node.exe`; no descarga runtimes ni ejecutables de terceros. Compila el pequeño host versionado en `scripts/windows-service-host.cs` y guarda el ejecutable generado en `data/service-runtime`, excluido de Git. El ejecutable generado localmente no tiene firma Authenticode; una política empresarial que exija firmas requiere la firma aprobada por la organización.
+El script de bajo nivel `scripts/instalar-servicio-windows.ps1` registra **CentralETAR** bajo **LOCAL SERVICE**, con arranque automático diferido y recuperación. Requiere Windows x64, Windows 10 / Server 2016 o posterior, compilador .NET Framework 4.x, Node >=24.16.0 y <25, `.env` y dependencias ya preparadas. No descarga componentes: esa función corresponde al instalador completo invocado por el BAT.
 
-Para revisar la configuración sin elevar permisos, registrar servicios, cambiar tareas ni iniciar procesos de la app:
+Compila `scripts/windows-service-host.cs` a `data/service-runtime`. El ejecutable generado no tiene firma Authenticode; las políticas empresariales que exijan firma requieren la aprobación y firma de la organización. El host queda sin permisos de escritura para LOCAL SERVICE. El código, configuración, Node y Python reciben lectura/ejecución, y `data` permite los datos operativos. Las rutas padre reciben acceso limitado sin propagar permisos a archivos ajenos.
 
 ```bat
 Instalar-servicio.bat --preview
 ```
 
-También acepta `--check` y `--dry-run`. La comprobación valida Node, dependencias, los módulos locales alcanzados por imports literales del servidor/supervisor, los recursos de la página y del caché PWA, el mapping configurado y la presencia de los archivos TLS requeridos. Informa versiones del paquete, agente y PWA, módulos npm, recursos públicos y preparación de voz, sin mostrar `.env`. Es una comprobación estática de archivos y paquetes; no verifica imports calculados, conectividad al ERP, validez del certificado ni ejecuta operaciones comerciales. Las rutas con espacios y caracteres Unicode se pasan entre comillas; el directorio de trabajo queda fijado a la instalación, independientemente de la carpeta desde donde se abra el BAT.
+`--check` y `--dry-run` son alias. La comprobación estática valida Node, dependencias, imports literales, recursos PWA, mapping y archivos TLS, e informa versiones y preparación de voz sin mostrar secretos. No registra servicios, abre conexiones al ERP ni prueba por sí sola una inferencia. En el recorrido completo, IA y voz deben estar preparadas y pasar las pruebas reales para declarar éxito; el script de bajo nivel permite omitirlas para administración.
 
-### Preparar otro Windows Server
+El supervisor `scripts/auto-start.mjs` inicia servidor y Ollama y reintenta con espera de 30 segundos a cinco minutos. Windows reintenta el host hasta tres veces con 60 segundos entre intentos. Una caída del host cierra su árbol de procesos. No depende de que ERP esté disponible al encender Windows. La PC debe permanecer encendida; no configura suspensión, VPN ni inicio de sesión. Los archivos y modelos deben estar locales.
 
-1. Copiar una revisión completa y actual de la aplicación, incluyendo `Instalar-servicio.bat`, `scripts`, `src`, `public`, `config`, `package.json` y `package-lock.json`. Conservar juntos los archivos de esa revisión; una copia parcial puede perder módulos nuevos o recursos de voz.
-2. Preparar Node compatible y .NET Framework en el servidor y ejecutar `npm ci` en la carpeta nueva. El BAT verifica estos requisitos; no descarga ni instala runtimes automáticamente.
-3. Guardar una copia de seguridad local protegida de `.env`, configuración privada, certificados y claves TLS, y datos que se deban migrar, antes de reemplazarlos. Transferirlos por un medio seguro y ajustar sus rutas para el nuevo servidor. Git y el paquete de fuentes no contienen `.env`, bases, modelos ni runtimes. Para conservar usuarios, permisos y memoria, migrar la base y sus archivos asociados mediante una copia coherente durante mantenimiento; no copiar SQLite activo como archivos independientes.
-4. Ejecutar `Instalar-servicio.bat --preview` desde la carpeta nueva y revisar todas las versiones y advertencias. Corregir requisitos ausentes antes de instalar. La voz es opcional: su ausencia se informa y no bloquea el servicio.
-5. Ejecutar el BAT y verificar el servicio y el acceso HTTPS habitual con una cuenta personal. En una instalación previa, aplicar primero la migración durante mantenimiento descrita más abajo. La vista previa nunca instala ni activa el servicio.
+### Migrar desde la tarea programada en la misma PC
 
-El dictado graba con `MediaRecorder` en un navegador compatible y transcribe en este servidor mediante `.venv-voice/Scripts/python.exe`, `faster-whisper`, PyAV y el modelo local `data/models/whisper-base` (`model.bin`, `config.json`, `tokenizer.json`, `vocabulary.txt`). PyAV incorpora las bibliotecas FFmpeg usadas para decodificar; este transcriptor no necesita un `ffmpeg.exe` separado. No basta copiar un entorno virtual entre servidores: recrearlo con Python compatible y paquetes locales aprobados si sus rutas originales ya no existen. El instalador sólo consulta versiones presentes; no descarga paquetes/modelos ni envía audio a servicios externos. Un resultado de voz preparado confirma archivos y metadatos de paquetes, y requiere probar un dictado real bajo la cuenta del servicio para verificar carga del modelo y permisos.
+El instalador completo rechaza modificar una instalación activa. Para preparar únicamente SCM, manteniendo la tarea anterior, usar el script de bajo nivel:
 
-En LAN el micrófono necesita HTTPS confiable, permiso del navegador y acceso personal; HTTP se admite sólo en loopback. Un micrófono visible no garantiza que el servidor tenga instalado el transcriptor. Sin Python, paquetes o modelo, se puede usar texto y el dictado local queda indisponible. Los modelos de IA y la voz no son requisitos para registrar/arrancar el servicio; sus funciones permanecen limitadas hasta preparar esos componentes locales.
-
-El servicio usa el mismo supervisor `scripts/auto-start.mjs`. Concede lectura al código, configuración, Node y entornos Python, y escritura en `data`; el host compilado recibe sólo lectura/ejecución para LOCAL SERVICE. Conserva los permisos personales de la app y los certificados. Reinicia los procesos terminados con espera de 30 segundos a cinco minutos; Windows reintenta el host hasta tres veces, con 60 segundos entre intentos y contador restablecido cada 24 horas. Una caída del host cierra su árbol completo de procesos antes del reintento. No depende de que el ERP esté disponible al encender la PC.
-
-El comando de instalación se puede repetir: si la misma versión ya está ejecutándose en esa ruta y cuenta, informa su estado sin reiniciarla. Una ruta, runtime o versión diferente exige mantenimiento. Si se usa OneDrive, marcar toda la carpeta y los modelos como **Mantener siempre en este dispositivo**; los archivos sólo en la nube y una VPN que exige sesión personal no estarán disponibles al arrancar Windows.
-
-### Migrar una instalación que ya usa la tarea programada
-
-El BAT detecta la tarea anterior y el supervisor/servidor activo y **rechaza interrumpirlos**. Comprobar SQLite y detener inmediatamente seguiría dejando una carrera con nuevas operaciones comerciales. Para preparar el servicio manteniendo la aplicación actual en marcha:
-
-```bat
-Instalar-servicio.bat --install-only
+```powershell
+.\scripts\instalar-servicio-windows.ps1 -InstallOnly
 ```
 
-Registra CentralETAR **detenido y en inicio manual**; conserva el estado de la tarea anterior. No activa el servicio ni realiza la migración.
-
-Para migrar, coordinar una ventana sin operaciones ni escalamiento activo. Desde PowerShell como administrador, comprobar que la acción de la tarea corresponde a esta carpeta antes de detenerla:
+Registra el servicio **detenido y manual** y conserva la tarea. Durante mantenimiento, después de terminar las operaciones y escalamiento, verificar que las acciones de la tarea correspondan a esta carpeta, detenerla y confirmar que terminaron supervisor y servidor. Luego ejecutar el BAT completo. No detener procesos por PID sin validar su identidad.
 
 ```powershell
 Get-ScheduledTask -TaskName 'Central ETAR - Inicio automatico' | Select-Object -ExpandProperty Actions
-# Verificar Execute, Arguments y WorkingDirectory de ESTA instalacion.
-# Cuando no haya operaciones activas:
 Stop-ScheduledTask -TaskName 'Central ETAR - Inicio automatico'
-# Verificar que terminaron supervisor y servidor de esta instalacion.
-# Si el servidor era externo a la tarea, detenerlo por su mecanismo de mantenimiento.
 .\Instalar-servicio.bat
 ```
 
-El instalador verifica la ruta esperada, activa SCM y deshabilita la tarea anterior después de confirmar el estado Running. La conserva para una vuelta atrás manual. Si falla la activación, deja SCM en inicio manual y no deshabilita la tarea anterior; revisar el error antes de reintentar. No borra datos ni detiene procesos desde el instalador. La instalación no verifica por sí sola que el ERP o HTTPS estén disponibles: comprobar los estados y el acceso habitual al terminar.
-
-Verificación administrativa:
+La tarea anterior se deshabilita sólo después de verificar el servidor del servicio. Si falla la activación, SCM queda en inicio manual y no se deshabilita la tarea; revisar el error antes de reintentar. No se instala un segundo mecanismo sobre una instancia en ejecución.
 
 ```powershell
 Get-Service CentralETAR
 Get-CimInstance Win32_Service -Filter "Name='CentralETAR'" | Select-Object Name, State, StartMode, StartName, PathName
 sc.exe qfailure CentralETAR
-Get-Content .\data\autostart.status.json
+Get-Content .\data\installation-verification.json
 Invoke-RestMethod http://127.0.0.1:4310/health
 ```
 
-Logs: `data/service-host.log` registra inicio/parada del host sin credenciales; los logs del supervisor y de cada proceso se describen más abajo. `Stop-Service CentralETAR` termina su árbol completo: usar sólo durante mantenimiento, después de finalizar las operaciones. Para volver a la tarea, detener SCM, ponerlo en inicio manual y habilitar/iniciar la tarea anterior durante esa misma ventana. Evitar activar ambos mecanismos.
+`data/service-host.log` registra el host; `data/autostart.status.json` muestra el supervisor. El resultado de instalación no contiene claves ni transcripciones. `Stop-Service CentralETAR` termina su árbol de procesos: usar sólo durante mantenimiento sin operaciones en curso. Para volver a la tarea, detener SCM, dejarlo manual y habilitar/iniciar la tarea anterior, evitando que ambos mecanismos estén activos.
 
-La compilación y vista previa se prueban sin instalar ni detener servicios. La verificación completa de arranque al encender Windows, recuperación SCM y ejecución bajo LOCAL SERVICE requiere instalarlo durante mantenimiento y reiniciar el equipo; una vista previa correcta no significa que el servicio esté instalado.
+La compilación y las pruebas aisladas no equivalen a comprobar el reinicio completo de Windows en otro servidor. Verificar ese arranque en el destino y el acceso HTTPS de una cuenta personal.
 
 ## Mecanismo anterior: tarea programada
 

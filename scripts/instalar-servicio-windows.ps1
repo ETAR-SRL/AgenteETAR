@@ -1,4 +1,4 @@
-param([Alias('Preview')][switch]$Check, [switch]$InstallOnly, [string]$NodePath)
+param([Alias('Preview')][switch]$Check, [switch]$InstallOnly, [string]$NodePath, [switch]$RequireLocalAI, [switch]$RequireVoice)
 $ErrorActionPreference = 'Stop'
 # Un BAT abierto desde PowerShell 7 puede heredar sus modulos incompatibles con
 # Windows PowerShell 5.1. El instalador solo usa modulos incluidos en Windows.
@@ -24,7 +24,7 @@ trap {
     }
     exit 1
 }
-if ([Environment]::OSVersion.Version -lt [version]'6.2') { throw 'Se requiere Windows 8 / Server 2012 o posterior.' }
+if ([Environment]::OSVersion.Version -lt [version]'10.0') { throw 'Se requiere Windows 10 / Server 2016 o posterior para Node 24.' }
 foreach ($relative in @('.env', 'package.json', 'package-lock.json', 'scripts/auto-start.mjs', 'src/server.js', 'src/service-supervisor.js', 'scripts/windows-service-host.cs', 'scripts/service-path-access.ps1')) {
     if (-not (Test-Path -LiteralPath (Join-Path $root $relative) -PathType Leaf)) { throw "Falta un archivo necesario: $relative" }
 }
@@ -145,6 +145,8 @@ $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     $arguments = '-NoProfile -ExecutionPolicy Bypass -File "' + $PSCommandPath + '" -NodePath "' + $node + '"'
     if ($InstallOnly) { $arguments += ' -InstallOnly' }
+    if ($RequireLocalAI) { $arguments += ' -RequireLocalAI' }
+    if ($RequireVoice) { $arguments += ' -RequireVoice' }
     $powershell = Join-Path $env:WINDIR 'System32/WindowsPowerShell/v1.0/powershell.exe'
     $elevated = Start-Process -FilePath $powershell -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
     if ($elevated.ExitCode -ne 0) {
@@ -156,11 +158,44 @@ if (-not ([Security.Principal.WindowsPrincipal]::new($identity)).IsInRole([Secur
     exit $elevated.ExitCode
 }
 $installerElevated = $true
+function Confirm-ServiceReadiness {
+    # La identidad HTTP debe pertenecer al arbol del host SCM actual, nunca a
+    # otro listener ya presente ni a un PID guardado por una instalacion vieja.
+    $ownedPid = $null
+    $deadline = (Get-Date).AddSeconds(60)
+    do {
+        $scm = Get-CimInstance Win32_Service -Filter "Name='CentralETAR'"
+        $pidPath = Join-Path $data 'server.pid'
+        if ($scm.State -eq 'Running' -and $scm.StartName -eq 'NT AUTHORITY\LocalService' -and $scm.ProcessId -gt 0 -and (Test-Path -LiteralPath $pidPath)) {
+            $candidate = (Get-Content -LiteralPath $pidPath -Raw).Trim()
+            if ($candidate -match '^\d+$') {
+                $ancestorId = [uint32]$candidate
+                for ($level = 0; $level -lt 5 -and $ancestorId -gt 0; $level++) {
+                    $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId=$ancestorId"
+                    if (-not $processInfo) { break }
+                    if ($ancestorId -eq $scm.ProcessId) { $ownedPid = $candidate; break }
+                    $ancestorId = $processInfo.ParentProcessId
+                }
+            }
+        }
+        if (-not $ownedPid) { Start-Sleep -Seconds 1 }
+    } while (-not $ownedPid -and (Get-Date) -lt $deadline)
+    if (-not $ownedPid) { throw 'No se pudo comprobar que el servidor pertenece a LOCAL SERVICE y al host SCM activo.' }
+    $verifyArguments = @((Join-Path $PSScriptRoot 'verificar-instalacion.mjs'), '--root', $root, '--expected-pid', $ownedPid)
+    if ($RequireLocalAI) { $verifyArguments += '--require-local-ai' }
+    if ($RequireVoice) { $verifyArguments += '--require-voice' }
+    $verification = & $node @verifyArguments
+    if ($LASTEXITCODE -ne 0) { throw 'El servicio inicio pero no supero la verificacion HTTP/version/IA/voz. Revisar los codigos de verificacion y logs en data.' }
+    # Solamente estado e identidades tecnicas, sin claves, audios ni filas ERP.
+    $verification | Set-Content -LiteralPath (Join-Path $data 'installation-verification.json') -Encoding utf8
+    Write-Output $verification
+}
 if ($existing -and $existing.State -eq 'Running') {
     if ($existing.StartName -ne 'NT AUTHORITY\LocalService' -or -not (Test-Path -LiteralPath $sourceStamp) -or (Get-Content -LiteralPath $sourceStamp -Raw).Trim() -ne $sourceHash) {
         throw 'El servicio esta activo con otra cuenta o version. Esperar el fin de operaciones y detenerlo durante mantenimiento antes de actualizar.'
     }
-    Write-Output 'CentralETAR ya esta instalado y ejecutandose como LOCAL SERVICE. No se reinicio.'
+    Confirm-ServiceReadiness
+    Write-Output 'CentralETAR ya esta instalado y verificado como LOCAL SERVICE. No se reinicio.'
     exit 0
 }
 # No cortar operaciones activas para migrar la tarea anterior al SCM.
@@ -206,7 +241,7 @@ function Grant-Parents([string]$Path) {
 }
 Grant-ServiceAccess $root '(RX)'
 Grant-Parents $root
-foreach ($file in @('.env', 'package.json')) { Grant-ServiceAccess (Join-Path $root $file) '(R)' }
+foreach ($file in @('.env', 'package.json', 'package-lock.json')) { Grant-ServiceAccess (Join-Path $root $file) '(R)' }
 foreach ($directory in @('src', 'public', 'scripts', 'config', 'node_modules', '.venv-voice', '.venv-documents')) {
     Grant-ServiceAccess (Join-Path $root $directory) '(OI)(CI)(RX)'
 }
@@ -254,6 +289,7 @@ if (-not $InstallOnly) {
         Start-Service -Name $serviceName
         $service = Get-Service -Name $serviceName
         $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
+        Confirm-ServiceReadiness
         # La tarea queda disponible para una vuelta atras manual, deshabilitada.
         if ($legacy) { Disable-ScheduledTask -TaskName $legacyName | Out-Null }
     } catch {

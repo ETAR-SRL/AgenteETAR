@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "msvc": {
+    "version": "14.44.35211.0",
+    "file": "vc_redist.x64.exe",
+    "url": "https://aka.ms/vs/17/release/14.44.35211/VC_redist.x64.exe",
+    "checksumSource": "Microsoft Authenticode signature verified before pinning; versioned official download",
+    "sha256": "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b"
+  },
+  "node": {
+    "version": "24.16.0",
+    "file": "node-v24.16.0-win-x64.zip",
+    "url": "https://nodejs.org/dist/v24.16.0/node-v24.16.0-win-x64.zip",
+    "checksumSource": "https://nodejs.org/dist/v24.16.0/SHASUMS256.txt",
+    "sha256": "edaca9bd58ec8e92037dac4e877d52f6b8f430b81c18b57e264b4e2fb111cd56"
+  },
+  "python": {
+    "version": "3.11.9",
+    "file": "python-3.11.9-amd64.zip",
+    "url": "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.zip",
+    "checksumSource": "https://www.python.org/ftp/python/3.11.9/windows-3.11.9.json",
+    "sha256": "4ba90a4ab8990891033d37ff04d2047fdae8948d0d2729a68d3a6a17c585b681"
+  },
+  "ollama": {
+    "version": "0.40.6",
+    "file": "ollama-windows-amd64.zip",
+    "url": "https://github.com/ollama/ollama/releases/download/v0.40.6/ollama-windows-amd64.zip",
+    "checksumSource": "https://github.com/ollama/ollama/releases/tag/v0.40.6",
+    "sha256": "e359637575302f288d76c0007c408a4be9c7376d59c4f28684d63b232a44b427"
+  },
+  "whisper": {
+    "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+    "files": {
+      "config.json": "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a",
+      "model.bin": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9",
+      "tokenizer.json": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+      "vocabulary.txt": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913"
+    }
+  }
+}
