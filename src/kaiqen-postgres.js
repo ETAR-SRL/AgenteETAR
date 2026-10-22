@@ -28,22 +28,42 @@ export function createKaiqenPostgres({connectionString,tenantId,caFile,pool:prov
     }catch{throw new HttpError(503,'KAIQEN_TLS_CONFIG','Revisar conexión y certificado CA local');}
   }
   const pool=providedPool||new pg.Pool({connectionString:secureUrl,ssl:{rejectUnauthorized:true,...(ca?{ca}:{})},max:3,connectionTimeoutMillis:10000,idleTimeoutMillis:30000,query_timeout:15000,application_name:'centralizador-kaiqen-readonly',types:{getTypeParser:(oid,format)=>oid===1082?value=>value:pg.types.getTypeParser(oid,format)}});
+  // pg only forwards idle-client errors to the pool. Checked-out clients can
+  // emit between queries or while being released; keep one guard per client.
+  const guards=new WeakMap();
+  function protect(client){
+    if(typeof client?.on!=='function')return null;
+    let guard=guards.get(client);
+    if(!guard){guard={broken:false,active:new Set()};guards.set(client,guard);client.on('error',()=>{guard.broken=true;for(const scope of guard.active)scope.disconnected=true;});}
+    return guard;
+  }
+  pool.on?.('connect',protect);
   pool.on?.('error',()=>{});
+  const unavailable=()=>new HttpError(503,'KAIQEN_DATABASE_UNAVAILABLE','No se pudo consultar KAIQEN');
   async function snapshot(callback){
-    let client;
+    let client,guard;const scope={disconnected:false};
+    const query=async(text,params)=>{if(scope.disconnected)throw unavailable();const result=await client.query(text,params);if(scope.disconnected)throw unavailable();return result;};
     try{
-      client=await pool.connect();
-      await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-      const check=await client.query('SHOW transaction_read_only');
+      client=await pool.connect();guard=protect(client);scope.disconnected=guard?.broken===true;guard?.active.add(scope);
+      await query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+      const check=await query('SHOW transaction_read_only');
       assert(check.rows[0]?.transaction_read_only==='on',503,'KAIQEN_READ_ONLY_REQUIRED','El origen no confirmó transacción de sólo lectura');
-      await client.query("SET LOCAL statement_timeout = '15000'");
-      await client.query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
-      return await callback(async(text,params=[])=>{
+      await query("SET LOCAL statement_timeout = '15000'");
+      await query("SELECT set_config('app.tenant_id',$1,true)",[tenantId]);
+      const result=await callback(async(text,params=[])=>{
         assert(/^SELECT\b/i.test(text.trim()),500,'QUERY_NOT_ALLOWED','Sólo consultas predefinidas');
-        return (await client.query(text,params)).rows;
+        return (await query(text,params)).rows;
       });
-    }catch(error){if(error instanceof HttpError)throw error;throw new HttpError(503,'KAIQEN_DATABASE_UNAVAILABLE','No se pudo consultar KAIQEN');}
-    finally{if(client){try{await client.query('ROLLBACK');client.release();}catch{client.release(true);}}}
+      if(scope.disconnected)throw unavailable();
+      return result;
+    }catch(error){if(error instanceof HttpError)throw error;throw unavailable();}
+    finally{if(client){
+      let failed=scope.disconnected;
+      try{if(!failed)await query('ROLLBACK');}catch{failed=true;}
+      try{client.release(failed||scope.disconnected?true:undefined);}catch{failed=true;}
+      finally{guard?.active.delete(scope);}
+      if(failed||scope.disconnected)throw unavailable();
+    }}
   }
   const envelope=(data,extra={})=>({origen:'kaiqen',source:'postgres',fetchedAt:new Date().toISOString(),data,...extra,limitaciones:[
     'Lectura directa de una sola planta; no reproduce permisos individuales de la API de KAIQEN.',

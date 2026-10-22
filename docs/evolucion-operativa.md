@@ -40,3 +40,12 @@ Distribución real: el principal realizó integración, revisión de permisos/co
 Publicación: implementación subida a `main` en `ea489da`. Complemento final: batería consultiva con los tres circuitos de atención y exposición SC7 (máximo cuatro lecturas extra), 7 pruebas del paquete aprobadas; interfaz compatible con el servidor anterior mientras se completa un reinicio administrativo. La carga de módulos ausentes no inhabilita el chat ni activa datos sustitutos.
 
 Activación verificada el 21/10/2026 a las 19:00 de Argentina: el dueño aceptó el nuevo aviso administrativo, se reinició el servidor y el supervisor registra el proceso nuevo en ejecución. `/health` devuelve 200 y `/api/agent/status` identifica `operativo-integral-1`. Los cuatro módulos nuevos de la PWA responden 200; la clave global de servicio no puede consultar investigaciones personales (403). KAIQEN registra una lectura exitosa y la IA local está disponible. Se comprobaron dos fallos de conexión ERP con reintento mientras HTTP siguió disponible: los 68 avisos ERP conservan estado unknown y no aparecieron eventos de objetivo cumplido. No hubo escrituras comerciales ni una validación nueva contra Protheus. La comprobación operativa no sustituye la revisión visual ni las validaciones externas pendientes.
+
+
+## Continuación del 22/10/2026: desconexiones de KAIQEN
+
+El diagnóstico local encontró un error PostgreSQL ECONNRESET no manejado en un cliente prestado. El pool ya tenía listener de errores de clientes ociosos; faltaba cubrir el intervalo de adquisición, consultas y devolución. Se agregó un guard permanente por cliente, sin acumular listeners ni guardar mensajes del controlador. Un error descarta la evidencia y destruye esa conexión; se conserva la transacción READ ONLY y el circuito de reintento existente. No se atrapan globalmente excepciones del proceso ni se simulan resultados.
+
+Pruebas aisladas: 41 aprobadas, incluyendo cinco regresiones de socket/adquisición/rollback/errores tardíos/recuperación, pruebas HTTP, permisos y seguimientos. No se modificaron documentos comerciales. La configuración local conserva IA local y no contiene claves externas ni las credenciales completas de Google/Microsoft documental.
+
+Referencia técnica: [eventos de pg.Client](https://node-postgres.com/apis/client) y [errores de pg.Pool](https://node-postgres.com/apis/pool). El error de un cliente prestado no queda cubierto solamente por el listener del pool.
