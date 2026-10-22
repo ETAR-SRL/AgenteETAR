@@ -11,9 +11,9 @@ export const changePolicies={
   crearPedidoCompra:{resource:'compras',fields:[],routine:'INSERT SC7 con RECNO y número automáticos, estado según configuración de aprobación'},
   precioLista:{resource:'preciosClientes',fields:['precio'],routine:'UPDATE DA1_PRCVEN y DA1_PRCMIL sobre ítem existente'},
   precioListaProveedor:{resource:'preciosProveedores',fields:['precio'],routine:'UPDATE AIB_PRCCOM sobre registro existente'},
-  pedidoVenta:{resource:'itemsVentas',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC6 y precio SC9 pendiente; conserva estados, no revalida crédito'},
-  solicitudCompra:{resource:'solicitudesCompra',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC1 sin atención ni documentos vinculados'},
-  pedidoCompra:{resource:'compras',fields:['precioUnitario','cantidadPedida','total'],routine:'UPDATE SC7 sin recepciones ni condiciones dependientes'},
+  pedidoVenta:{resource:'itemsVentas',fields:['precioUnitario','cantidadPedida','total','fechaEmision','fechaEntrega','deposito','condicionPago'],routine:'UPDATE comercial y logístico controlado SC5/SC6; precio SC9 pendiente sin revalidar crédito'},
+  solicitudCompra:{resource:'solicitudesCompra',fields:['precioUnitario','cantidadPedida','total','fechaEmision','fechaEntrega','deposito'],routine:'UPDATE comercial y logístico SC1 sin atención ni documentos vinculados'},
+  pedidoCompra:{resource:'compras',fields:['precioUnitario','cantidadPedida','total','fechaEmision','fechaEntrega','deposito','condicionPago'],routine:'UPDATE comercial y logístico SC7 sin recepciones ni condiciones dependientes'},
   clienteContacto:{resource:'clientes',fields:['email','telefono','contacto'],routine:'MATA030 / CRMA980 alteración'},
   proveedorContacto:{resource:'proveedores',fields:['email','telefono','contacto'],routine:'MATA020 alteración'}
 };
@@ -56,7 +56,7 @@ export class Changes {
       // Mantiene la validación de acceso a sucursal del servicio de lectura.
       const {row}=await this.current(policy,target);
       const writePlan=await this.erp.writes.prepare(input.action,input);
-      return this.public(this.store.save(actor,{action:input.action,target,input,origin:input.origin,resource:policy.resource,before:row,diff:writePlan.diff,identity:writePlan.identity,calculation:writePlan.calculation,blockers:writePlan.blockers||[],warnings:writePlan.warnings||[],fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
+      return this.public(this.store.save(actor,{action:input.action,target,input,origin:input.origin,resource:policy.resource,before:row,diff:writePlan.diff,identity:writePlan.identity,calculation:writePlan.calculation,documentScope:writePlan.documentScope,blockers:writePlan.blockers||[],warnings:writePlan.warnings||[],fingerprint:writePlan.snapshotHash,mode:'live',status:'proposed',executionEnabled:writePlan.executionEnabled,writePlan}));
     }
     const {row,meta}=await this.current(policy,target);
     const metadata=this.erp.metadata();

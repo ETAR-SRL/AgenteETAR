@@ -41,16 +41,7 @@ test('catalog names use bounded q only when metadata advertises it',async()=>{
 test('source failures and denied catalog reads never produce proposals',async()=>{
  for(const error of [new Error('timeout'),Object.assign(new Error('denied'),{status:403})]){const f=fixture({error});await assert.rejects(purchaseChat({...f.context,text:'continuemos solicitud'}));assert.equal(f.prepared.length,0);}
 });
-test('existing SC1 SC6 SC7 explicitly block unsupported logistics and keep amounts and refs',async()=>{
- for(const kind of ['request','sale','purchase']){
-  const conversation={businessContext:{branch:'0101',kind,refs:{number:'123',product:'Z1'},pending:{price:'10',priceUnit:'unidad',quantity:'2',quantityUnit:'unidades'}}};let reads=0,prepares=0;
-  const context={conversation,branch:'0101',canPlan:true,prepare:async()=>{prepares++;},read:async()=>{reads++;return {data:[]};}};
-  const result=await businessChat({...context,text:'depósito 03'});assert.equal(result.unsupportedLogistics,true);assert.match(result.answer,/no admite/);
-  assert.equal(conversation.businessContext.pending.price,'10');assert.equal(conversation.businessContext.refs.number,'123');
-  await businessChat({...context,text:'confirmo'});assert.equal(reads,0);assert.equal(prepares,0);
- }
-});
-test('unsupported logistics cannot bypass permission checks',async()=>{
+test('existing logistics cannot bypass permission checks',async()=>{
  const conversation={businessContext:{branch:'0101',kind:'purchase',refs:{number:'123'},pending:{price:'10'}}};
  await assert.rejects(businessChat({text:'depósito 03',conversation,branch:'0101',canPlan:false,prepare:async()=>{},read:async()=>{throw Error('unexpected read');}}),{code:'ROL_INSUFICIENTE'});
 });

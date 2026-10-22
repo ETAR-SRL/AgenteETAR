@@ -19,6 +19,26 @@ export const writeProfiles=Object.freeze({
 });
 export const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x);
 export const clean=x=>String(x??'').trim();
+export const logisticsFields=Object.freeze({
+ SC1:{fechaEmision:['SC1','C1_EMISSAO'],fechaEntrega:['SC1','C1_DATPRF'],deposito:['SC1','C1_LOCAL']},
+ SC6:{fechaEmision:['SC5','C5_EMISSAO'],fechaEntrega:['SC6','C6_ENTREG'],deposito:['SC6','C6_LOCAL'],condicionPago:['SC5','C5_CONDPAG']},
+ SC7:{fechaEmision:['SC7','C7_EMISSAO'],fechaEntrega:['SC7','C7_DATPRF'],deposito:['SC7','C7_LOCAL'],condicionPago:['SC7','C7_COND']}
+});
+export const isLogistics=input=>Object.keys(input.changes||{}).some(k=>['fechaEmision','fechaEntrega','deposito','condicionPago'].includes(k));
+export function textSpec(field,catalog,alias,date=false){
+ const col=catalog.table(alias).columns.get(field),sx=catalog.dictionary.get(field),width=Number(sx?.X3_TAMANHO);
+ assert(col&&!col.computed&&['char','varchar','nchar','nvarchar'].includes(col.type.toLowerCase())&&sx?.X3_TIPO===(date?'D':'C')&&Number.isInteger(width)&&width>0&&width<=512&&(!date||width===8),409,'CAMPO_NO_DISPONIBLE',`Tipo físico/SX3 incompatible: ${field}`);
+ return {width};
+}
+export function logisticsValue(value,field,catalog,alias,date=false){
+ const {width}=textSpec(field,catalog,alias,date);
+ assert(typeof value==='string'&&value===value.trim()&&value.length>0&&!/[\u0000-\u001f\u007f]/.test(value),400,'TEXTO_INVALIDO',field);
+ if(date){
+  assert(/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number(value.slice(0,4))>=1900,400,'FECHA_INVALIDA',field);
+  const parsed=new Date(value+'T00:00:00Z');assert(Number.isFinite(parsed.getTime())&&parsed.toISOString().slice(0,10)===value,400,'FECHA_INVALIDA',field);return value.replaceAll('-','');
+ }
+ assert(value.length<=width,400,'VALOR_FUERA_DE_RANGO',`${field}: longitud SX3 ${width}`);return value;
+}
 export function sourceNumber(value,field){
  assert(value!==null&&value!==undefined&&/^-?\d+(\.\d+)?([eE][+-]?\d{1,3})?$/.test(String(value)),409,'NUMERO_ORIGEN_INVALIDO',`Valor numérico no verificable: ${field}`);
  const n=new D(value);assert(n.isFinite(),409,'NUMERO_ORIGEN_INVALIDO',field);return n;

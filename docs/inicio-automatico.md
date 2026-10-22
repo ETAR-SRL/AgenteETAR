@@ -1,5 +1,63 @@
 # Inicio al encender Windows
 
+## Instalador BAT: servicio nativo de Windows
+
+Con la aplicación ya configurada, abrir **Instalar-servicio.bat** en la carpeta raíz. Pide elevación de Windows una sola vez si hace falta. Instala y arranca el servicio **CentralETAR**, visible como **Central ETAR** en `services.msc`, con inicio automático diferido y cuenta **LOCAL SERVICE**. Funciona antes de iniciar sesión. La PC debe permanecer encendida; no modifica suspensión, VPN, firewall ni certificados.
+
+Requisitos: Windows 8 / Server 2012 o posterior con .NET Framework 4.x y su compilador local, Node **>=24.16.0 y <25**, `.env` y las dependencias instaladas con `npm ci`. Se puede usar Node del sistema o el runtime portable existente en `data/node-runtime/node.exe`; no descarga runtimes ni ejecutables de terceros. Compila el pequeño host versionado en `scripts/windows-service-host.cs` y guarda el ejecutable generado en `data/service-runtime`, excluido de Git. El ejecutable generado localmente no tiene firma Authenticode; una política empresarial que exija firmas requiere la firma aprobada por la organización.
+
+Para revisar la configuración sin elevar permisos, registrar servicios, cambiar tareas ni iniciar procesos de la app:
+
+```bat
+Instalar-servicio.bat --preview
+```
+
+También acepta `--check` y `--dry-run`. La comprobación valida Node, archivos y resolución de dependencias sin mostrar `.env`. No comprueba conectividad al ERP ni ejecuta operaciones comerciales. Las rutas con espacios y caracteres Unicode se pasan entre comillas; el directorio de trabajo queda fijado a la instalación, independientemente de la carpeta desde donde se abra el BAT.
+
+El servicio usa el mismo supervisor `scripts/auto-start.mjs`. Concede lectura al código, configuración, Node y entornos Python, y escritura en `data`; el host compilado recibe sólo lectura/ejecución para LOCAL SERVICE. Conserva los permisos personales de la app y los certificados. Reinicia los procesos terminados con espera de 30 segundos a cinco minutos; Windows reintenta el host hasta tres veces, con 60 segundos entre intentos y contador restablecido cada 24 horas. Una caída del host cierra su árbol completo de procesos antes del reintento. No depende de que el ERP esté disponible al encender la PC.
+
+El comando de instalación se puede repetir: si la misma versión ya está ejecutándose en esa ruta y cuenta, informa su estado sin reiniciarla. Una ruta, runtime o versión diferente exige mantenimiento. Si se usa OneDrive, marcar toda la carpeta y los modelos como **Mantener siempre en este dispositivo**; los archivos sólo en la nube y una VPN que exige sesión personal no estarán disponibles al arrancar Windows.
+
+### Migrar una instalación que ya usa la tarea programada
+
+El BAT detecta la tarea anterior y el supervisor/servidor activo y **rechaza interrumpirlos**. Comprobar SQLite y detener inmediatamente seguiría dejando una carrera con nuevas operaciones comerciales. Para preparar el servicio manteniendo la aplicación actual en marcha:
+
+```bat
+Instalar-servicio.bat --install-only
+```
+
+Registra CentralETAR **detenido y en inicio manual**; conserva el estado de la tarea anterior. No activa el servicio ni realiza la migración.
+
+Para migrar, coordinar una ventana sin operaciones ni escalamiento activo. Desde PowerShell como administrador, comprobar que la acción de la tarea corresponde a esta carpeta antes de detenerla:
+
+```powershell
+Get-ScheduledTask -TaskName 'Central ETAR - Inicio automatico' | Select-Object -ExpandProperty Actions
+# Verificar Execute, Arguments y WorkingDirectory de ESTA instalacion.
+# Cuando no haya operaciones activas:
+Stop-ScheduledTask -TaskName 'Central ETAR - Inicio automatico'
+# Verificar que terminaron supervisor y servidor de esta instalacion.
+# Si el servidor era externo a la tarea, detenerlo por su mecanismo de mantenimiento.
+.\Instalar-servicio.bat
+```
+
+El instalador verifica la ruta esperada, activa SCM y deshabilita la tarea anterior después de confirmar el estado Running. La conserva para una vuelta atrás manual. Si falla la activación, deja SCM en inicio manual y no deshabilita la tarea anterior; revisar el error antes de reintentar. No borra datos ni detiene procesos desde el instalador. La instalación no verifica por sí sola que el ERP o HTTPS estén disponibles: comprobar los estados y el acceso habitual al terminar.
+
+Verificación administrativa:
+
+```powershell
+Get-Service CentralETAR
+Get-CimInstance Win32_Service -Filter "Name='CentralETAR'" | Select-Object Name, State, StartMode, StartName, PathName
+sc.exe qfailure CentralETAR
+Get-Content .\data\autostart.status.json
+Invoke-RestMethod http://127.0.0.1:4310/health
+```
+
+Logs: `data/service-host.log` registra inicio/parada del host sin credenciales; los logs del supervisor y de cada proceso se describen más abajo. `Stop-Service CentralETAR` termina su árbol completo: usar sólo durante mantenimiento, después de finalizar las operaciones. Para volver a la tarea, detener SCM, ponerlo en inicio manual y habilitar/iniciar la tarea anterior durante esa misma ventana. Evitar activar ambos mecanismos.
+
+La compilación y vista previa se prueban sin instalar ni detener servicios. La verificación completa de arranque al encender Windows, recuperación SCM y ejecución bajo LOCAL SERVICE requiere instalarlo durante mantenimiento y reiniciar el equipo; una vista previa correcta no significa que el servicio esté instalado.
+
+## Mecanismo anterior: tarea programada
+
 En PowerShell **como administrador**, desde la instalación ya configurada:
 
 ```powershell

@@ -31,7 +31,12 @@ function reference(text,word){
  return value&&!/^(?:de|del|precio|precios|venta|compra|proveedor|cliente|actual|ese|esa|este|esta|el|la)$/i.test(value)?value:undefined;
 }
 function parse(text,state){
- const n=norm(text),values=purchaseValues(text),refs={};
+ const n=norm(text),refs={};
+ // Logistics literals have their own intake. Remove their numeric spans before
+ // the legacy commercial parser so «entrega a 28/10» cannot become price 28,
+ // including when an independent price follows later in the same request.
+ const valueText=commercialLiteralText(text).replace(/\b(?:fecha|emisi[oó]n|entrega|necesidad|dep[oó]sito|almac[eé]n|condici[oó]n(?:es)?\s+de\s+pago|forma\s+de\s+pago|pago)\b(?:(?!\b(?:precio|importe|costo|cantidad|moneda)\b)[^;,\n])*/ig,'');
+ const values=purchaseValues(valueText);
  let kind;
  if(/\bpedido(?:s)?(?: de)? venta\b|\bsc6\b/.test(n))kind='sale';
  else if(/\bpedido(?:s)?(?: de)? compra\b|\bsc7\b/.test(n))kind='purchase';
@@ -60,7 +65,7 @@ function parse(text,state){
  const listIntent=/\b(usa|usar|utiliza|utilizar|aplica|aplicar|toma|tomar|actualiza)\b/.test(n)&&/\blista\b/.test(n);
  if(listIntent&&state&&kinds[state.kind]?.order&&!/pedido(?: de)? (compra|venta)/.test(n))kind=state.kind;
  const write=listIntent||priceWriteIntent(text)||/\b(subilo|bajalo|aumentalo|reducilo|prepara|preparame)\b|\barma(?:me)?\s+(?:la |una )?propuesta\b/.test(n);
- const numericText=norm(commercialLiteralText(text));
+ const numericText=norm(valueText);
  const percent=/(\d+(?:[.,]\d+)?)\s*(?:%|por ciento)/.exec(numericText);
  const edits={};if(listIntent)edits.useList=true;
  if(values.price!==undefined)edits.price=values.price;
@@ -71,6 +76,8 @@ function parse(text,state){
  if(percent&&write){edits.percent=percent[1].replace(',','.');edits.direction=/\b(baja|bajame|bajalo|reduci|reducime|reduce|reducilo|descuento)\b/.test(n)?-1:1;delete edits.price;}
  const absolute=/\b(?:a|en)\s+(\d+(?:[.,]\d+)?)(?![\d.,])/.exec(numericText);
  if(write&&!percent&&absolute&&!/\bcantidad\b/.test(n))edits.price=absolute[1].replace(',','.');
+ // A destination date or catalog code after «a» is not a price.
+ if(/\b(?:fecha|emision|entrega|necesidad|deposito|almacen|pago)\b/.test(n)&&!/\b(?:precio|importe|costo)\b/.test(n))delete edits.price;
  for(const field of ['email','telefono','contacto']){
   const pattern=field==='email'?/\b(?:email|correo)\s+(?:a\s+)?([^\s;,]+@[^\s;,]+)/i:new RegExp('\\b'+(field==='telefono'?'tel[eé]fono':'contacto')+'\\s+(?:a\\s+)?([^;\\n]+)','i');
   const m=pattern.exec(text);if(m)edits[field]=m[1].trim();
@@ -204,10 +211,24 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   if(profile?.action)await authorizePlan?.(profile.action);
  }
  const logisticsFields=['emission','due','warehouse','payment','date'];
- if((profile?.order||kind==='order')&&(logisticsFields.some(field=>state.pending?.[field]!==undefined||state.unresolvedValues.includes(field))||state.dateCandidate)){
-  return {...answer('El ejecutor de documentos existentes no admite cambios de fechas, depósito ni condición de pago. Conservo el documento, sus referencias, importes y cantidades pendientes. Podés cancelar expresamente ese cambio para continuar con precio o cantidad. No preparé cambios.'),unsupportedLogistics:true};
- }
+ const hasLogistics=logisticsFields.some(field=>state.pending?.[field]!==undefined||state.unresolvedValues.includes(field))||!!state.dateCandidate;
+ if(hasLogistics&&(!profile?.order&&kind!=='order'||kind==='request'&&(state.pending?.payment!==undefined||state.unresolvedValues.includes('payment'))))return {...answer(kind==='request'?'La solicitud de compra no tiene un campo estándar de condición de pago habilitado. Conservo los demás cambios; cancelá el cambio de pago para continuarlos.':'Las listas de precios no admiten cambios de fechas, depósito ni condición de pago. Conservo los demás cambios; cancelá ese cambio para continuarlos.'),unsupportedLogistics:true};
  if(state.unresolvedValues.length)return answer('Conservo los demás datos. Indicá de forma afirmativa '+state.unresolvedValues.map(key=>commercialValueLabels[key]||key).join(' y ')+' que corresponde; no usaré el valor negado.');
+ const logisticsChanges={};
+ if(profile?.order&&state.pending){
+  for(const [field,key] of [['emission','fechaEmision'],['due','fechaEntrega']])if(state.pending[field]!==undefined)logisticsChanges[key]=state.pending[field];
+  for(const [field,key,resource] of [['warehouse','deposito','depositos'],['payment','condicionPago','condicionesPago']]){
+   const term=state.pending[field];if(term===undefined)continue;
+   const exact=await query(resource,{codigo:term},2),matches=(exact.data||[]).filter(row=>String(row.codigo)===String(term));
+   let found=matches.length===1&&!exact.meta?.hasMore?matches[0]:null;
+   if(!found&&!/^\d+$/.test(term)&&!exact.data?.length&&!exact.meta?.hasMore&&metadata.entities?.[resource]?.filters?.q){
+    const named=await query(resource,{q:term},2);
+    if(named.data?.length===1&&!named.meta?.hasMore)found=named.data[0];
+   }
+   if(!found){delete state.pending[field];state.unresolvedValues=[...new Set([...state.unresolvedValues,field])];return answer('Conservo los demás cambios. No pude verificar '+commercialValueLabels[field]+' de forma única en el catálogo; indicá su código correcto. No preparé cambios.');}
+   state.pending[field]=String(found.codigo);logisticsChanges[key]=String(found.codigo);
+  }
+ }
  const correctedKeys={product:'product',customer:'customer',number:'order',list:'list'};
  const rejected=negatedReferences(text).filter(key=>!(key==='vendor'&&supplierIntent.replacement)&&!correctedKeys[key]),unresolved=new Set(state.unresolvedReferences||[]);
  for(const key of Object.keys(parsed.refs))if(!rejected.includes(key))unresolved.delete(key);
@@ -313,6 +334,13 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  }
  const v=state.pending;
  if(!rows.length)return choose(result,profile.title.toLowerCase());
+ const headerChange=logisticsChanges.fechaEmision!==undefined||logisticsChanges.condicionPago!==undefined;
+ const itemChange=v.price!==undefined||v.percent!==undefined||v.quantity!==undefined||v.useList||logisticsChanges.fechaEntrega!==undefined||logisticsChanges.deposito!==undefined;
+ if(headerChange&&(rows.length!==1||result.meta?.hasMore)){
+  if(itemChange)return answer('Conservo el cambio general del documento y los cambios por ítem. Para prepararlos juntos, indicá un único ítem; también podés cancelar expresamente uno de los cambios y preparar primero el otro. No preparé tarjetas que se superpongan.');
+  if(!refs.number||new Set(rows.map(row=>String(row.numero))).size!==1)return choose(result,'documento a modificar');
+  rows=[rows[0]];result={...result,meta:{...result.meta,hasMore:false}};
+ }
  const all=/\b(todos|todas|completa|completo)\b/.test(n)||kind==='supplierList'&&!!refs.list&&!refs.product;
  if(!all&&(rows.length!==1||result.meta?.hasMore))return choose(result,'ítem a modificar');
  if(all)for(let page=2;result.meta?.hasMore;page++){
@@ -321,7 +349,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  }
  if(rows.some(row=>!partyMatches(row)))return partyMismatch();
  assert(new Set(rows.map(r=>String(r.registro))).size===rows.length,409,'REGISTROS_DUPLICADOS','La lectura contiene registros duplicados.');
- if(v.price===undefined&&v.percent===undefined&&v.quantity===undefined&&!v.useList)return answer('Conservo el documento y sus referencias. ¿Qué precio o cantidad querés cambiar?');
+ if(v.price===undefined&&v.percent===undefined&&v.quantity===undefined&&!v.useList&&!Object.keys(logisticsChanges).length)return answer('Conservo el documento y sus referencias. ¿Qué precio, cantidad, fecha o depósito querés cambiar?');
  const plans=[];
  for(const row of rows){
   const p=await query('productos',{codigo:row.productoCodigo},2);
@@ -355,11 +383,11 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   if(price!==undefined&&!priceUnit)return answer(`Conservo el importe ${price}. ¿Es por ${unit} o por millar? No asumí una conversión.`);
   if(v.quantity!==undefined&&!quantityUnit)return answer(`Conservo la cantidad ${v.quantity}. ¿Está en ${unit} o en millares?`);
   const identity={producto:row.productoCodigo,moneda:String(row.moneda?.codigo||''),...(profile.order?{numero:row.numero,item:row.item,...(kind==='purchase'?{proveedor:row.proveedorCodigo,tienda:row.proveedorTienda}:kind==='sale'?{cliente:row.clienteCodigo,tienda:row.clienteTienda}:{})}:{lista:row.listaCodigo,proveedor:row.proveedorCodigo,tienda:row.proveedorTienda})};
-  plans.push({row,input:{action:profile.action,target:{sucursal:branch,registro:String(row.registro)},changes:{...(price!==undefined?{[profile.order?'precioUnitario':'precio']:price}:{}),...(v.quantity!==undefined?{cantidadPedida:v.quantity}:{})},...(price!==undefined?{priceUnit}:{}),...(v.quantity!==undefined?{quantityUnit:quantityUnit==='millar'?'millares':'unidades',expectedQuantity:row.cantidadPedida}:{}),expectedPrice:profile.order?row.precioUnitario:row.precio,expectedIdentity:identity}});
+  plans.push({row,input:{action:profile.action,target:{sucursal:branch,registro:String(row.registro)},changes:{...logisticsChanges,...(price!==undefined?{[profile.order?'precioUnitario':'precio']:price}:{}),...(v.quantity!==undefined?{cantidadPedida:v.quantity}:{})},...(price!==undefined?{priceUnit}:{}),...(v.quantity!==undefined?{quantityUnit:quantityUnit==='millar'?'millares':'unidades',expectedQuantity:row.cantidadPedida}:{}),expectedPrice:profile.order?row.precioUnitario:row.precio,expectedIdentity:identity}});
  }
  const failures=[];let count=0;
  for(const plan of plans)try{const proposal=await prepare(actor,plan.input);add('preparar_cambio',{accion:profile.action},{kind:'proposal',proposal});count++;}catch(e){if(e.status===403)throw e;failures.push({registro:plan.row.registro,producto:plan.row.productoCodigo,motivo:e.message});}
  if(failures.length)add('preparar_cambio',{accion:profile.action},{kind:'validation',data:failures});
  if(count)state.pending=null;
- return answer(`Preparé ${count} propuestas con precios y cantidades actuales del ERP.${v.percent!==undefined?' Ajuste del '+(v.direction===-1?'-':'+')+v.percent+'%, redondeado a la precisión SX3.':''}${failures.length?' Hay '+failures.length+' registros con errores, detallados abajo.':''} Revisá el resumen antes/después y confirmá las tarjetas. No se modificó el ERP.`);
+ return answer(`Preparé ${count} propuestas con los datos actuales del ERP.${v.percent!==undefined?' Ajuste del '+(v.direction===-1?'-':'+')+v.percent+'%, redondeado a la precisión SX3.':''}${failures.length?' Hay '+failures.length+' registros con errores, detallados abajo.':''} Revisá el resumen antes/después${headerChange?' y el alcance de '+[logisticsChanges.fechaEmision!==undefined?'la emisión':null,logisticsChanges.condicionPago!==undefined?'la condición de pago':null].filter(Boolean).join(' y ')+' en todo el documento':''} y confirmá las tarjetas. No se modificó el ERP.`);
 }

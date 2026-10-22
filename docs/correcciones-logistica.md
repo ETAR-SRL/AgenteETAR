@@ -6,7 +6,7 @@ Central extiende los descartes conversacionales a emisión, entrega/necesidad, d
 
 Las correcciones se aplican a los borradores de nuevas solicitudes SC1 y pedidos de compra SC7, incluidos los preparados desde adjuntos. El resumen habitual y la confirmación explícita se mantienen. El ejecutor existente vuelve a verificar permisos, configuración, catálogos y valores actuales.
 
-No se agregan escrituras ni permisos. En documentos existentes SC1/SC6/SC7 las operaciones habilitadas siguen limitadas a sus campos comerciales soportados. Una petición de cambiar fechas, depósito o condición de pago explica que ese ejecutor no está habilitado y bloquea la preparación de otros cambios pendientes. Se puede decir «cancelá el cambio de depósito» para continuar con el cambio comercial conservado. No modifica documentos históricos ni cabeceras por otra vía.
+La ampliación posterior permite también cambios controlados de fechas, depósito y pago en documentos existentes, con resumen y confirmación. Ver [campos y comprobaciones](actualizaciones-logistica.md). SC1 no tiene condición de pago estándar habilitada. Los adjuntos mantienen su bloqueo logístico explícito y sus circuitos de precios, cantidades y altas. Las listas de precios no admiten cambios logísticos.
 
 ## Fechas
 

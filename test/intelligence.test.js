@@ -10,6 +10,18 @@ const source={system:'protheus',mode:'test',fetchedAt:new Date().toISOString()};
 const product={codigo:'ABC/1',nombre:'Resorte prueba',unidadMedida:'UN'};
 const price={productoCodigo:'ABC/1',listaCodigo:'001',precio:'125.50',moneda:{codigo:'2',descripcion:'DOLAR'},vigenteDesde:'2025-01-01',activo:{descripcion:'Si'},registro:'1'};
 const header={codigo:'001',nombre:'Lista prueba',estado:{descripcion:'Si'},vigenteDesde:'2024-01-01',vigenteHasta:'2050-01-01'};
+
+test('model update tools cannot invent logistics or restore a negated date',async t=>{
+ for(const text of ['Necesito ajustar el documento pendiente','No uses la fecha de emisión 23/10/2026']){
+  const s=setup({itemsVentas:[{registro:'7',numero:'123',item:'01',productoCodigo:product.codigo}]}),store=new Store(':memory:');t.after(()=>store.close());
+  let prepares=0;
+  const decisions=[{action:'consultar_erp',args:{recurso:'itemsVentas',filtros:{}}},{action:'preparar_cambio',args:{accion:'pedidoVenta',registro:'7',fechaEmision:'2026-10-23'}},{action:'responder',args:{},answer:'¿Qué fecha corresponde?'}];
+  const agent=createIntelligence({...s,store,prepareChange:async()=>{prepares++;return {};},model:{name:'test',complete:async()=>decisions.shift()}});
+  const reply=await agent.query('writer',{text},{canPlan:true});
+  assert.equal(prepares,0,text);assert.ok(reply.trace.some(entry=>entry.code==='CAMBIO_NO_DECLARADO'),JSON.stringify(reply.trace));
+  assert.ok(!s.calls.some(call=>call.resource==='depositos'||call.resource==='condicionesPago'));
+ }
+});
 test('recent dashboard bypasses the language model and reads the full authorized aggregate',async t=>{
  const store=new Store(':memory:');t.after(()=>store.close());const s=setup(),calls=[];
  const agent=createIntelligence({...s,store,executeRead:async q=>{calls.push(q);return {kind:'dashboard',verifiedSummary:'Resumen verificado',data:[],scope:{...q.filters,filtros:{}}};},model:{name:'test',complete:()=>assert.fail('Dashboard should not need a model round trip')}});

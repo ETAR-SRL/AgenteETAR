@@ -10,6 +10,7 @@ import {installErpConnection} from './erp-connection-ui.js';
 import {accessReady,loadAccessPanel} from './access-ui.js';
 import {installPriceImports} from './import-ui.js';
 import {renderImportBatch,formatAnswer} from './import-batch-ui.js';
+import {proposalDiffRows} from './proposal-values.js';
 
 const $=s=>document.querySelector(s);
 const labels={liberacionesVentas:'Liberaciones del pedido · SC9',documentosPedidoVenta:'Remitos y facturas del pedido',saldosProveedores:'Saldos financieros de proveedores · SE2',saldosClientes:'Saldos financieros de clientes · SE1',recepcionesCompras:'Entradas registradas de proveedores · SD1',comprobantesVentas:'Ventas facturadas · NF/NC/ND',comprobantesCompras:'Compras facturadas · NF/NC/ND',remitosEmitidos:'Remitos emitidos',remitosPendientes:'Remitos pendientes de facturar',pedidosVentaPendientes:'Pedidos de venta pendientes',pedidosCompraPendientes:'Pedidos de compra pendientes',resumenVentas:'Resumen de ventas facturadas',resumenCompras:'Resumen de compras',resumenRemitosPendientes:'Resumen de remitos pendientes',resumenPedidosVenta:'Resumen de pedidos de venta',resumenPedidosCompra:'Resumen de pedidos de compra',condicionesPago:'Condiciones de pago',depositos:'Depósitos',centrosCosto:'Centros de costo',solicitudesCompra:'Solicitudes de compra',costos:'Costos',compras:'Órdenes de compra',produccion:'Producción',ventas:'Pedidos de venta',itemsVentas:'Ítems de ventas / pendientes',documentosSalida:'Documentos de salida',itemsDocumentosSalida:'Ítems de documentos de salida',remitos:'Remitos',entregas:'Entregas físicas',clientes:'Clientes',proveedores:'Proveedores',productos:'Productos',listasPreciosClientes:'Listas de precios de clientes',preciosClientes:'Precios de clientes · DA1',listasPreciosProveedores:'Listas de precios de proveedores',preciosProveedores:'Precios de proveedores',productoProveedor:'Productos por proveedor',productoCliente:'Productos por cliente',entradasCompras:'Entradas de compras',estructuras:'Estructuras',cotizaciones:'Cotizaciones',itemsCotizaciones:'Ítems de cotizaciones',proyectos:'Proyectos KAIQEN',calidad:'Calidad KAIQEN'};
@@ -172,7 +173,7 @@ function switchView(view){
   if(view==='access')loadAccessPanel();
   if(view==='attention')attention?.load();
   document.querySelectorAll('.view').forEach(el=>el.classList.toggle('hidden',el.id!==view));document.querySelectorAll('.nav').forEach(el=>{el.classList.toggle('active',el.dataset.view===view);el.setAttribute('aria-current',el.dataset.view===view?'page':'false');});
-  $('#page-name').textContent={attention:'Necesita tu atención',assistant:'Asistente',explorer:'Explorar ERP',projects:'Proyectos y calidad',sources:'Conexiones',access:'Usuarios y roles'}[view];
+  $('#page-name').textContent={attention:'Necesita tu atención',assistant:'Chat',explorer:'Explorar ERP',projects:'Proyectos y calidad',sources:'Conexiones',access:'Usuarios y roles'}[view];
   if(view==='projects'&&!$('#project-list').children.length)loadProjects();if(view==='sources')renderSources();
 }
 document.querySelectorAll('[data-view]').forEach(el=>el.onclick=()=>switchView(el.dataset.view));
@@ -181,18 +182,21 @@ async function query(text,dashboard,extraContext={}){
   if(attachments?.busy){notice('Esperá a que termine la lectura del archivo.');return;}
   if(attachments?.id)document.dispatchEvent(new CustomEvent('attachment-revised',{detail:attachments.id}));
   attachments?.setChatBusy(true);
+  if($('#query').value.trim()===text.trim()){$('#query').value='';$('#query').dispatchEvent(new Event('input'));}
+  $('#query-form').setAttribute('aria-busy','true');
   switchView('assistant');const conversation=$('#conversation'),q=node('div','question');q.append(node('span','',text));conversation.append(q);const result=node('div');conversation.append(result);busy(result);
-  $('#send').disabled=true;$('#new-chat').disabled=true;const started=Date.now();const timer=setInterval(()=>{const loading=result.querySelector('.loading');if(loading)loading.textContent=`Interpretando y consultando las fuentes · ${Math.round((Date.now()-started)/1000)} s`;},1000);
+  $('#send').disabled=true;$('#new-chat').disabled=true;const started=Date.now();const timer=setInterval(()=>{const loading=result.querySelector('.loading');if(loading)loading.textContent=Date.now()-started>8000?'Sigo revisando las fuentes. Te muestro el resultado cuando termine…':'Consultando tus datos…';},1000);
   try{const response=await api('/api/agent/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,conversationId,...(dashboard?{dashboard}:{}),attachmentId:dashboard?undefined:attachments?.id,topic:$('#topic').value,context:{sucursal:$('#branch').value,...extraContext,...(selectedProject?{proyecto:selectedProject.id}:{})}})});
     if(response.selectedBranch)$('#branch').value=response.selectedBranch;
     attachments?.receive(response.attachment);
     conversationId=response.conversationId;localStorage.setItem('central-conversation-id',conversationId);renderAnswer(result,response);
-    $('#query').value='';
-  }catch(error){if(error.code==='CONVERSACION_NO_EXISTE'){conversationId=undefined;localStorage.removeItem('central-conversation-id');}showError(result,error);}finally{attachments?.setChatBusy(false);clearInterval(timer);$('#send').disabled=false;$('#new-chat').disabled=false;result.scrollIntoView({behavior:'smooth',block:'nearest'});}
+  }catch(error){if(error.code==='CONVERSACION_NO_EXISTE'){conversationId=undefined;localStorage.removeItem('central-conversation-id');}showError(result,error);if(!$('#query').value){$('#query').value=text;$('#query').dispatchEvent(new Event('input'));}}finally{attachments?.setChatBusy(false);clearInterval(timer);$('#query-form').setAttribute('aria-busy','false');$('#send').disabled=false;$('#new-chat').disabled=false;result.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'nearest'});}
 }
 function renderAnswer(where,response){
   const metadata=response.attention?'Lectura estructurada · fuente y última verificación en cada tarjeta':response.attachment?`${response.attachment.name} · ${response.batch?'Comparación con registros de Protheus':'Lectura local del adjunto'}`:`${response.model||'Modelo local'} · ${response.evidence?.length||0} fuentes consultadas en este turno`;
-  const card=node('article','answer-card');card.append(node('div','eyebrow',response.local===false?'CENTRAL · IA EXTERNA':'CENTRAL · ASISTENTE'),formatAnswer(response.answer),node('div','result-meta',metadata));where.replaceChildren(card);
+  const card=node('article','answer-card');card.append(node('div','eyebrow','Central'),formatAnswer(response.answer));
+  const provenance=node('details','response-meta');provenance.append(node('summary','','Cómo se respondió'),node('p','result-meta',metadata));card.append(provenance);where.replaceChildren(card);
+  const sources=node('details','evidence-group');sources.append(node('summary','','Ver fuentes y datos verificados'));
   if(response.learnedExpressions?.length)card.append(node('p','result-meta','Usé tus expresiones aprendidas: '+response.learnedExpressions.join(', ')+'.'));
   if(response.learningNotice)card.append(node('p','learning-notice',response.learningNotice));
   if(response.job)investigations?.render(where,response.job);
@@ -209,27 +213,28 @@ function renderAnswer(where,response){
   for(const evidence of response.evidence||[]){
     const result=evidence.result,heading=evidence.id+' · '+(evidence.action==='precio_venta'?(result.kind==='prices'?'Precios de lista verificados':'Consulta de precios'):labels[evidence.args.recurso]||evidence.action);
     const details=node('details','evidence');details.append(node('summary','',heading));
-    if(response.investigation&&result.kind==='dashboard'){renderDashboard(details,result,result.title||heading,{append:true});where.append(details);continue;}
-    if(response.investigation&&result.kind==='commercial'){renderDocuments(details,result,labels[evidence.args.recurso]||'Documentos vinculados');where.append(details);continue;}
+    if(response.investigation&&result.kind==='dashboard'){renderDashboard(details,result,result.title||heading,{append:true});sources.append(details);continue;}
+    if(response.investigation&&result.kind==='commercial'){renderDocuments(details,result,labels[evidence.args.recurso]||'Documentos vinculados');sources.append(details);continue;}
     if(result.kind==='dashboard'){renderDashboard(where,result,result.title||heading,{append:true,comparison:!response.comparison});continue;}
     if(result.kind==='commercial'){const detail=node('section');where.append(detail);renderDocuments(detail,result,labels[evidence.args.recurso]||'Documentos del importe');continue;}
-    if(result.kind==='prices'){renderResult(where,{...result,data:result.data.map(r=>({producto:r.productoCodigo,descripcion:r.productoNombre,lista:r.listaCodigo,clienteLista:r.listaNombre,moneda:r.moneda,precioPorUnidad:r.precio,precioPorMillar:r.precioPorMillar,unidad:r.unidadMedida,elegibilidad:r.elegibilidad}))},heading,{append:true});continue;}
+    if(result.kind==='prices'){renderResult(details,{...result,data:result.data.map(r=>({producto:r.productoCodigo,descripcion:r.productoNombre,lista:r.listaCodigo,clienteLista:r.listaNombre,moneda:r.moneda,precioPorUnidad:r.precio,precioPorMillar:r.precioPorMillar,unidad:r.unidadMedida,elegibilidad:r.elegibilidad}))},heading,{append:true});sources.append(details);continue;}
     if(result.kind==='priceAdjustment'){renderResult(where,result,heading,{append:true});if(result.excluded?.length)renderResult(where,{data:result.excluded},'Registros excluidos: sin vigencia activa',{append:true});if(result.failures?.length)renderResult(where,{data:result.failures},'Registros que requieren revisión',{append:true});continue;}
     if(result.kind==='proposal'){renderProposal(where,result.proposal);continue;}
     if(result.candidates?.length){const choices=node('div','choice-list');result.candidates.forEach(candidate=>{const code=candidate.codigo||candidate.id;const b=node('button','secondary',[code,candidate.nombre||candidate.name,candidate.tienda?'Tienda '+candidate.tienda:''].filter(Boolean).join(' · '));b.onclick=()=>query(`Me refiero a ${code}${candidate.tienda?' tienda '+candidate.tienda:''}. Respondé la consulta anterior para esa opción.`);choices.append(b);});card.append(choices);renderResult(details,{...result,data:result.candidates},heading,{append:true});}
     else if(evidence.action==='calidad')renderQuality(details,result,true);
     else if(Array.isArray(result.data))renderResult(details,result,'Detalle de la fuente',{append:true});
     else{const pre=node('pre','raw-evidence',JSON.stringify(result.data||result,null,2));details.append(pre);}
-    where.append(details);
+    sources.append(details);
   }
-  if(response.trace?.some(t=>t.status==='error'))card.append(node('p','metrics-note','Alguna fuente no estuvo disponible: '+response.trace.filter(t=>t.status==='error').map(t=>t.code).join(', ')));
+  if(sources.children.length>1)card.append(sources);
+  if(response.trace?.some(t=>t.status==='error')){provenance.append(node('p','metrics-note','No se pudo completar alguna consulta. Los datos sin verificar no se muestran como resultados actuales.'),node('p','result-meta','Referencia para soporte: '+response.trace.filter(t=>t.status==='error').map(t=>t.code).join(', ')));}
 }
-$('#new-chat').onclick=()=>{attachments?.clear();conversationId=undefined;localStorage.removeItem('central-conversation-id');$('#conversation').replaceChildren();notice('Nueva conversación. Las clasificaciones guardadas siguen disponibles.');};
+$('#new-chat').onclick=()=>{attachments?.clear();conversationId=undefined;localStorage.removeItem('central-conversation-id');$('#conversation').replaceChildren();notice('');};
 async function loadKnowledge(){const content=$('#knowledge-list');busy(content);try{const result=await api('/api/agent/knowledge');content.replaceChildren();if(!result.data.length)content.append(node('p','metrics-note','Todavía no guardaste clasificaciones.'));for(const item of result.data){const row=node('div','knowledge-row');row.append(node('strong','',item.term),node('p','',item.meaning),node('small','',item.topic));const remove=node('button','text-button','Olvidar');remove.onclick=async()=>{await api('/api/agent/knowledge/'+item.id,{method:'DELETE'});loadKnowledge();};row.append(remove);content.append(row);}}catch(error){showError(content,error);}}
 $('#teach').onclick=()=>{$('#knowledge-dialog').showModal();loadKnowledge();};$('#close-knowledge').onclick=()=>$('#knowledge-dialog').close();
 $('#knowledge-form').onsubmit=async event=>{event.preventDefault();const status=$('#knowledge-status');try{await api('/api/agent/knowledge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({topic:$('#topic').value,term:$('#knowledge-term').value,meaning:$('#knowledge-meaning').value})});status.textContent='Guardado. Se usará para interpretar las próximas consultas; los valores se leerán nuevamente en las fuentes.';$('#knowledge-form').reset();loadKnowledge();}catch(error){status.textContent=error.message;}};
 $('#query-form').onsubmit=event=>{event.preventDefault();query($('#query').value);};
-$('#query').onkeydown=event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();query($('#query').value);}};
+$('#query').onkeydown=event=>{if(event.key==='Enter'&&!event.shiftKey&&!event.isComposing){event.preventDefault();query($('#query').value);}};
 document.querySelectorAll('[data-query]').forEach(el=>el.onclick=()=>query(el.dataset.query));
 function resourceMeta(resource){return capabilities?.erp?.entities?.[resource==='remitos'?'documentosSalida':resource]||{};}
 function updateErpResources(){
@@ -376,7 +381,11 @@ function renderProposal(where,proposal,{append=true}={}){
       table(proposal.items.map(r=>({producto:r.producto,descripcion:r.descripcion,cantidad:r.cantidadComercial,baseCantidad:r.baseCantidad,precio:r.precioComercial,monedaOrigen:r.monedaOriginal,basePrecio:r.basePrecio,totalOriginal:r.totalOriginal,totalERP:r.total,monedaERP:r.moneda}))),
       table(proposal.items.map(r=>({producto:r.producto,deposito:r.deposito,fechaNecesidad:r.fechaNecesidad,cantidadERP:r.cantidad,unidad:r.unidad,precioUnitario:r.precioUnitario}))));
     const full=node('details');full.append(node('summary','','Ver todos los datos del documento'),table([proposal.identity]),table(proposal.items));card.append(full);
-  }else card.append(table([proposal.identity||{}]),table(proposal.diff.map(d=>({...d.table?{tabla:d.table,registro:d.record,secuencia:d.sequence||''}:{},campo:d.field,antes:d.before,despues:d.after}))));
+  }else card.append(table([proposal.identity||{}]),table(proposalDiffRows(proposal.diff)));
+  if(proposal.documentScope){
+    card.append(node('p','notice','El cambio de emisión o condición de pago alcanza al documento completo. Revisá todos los ítems incluidos en este resumen antes de confirmar.'));
+    if(Array.isArray(proposal.documentScope)){const scope=node('details');scope.append(node('summary','','Ver los ítems incluidos'),table(proposal.documentScope.map(row=>({documento:row.numero,item:row.item,producto:row.producto,registro:row.record}))));card.append(scope);}
+  }
   if(proposal.before?.moneda)card.append(node('p','',`Moneda conservada: ${visual(proposal.before.moneda)}`));
   if(proposal.calculation)card.append(table([proposal.calculation]));
   if(proposal.approval){card.append(node('h4','','Aprobación · '+proposal.approval.field),node('p','',proposal.approval.label));for(const reason of proposal.approval.reasons)card.append(node('p','',reason));card.append(table(proposal.approval.parameters.map(p=>({...p,filial:p.filial||'Global',valor:p.valor??'No disponible'}))));}

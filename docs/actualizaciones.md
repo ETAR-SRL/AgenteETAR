@@ -1,5 +1,7 @@
 # Actualizaciones reales de registros existentes
 
+Ampliación del 22/10/2026: [fechas, depósitos y condiciones de pago](actualizaciones-logistica.md) en documentos existentes, con alcance por ítem/documento y confirmación. El detalle siguiente conserva las reglas de precios y cantidades.
+
 Implementación del 19/10/2026. La API y la PWA ejecutan UPDATE parametrizados sobre un ítem activo y, cuando corresponde, sus liberaciones pendientes, después de preparar y confirmar una propuesta. Los UPDATE no crean registros ni ejecutan SQL generado por el modelo; las nuevas acciones de alta SC1/SC7 se describen al final. El alcance es una empresa/base configurada y sus sucursales autorizadas.
 
 ## Campos y conversiones

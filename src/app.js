@@ -57,7 +57,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   erp={...rawErp,list:async(resource,params)=>{guard(resource);branchGuard(params.get('sucursal'));const value=await rawErp.list(resource,params);principalNow();return value;}};
   if(rawErp.writes){erp.writes={...rawErp.writes};for(const property of ['enabled','policy','creation','escalation'])Object.defineProperty(erp.writes,property,{enumerable:true,get:()=>rawErp.writes[property]});for(const method of ['prepare','check','execute'])erp.writes[method]=async(...args)=>{
     const action=method==='prepare'?args[0]:args[0].action,target=method==='prepare'?args[1].target:args[0].target;
-    const p=principalNow();assertAction(p,action,method==='execute');if(method==='execute'&&p.userId)assert(localWrites,403,'ESCRITURA_LOCAL_DESHABILITADA','La ejecución está deshabilitada para usuarios en esta instalación.');branchGuard(target.sucursal);
+    const p=principalNow();assertAction(p,action);if(method==='execute')assertAction(p,action,true);if(method==='execute'&&p.userId)assert(localWrites,403,'ESCRITURA_LOCAL_DESHABILITADA','La ejecución está deshabilitada para usuarios en esta instalación.');branchGuard(target.sucursal);
     return rawErp.writes[method](...args);
   };}
   kaiqen={...rawKaiqen};Object.defineProperty(kaiqen,'computedQuality',{enumerable:true,get:()=>rawKaiqen.computedQuality});for(const [method,resource] of Object.entries({projects:'proyectos',project:'proyectos',quality:'calidad',projectLink:'proyectos',product:'productos'}))if(rawKaiqen[method])kaiqen[method]=async(...args)=>{guard(resource);const value=await rawKaiqen[method](...args);privacy.observe(value);const p=principalNow();return p.admin||p.unrestricted?value:scopeKaiqen(method,value);};

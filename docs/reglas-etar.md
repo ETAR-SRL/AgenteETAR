@@ -42,7 +42,7 @@ El ejecutor relee y bloquea la fila y sus dependencias, comprueba la huella prev
 
 Ver [contrato de actualizaciones](actualizaciones.md) para campos, permisos, límites y resultados inciertos. No se modificaron registros comerciales durante las pruebas de implementación.
 
-SC1: `solicitudCompra` actualiza precio estimado C1_VUNIT, cantidad C1_QUANT y total C1_TOTAL de ítems existentes sin atención/aprobación/vínculos. En el modo de ventas liberadas, segunda unidad se conserva completa al cambiar sólo precio.
+SC1: `solicitudCompra` actualiza precio estimado C1_VUNIT, cantidad C1_QUANT y total C1_TOTAL de ítems existentes sin atención/aprobación/vínculos. La ampliación logística permite fechas y depósito en SC1/SC6/SC7 y condición de pago en SC5/SC7, con [validaciones y alcance documentados](actualizaciones-logistica.md), sin tocar históricos ni disparar rutinas nativas. En el modo de ventas liberadas, segunda unidad se conserva completa al cambiar sólo precio.
 
 Los ajustes porcentuales de listas DA1 recorren todas las páginas y verifican cada producto en SB1 y cada precio en DA1/DA0. Se excluyen de forma visible los registros inactivos o fuera de vigencia. El porcentaje se calcula sobre el precio actual redondeado a la precisión SX3, nunca sobre propuestas anteriores pendientes. Cualquier redondeo del nuevo precio a SX3 se muestra en el resumen. Se prepara una tarjeta por registro; cada confirmación es una transacción independiente, no una operación atómica de toda la lista. La precondición de precio, producto, lista y moneda se verifica de nuevo durante la preparación y ejecución.
 
