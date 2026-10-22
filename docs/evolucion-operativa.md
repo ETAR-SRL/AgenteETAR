@@ -68,3 +68,13 @@ Pendientes concretos que no se pueden cerrar por código:
 - Homologar SC1/SC7 y compras con casos reales: la muestra autorizada devolvió cero filas. SC9 y remitos/facturas del pedido vencido tampoco aportaron filas; no se certifica su ausencia general ni el cierre de remitos pendientes.
 - Crear/configurar claves IA y aplicaciones documentales con ubicaciones y consentimiento explícitos para verificar los proveedores reales. Los adaptadores y sus controles están probados con escenarios aislados.
 - Probar micrófono, instalación móvil y push con el dispositivo y las autorizaciones personales correspondientes. No se activaron permisos del navegador como parte de estas comprobaciones.
+
+## Activación y cierre operativo del 22/10/2026
+
+Código publicado en `main` (`fc5dd7b`, `ba2b1a0`). El reinicio mediante el mecanismo administrativo existente terminó correctamente, sin ejecuciones comerciales activas. A las 09:55 de Argentina `/health` devolvió 200, `/api/agent/status` identificó **`operativo-integral-2`** y el supervisor registró el nuevo servidor en ejecución. ERP y KAIQEN recuperaron lecturas; IA local disponible. `/ai-status-ui.js` devolvió 200 y la PWA mostró «IA local activa». La clave global de servicio continuó recibiendo 403 en investigaciones personales.
+
+Un seguimiento creado para la comprobación conservó identificador, objetivo, fecha de inicio y estado después del reinicio. Se recuperó por chat en otra conversación. La primera lista lo mostró sin verificar; al pedir cambios, la relectura registró «la fuente volvió a estar disponible; no cambiaron los datos». No hubo eventos de objetivo cumplido durante la caída/reinicio. Una consulta local de integridad encontró cero identidades de caso duplicadas.
+
+Por chat funcionaron consulta de cambios, posposición «hasta el lunes» (26/10/2026, 08:00 Argentina), corrección «volvé a mostrarlo» y cancelación del seguimiento de prueba. Se dejó ese seguimiento cancelado y el aviso abierto como al inicio, con constancia local de limpieza; no se ocultó un pendiente comercial real por terminar la prueba. También se consultó el código exacto 1 en SB1: devolvió su tipo SERVICIO y pidió sólo cantidad, aclarando que SC1 puede ir sin precio. No se completó ni confirmó una propuesta comercial.
+
+La PWA quedó abierta en Edge con un dashboard real. La captura de esta versión está en `data/pwa-verificada-2026-10-22.jpg`, fuera de Git. Las verificaciones visuales no sustituyen una prueba en teléfono físico, micrófono o consentimiento push. La evaluación externa sin configuración devolvió `EXTERNAL_CONFIGURATION_REQUIRED`, sin inferencias; las credenciales continúan pendientes, como confirmó el usuario.
