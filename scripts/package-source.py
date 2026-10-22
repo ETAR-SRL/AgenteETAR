@@ -17,7 +17,7 @@ MANIFEST = 'PACKAGE-MANIFEST.json'
 SOURCE_DIRS = {'src', 'public', 'test', 'docs', 'scripts', 'config'}
 ROOT_FILES = {'README.md', 'AGENTS.md', 'package.json', 'package-lock.json',
               '.env.example', '.gitignore', 'iniciar.ps1', 'abrir-central.ps1',
-              'Instalar-servicio.bat'}
+              'Instalar-servicio.bat', 'Actualizar-app.bat'}
 LOCAL_TREES = {'data/models', 'data/llm-models', 'data/llm-runtime', 'data/install-cache', 'data/aprendizaje'}
 FORBIDDEN_SUFFIXES = {'.sqlite', '.db', '.key', '.pem', '.pfx', '.p12', '.log', '.zip'}
 
@@ -59,6 +59,8 @@ def source_files(root):
     for required in ('package.json', 'package-lock.json', '.env.example', 'Instalar-servicio.bat'):
         if required not in result:
             raise ValueError('Falta un archivo de instalación obligatorio: ' + required)
+    if 'src/maintenance.js' in result and 'scripts/update-release.mjs' in result and 'Actualizar-app.bat' not in result:
+        raise ValueError('Falta el BAT de actualización de la versión con mantenimiento')
     return result
 
 
@@ -181,6 +183,7 @@ def build_archive(root, output, private=False, include_local=()):
                 add_tree(files, root, relative)
         manifest = {
             'schema': 1,
+            'updateProtocol': 1 if all(name in files for name in ('src/maintenance.js', 'scripts/update-maintenance.mjs', 'scripts/update-release.mjs')) else 0,
             'kind': 'private-migration' if private else 'source',
             'sensitive': private,
             'version': json.loads((root / 'package.json').read_text(encoding='utf-8'))['version'],

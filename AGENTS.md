@@ -14,6 +14,7 @@
 - No ejecutar cambios de negocio como prueba de arranque, publicación o tests. Las pruebas automatizadas usan dobles; las comprobaciones de producción son lecturas salvo una instrucción concreta del dueño para modificar registros identificados.
 - Ejecutar las pruebas relevantes antes del commit. Mantener explícitos los campos, filiales y circuitos que todavía no se verificaron.
 - Mantener `Instalar-servicio.bat`, su comprobación previa y las instrucciones de traslado actualizadas con los cambios publicados. Debe funcionar desde otra carpeta/servidor Windows sin rutas personales fijas; conservar voz opcional, permisos y arranque sin ERP disponible. Incluir el BAT en los paquetes de fuentes.
+- Mantener `Actualizar-app.bat` y el protocolo de mantenimiento/backup/rollback junto con el instalador. Las actualizaciones conservan `.env`, configuración, usuarios y roles; nunca probar una versión con escrituras o procesos automáticos habilitados antes de validarla. Incluir ambos BAT en los paquetes.
 
 - Indicación más reciente del dueño: reajuste directo SQL de C6_PRCVEN y C9_PRCVEN pendientes, incluso con MV_BLOQUEI activo, conservando estados y documentos emitidos. Mostrar que no revalida crédito ni recalcula saldos SA1; nunca escribir aprobaciones ni desactivar parámetros. No invocar REST Protheus. Las cantidades de segunda unidad se conservan completas en este modo de sólo precio.
 

@@ -2,6 +2,8 @@
 
 Para trasladar a otro servidor Windows: **Instalar-servicio.bat** prepara dependencias, Qwen, voz y servicio con comprobación de arranque. El paquete privado permite instalación sin Internet; ver [pasos, credenciales privadas y traslado](docs/instalacion-otro-servidor.md).
 
+Para actualizar una instalación existente: **Actualizar-app.bat** aplica un paquete de fuentes con respaldo previo, mantenimiento y reversión automática si falla la prueba de arranque. Conserva usuarios, roles y configuración. Ver [actualización y restauración](docs/actualizar-servidor.md).
+
 La evaluación ampliada de Qwen, el recorrido de 32 turnos con ERP real y las pruebas SC1/SC7 en SQL Server local aislado se documentan en [IA local y validación ampliada](docs/ia-local-evaluacion-ampliada.md). Incluye los fallos que persisten en negaciones, las diferencias históricas de MILLAR y el alcance que no pudo homologarse con datos reales.
 
 La IA local conserva bases de precio/cantidad y aclaraciones sin perder el borrador, pide el proveedor faltante y rechaza saltos de permisos o confirmación antes de consultar. Las consultas locales de lectura usan un contexto específico más breve. Ver [los cuatro casos y su verificación real](docs/ia-local-cuatro-casos.md) y [el arnés HTTP completo](docs/evaluacion-chat-completo.md).

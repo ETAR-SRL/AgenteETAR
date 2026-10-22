@@ -41,7 +41,7 @@ export async function verifyLanIdentity({root,env,headers,expectedPid,fingerprin
 export function silenceWav(){
   const bytes=32000,b=Buffer.alloc(44+bytes);b.write('RIFF');b.writeUInt32LE(36+bytes,4);b.write('WAVEfmt ',8);b.writeUInt32LE(16,16);b.writeUInt16LE(1,20);b.writeUInt16LE(1,22);b.writeUInt32LE(16000,24);b.writeUInt32LE(32000,28);b.writeUInt16LE(2,32);b.writeUInt16LE(16,34);b.write('data',36);b.writeUInt32LE(bytes,40);return b;
 }
-export async function verifyInstallation({root,env,expectedPid,requireLocalAI=false,requireVoice=false,waitForAI=false,timeoutMs=180000,fetchImpl=fetch,pause=ms=>new Promise(r=>setTimeout(r,ms))}){
+export async function verifyInstallation({root,env,expectedPid,requireLocalAI=false,requireVoice=false,requireMaintenance=false,waitForAI=false,timeoutMs=180000,fetchImpl=fetch,pause=ms=>new Promise(r=>setTimeout(r,ms))}){
   check(env.API_READ_KEY?.length>=32,'CLAVE_SERVICIO_REQUERIDA');
   const host=env.HOST||'127.0.0.1';check(['127.0.0.1','::1'].includes(host),'HOST_NO_LOCAL');
   const base=`http://${host==='::1'?'[::1]':host}:${Number(env.PORT||4310)}`;
@@ -50,8 +50,9 @@ export async function verifyInstallation({root,env,expectedPid,requireLocalAI=fa
     const response=await fetchImpl(base+path,{...options,headers:{...headers,...options.headers},redirect:'error',signal:AbortSignal.timeout(timeoutMs)});
     check(response.ok,'HTTP_VERIFICACION_'+response.status);return response.json();
   }
-  const deadline=Date.now()+Math.min(timeoutMs,90000);let healthy=false;
-  do{try{const response=await fetchImpl(base+'/health',{redirect:'error',signal:AbortSignal.timeout(2500)});healthy=response.ok&&(await response.json()).status==='up';}catch{}
+  const deadline=Date.now()+Math.min(timeoutMs,90000);let healthy=false,health;
+  do{try{const response=await fetchImpl(base+'/health',{redirect:'error',signal:AbortSignal.timeout(2500)});health=response.ok?await response.json():null;healthy=health?.status==='up';}catch{}
+    if(healthy&&requireMaintenance)check(health.maintenance===true,'MANTENIMIENTO_NO_CONFIRMADO');
     if(!healthy)await pause(1000);
   }while(!healthy&&Date.now()<deadline);
   check(healthy,'SERVIDOR_NO_DISPONIBLE');
@@ -89,11 +90,11 @@ export async function verifyInstallation({root,env,expectedPid,requireLocalAI=fa
 
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
   try{
-    const args=process.argv.slice(2),allowed=new Set(['--root','--expected-pid','--require-local-ai','--require-voice']);
+    const args=process.argv.slice(2),allowed=new Set(['--root','--expected-pid','--require-local-ai','--require-voice','--require-maintenance']);
     for(let i=0;i<args.length;i++){check(allowed.has(args[i]),'OPCION_INVALIDA');if(['--root','--expected-pid'].includes(args[i]))check(args[++i]&&!args[i].startsWith('--'),'OPCION_SIN_VALOR');}
     const value=key=>args.includes(key)?args[args.indexOf(key)+1]:undefined;
     const root=resolve(value('--root')||fileURLToPath(new URL('../',import.meta.url)));
     const env=parseEnv(readFileSync(resolve(root,'.env'),'utf8'));
-    console.log(JSON.stringify(await verifyInstallation({root,env,expectedPid:value('--expected-pid')?Number(value('--expected-pid')):undefined,requireLocalAI:args.includes('--require-local-ai'),requireVoice:args.includes('--require-voice'),waitForAI:true})));
+    console.log(JSON.stringify(await verifyInstallation({root,env,expectedPid:value('--expected-pid')?Number(value('--expected-pid')):undefined,requireLocalAI:args.includes('--require-local-ai'),requireVoice:args.includes('--require-voice'),requireMaintenance:args.includes('--require-maintenance'),waitForAI:true})));
   }catch(error){console.error(JSON.stringify({ok:false,code:/^[A-Z][A-Z_0-9]+$/.test(error.message)?error.message:'VERIFICACION_FALLIDA'}));process.exitCode=1;}
 }

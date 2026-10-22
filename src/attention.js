@@ -142,6 +142,7 @@ export function createAttention({store,principal,users,runAs,read,kaiqen,clock=(
   async refresh(id){return view(await review(lookup(id)));},
   run(){if(stopped||!enabled)return Promise.resolve();if(running)return running;running=cycle().catch(()=>{try{db.set('lastFailure',clock().toISOString());db.set('nextRun',new Date(+clock()+intervalMs).toISOString());}catch{}}).finally(()=>{running=null;});return running;},
   start(){if(timer||!enabled||stopped)return;void service.run();void daily.run();timer=setInterval(()=>void service.run(),intervalMs);timer.unref?.();dailyTimer=setInterval(()=>void daily.run(),60000);dailyTimer.unref?.();},
+  resume(){stopped=false;timer=null;service.start();},
   async stop(){stopped=true;clearInterval(timer);clearInterval(dailyTimer);await running;await daily.drain();}
  };
  return service;

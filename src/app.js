@@ -42,7 +42,7 @@ async function body(req,maxBytes=16384){
   for await(const chunk of req){bytes+=chunk.length;assert(bytes<=maxBytes,413,'CUERPO_GRANDE','Solicitud demasiado grande');chunks.push(chunk);}
   try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw new HttpError(400,'JSON_INVALIDO','JSON inválido');}
 }
-export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branches=['0101'],readKey,planKey,writeKey,localWrites=false,attentionOptions={},notificationOptions={},corporateOptions={},voice=createVoice(),documents=createDocumentReader(),model,modelSettings,network=createNetworkAccess()}){
+export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,maintenance,branches=['0101'],readKey,planKey,writeKey,localWrites=false,attentionOptions={},notificationOptions={},corporateOptions={},voice=createVoice(),documents=createDocumentReader(),model,modelSettings,network=createNetworkAccess()}){
   assert(readKey?.length>=32 && planKey?.length>=32 && readKey!==planKey,500,'CLAVES_INVALIDAS','Configurar dos claves distintas de al menos 32 caracteres');
   assert(!writeKey || (writeKey.length>=32 && writeKey!==readKey && writeKey!==planKey),500,'CLAVES_INVALIDAS','La clave de escritura debe ser distinta y de al menos 32 caracteres');
   const access=new Access(store,branches),context=new AsyncLocalStorage(),privacy=createExternalPrivacy();
@@ -145,7 +145,11 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
   const intelligence=createIntelligence({attentionChat,operationalChat,privacy,erp,kaiqen,store,read,executeRead,branches,dashboardChat,model,attachmentChat,authorizeRead:guard,authorizePlan:action=>assertAction(principalNow(),action),prepareChange:prepareConversationCase});
   const federated=createFederatedLogin({access,ui});
   const server=http.createServer(async(req,res)=>{
+    let release;
     try{
+      const probePath=req.url?.split('?')[0],probe=(req.method==='GET'&&['/health','/api/voice/status','/api/agent/status','/api/sources/status'].includes(probePath))||(req.method==='POST'&&probePath==='/api/voice/transcribe');
+      if(maintenance?.enter()&&!probe)return rawSend(res,503,{error:{code:'ACTUALIZACION_EN_CURSO',message:'Central está en mantenimiento por una actualización. Volvé a intentar en unos minutos.'}});
+      if(!probe)release=maintenance?.begin();
       network.origin(req);
       assert(req.url.length<=4096,414,'URL_LARGA','URL demasiado larga');
       const url=new URL(req.url,'http://localhost');
@@ -175,7 +179,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
         throw new HttpError(404,'RUTA_NO_EXISTE','Ruta inexistente');
       }
       if(ui.handle(req,res,url.pathname))return;
-      if(url.pathname==='/health' && req.method==='GET')return send(res,200,{status:'up',mode});
+      if(url.pathname==='/health' && req.method==='GET')return send(res,200,{status:'up',mode,...(maintenance?{maintenance:maintenance.active()}: {})});
       const principal=auth(req);
       return await context.run(principal,()=>privacy.run(async()=>{
       if(url.pathname.startsWith('/api/admin/')){
@@ -375,7 +379,7 @@ export function createApp({erp,kaiqen,store,mode='live',approvalScheduler,branch
     }catch(error){
       const status=Number.isInteger(error.status)&&error.status>=400&&error.status<=599?error.status:503;
       send(res,status,{error:{code:error.code||'FUENTE_NO_DISPONIBLE',message:error.code==='PROTHEUS_NO_DISPONIBLE'?'Protheus está sin conexión. Voy a reconectar automáticamente cuando vuelva la red o VPN.':status<500?error.message:'Fuente o función no disponible; consultar diagnóstico local'},mode});
-    }
+    }finally{release?.();}
   });
   server.requestTimeout=20_000;server.headersTimeout=10_000;
   server.attention=attention;

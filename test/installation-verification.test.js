@@ -48,6 +48,14 @@ test('IA o voz ausente nunca cuenta como instalacion completa',async t=>{
   const noVoice=await fixture(t,{voice:false});await assert.rejects(noVoice.run(),/VOZ_NO_DISPONIBLE/);
 });
 
+test('actualizacion exige mantenimiento activo, no alcanza con que HTTP responda',async t=>{
+ const f=await fixture(t);
+ await assert.rejects(f.run({requireMaintenance:true}),/MANTENIMIENTO_NO_CONFIRMADO/);
+ assert.deepEqual(f.calls(),{transcriptionCalls:0,inferenceCalls:0});
+ const report=await f.run({requireMaintenance:true,fetchImpl:async(url,options)=>{const response=await f.fetchImpl(url,options);if(String(url).endsWith('/health')){const value=await response.json();return Response.json({...value,maintenance:true});}return response;}});
+ assert.equal(report.ok,true);
+});
+
 test('espera el inicio de Ollama sin exigir que las fuentes comerciales esten conectadas',async t=>{
  const f=await fixture(t);let reviews=0,pauses=0;
  const report=await f.run({waitForAI:true,pause:async()=>{pauses++;},fetchImpl:async(url,options)=>{const response=await f.fetchImpl(url,options);if(String(url).endsWith('/api/sources/status')){const data=await response.json();data.ai.available=++reviews>=3;return Response.json(data);}return response;}});

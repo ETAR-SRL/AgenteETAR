@@ -1,5 +1,7 @@
 # Instalación en otro servidor Windows
 
+Para las actualizaciones posteriores, usar **Actualizar-app.bat**, con respaldo y reversión: [instrucciones](actualizar-servidor.md). No volver a aplicar un ZIP privado de traslado sobre una instalación con usuarios en uso.
+
 ## Paquete de traslado
 
 **AgenteETAR-PRIVADO-servidor.zip** contiene fuentes, `.env`, claves TLS, una copia consistente de SQLite con usuarios, roles, conversaciones y seguimientos, Qwen, Whisper y cachés de dependencias. **Contiene secretos y datos privados. No publicarlo en GitHub ni distribuirlo a los usuarios.** El ZIP no está cifrado: transferir por un medio privado protegido. El paquete público de fuentes excluye estos datos.

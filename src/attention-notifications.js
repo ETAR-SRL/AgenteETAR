@@ -87,6 +87,7 @@ export function createAttentionNotifications({attention,principal,user,clock=()=
    })().catch(()=>{}).finally(()=>{running=null;});return running;
   },
   start(){if(timer||stopped||!enabled)return;void service.run();timer=setInterval(()=>void service.run(),intervalMs);timer.unref?.();},
+  resume(){stopped=false;timer=null;service.start();},
   async stop(){stopped=true;clearInterval(timer);await running;}
  };
  return service;
