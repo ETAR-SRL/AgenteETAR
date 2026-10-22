@@ -1,7 +1,7 @@
 import {supplierPrice} from './order-list-price.js';
 import Decimal from 'decimal.js';
 import {assert} from '../errors.js';
-import {purchaseValues,purchaseValueAmbiguity,negatedReferences,unambiguousPurchaseValues,applyReferenceIntake} from './purchase-chat.js';
+import {purchaseValues,purchaseValueAmbiguity,negatedReferences,unambiguousPurchaseValues,applyReferenceIntake,applyCommercialValueIntake,commercialLiteralText} from './purchase-chat.js';
 import {priceCommand,priceWriteIntent,preparePriceCommand,requestedPriceBase} from './price-commands.js';
 import {assertPriceCurrency} from './references.js';
 import {createBusinessTools} from './tools.js';
@@ -59,7 +59,8 @@ function parse(text,state){
  const listIntent=/\b(usa|usar|utiliza|utilizar|aplica|aplicar|toma|tomar|actualiza)\b/.test(n)&&/\blista\b/.test(n);
  if(listIntent&&state&&kinds[state.kind]?.order&&!/pedido(?: de)? (compra|venta)/.test(n))kind=state.kind;
  const write=listIntent||priceWriteIntent(text)||/\b(subilo|bajalo|aumentalo|reducilo|prepara|preparame)\b|\barma(?:me)?\s+(?:la |una )?propuesta\b/.test(n);
- const percent=/(\d+(?:[.,]\d+)?)\s*(?:%|por ciento)/.exec(n);
+ const numericText=norm(commercialLiteralText(text));
+ const percent=/(\d+(?:[.,]\d+)?)\s*(?:%|por ciento)/.exec(numericText);
  const edits={};if(listIntent)edits.useList=true;
  if(values.price!==undefined)edits.price=values.price;
  if(values.priceUnit)edits.priceUnit=values.priceUnit;
@@ -67,7 +68,7 @@ function parse(text,state){
  if(values.quantityUnit)edits.quantityUnit=values.quantityUnit;
  if(values.currency)edits.currency=values.currency;
  if(percent&&write){edits.percent=percent[1].replace(',','.');edits.direction=/\b(baja|bajame|bajalo|reduci|reducime|reduce|reducilo|descuento)\b/.test(n)?-1:1;delete edits.price;}
- const absolute=/\b(?:a|en)\s+(\d+(?:[.,]\d+)?)(?![\d.,])/.exec(n);
+ const absolute=/\b(?:a|en)\s+(\d+(?:[.,]\d+)?)(?![\d.,])/.exec(numericText);
  if(write&&!percent&&absolute&&!/\bcantidad\b/.test(n))edits.price=absolute[1].replace(',','.');
  for(const field of ['email','telefono','contacto']){
   const pattern=field==='email'?/\b(?:email|correo)\s+(?:a\s+)?([^\s;,]+@[^\s;,]+)/i:new RegExp('\\b'+(field==='telefono'?'tel[eé]fono':'contacto')+'\\s+(?:a\\s+)?([^;\\n]+)','i');
@@ -122,13 +123,15 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   }
   return {answer:ambiguous+(!old?' Conservé las referencias inequívocas; su verificación queda pendiente de la aclaración.':''),evidence:[],trace:[]};
  }
+ const readOnly=!parsed.write&&!old?.pending&&/\b(?:mostra\w*|consulta\w*|busca\w*|ver)\b/.test(n);
+ const valueIntent=readOnly?{rejected:[]}:applyCommercialValueIntake(referenceState,parsed.edits,text);
  // Non-explicit references continue through the general reasoning tools.
  if(!old&&['salePrice','saleList'].includes(parsed.kind)&&!Object.keys(parsed.refs).length&&!/^(?:precio(?: de venta)?|lista(?: de precios)?)[?!.]?$/.test(n))return null;
  if(!old&&/precio de lista de\b/.test(n)&&!parsed.refs.product)return null;
  // Keep the mature DA1 bulk-price route and its validations.
  if(priceCommand(text,conversation.messages,branch,true)&&parsed.edits.quantity===undefined&&!['purchase','sale','request','supplierList'].includes(parsed.kind||old?.kind))return null;
  const ordinal=/\b(?:el|la)\s+(primero|primera|segundo|segunda|tercero|tercera)\b/.exec(n);
- const follow=old&&(referenceIntent.corrected||supplierIntent.rejected||unresolvedSupplier||Object.keys(parsed.edits).length||Object.keys(parsed.refs).length||/\b(ese|esa|este|esta|su|lo mismo|verlo|verla|confirmar|confirmo)\b/.test(n)||ordinal);
+ const follow=old&&(referenceIntent.corrected||valueIntent.rejected.length||old.unresolvedValues?.length||supplierIntent.rejected||unresolvedSupplier||Object.keys(parsed.edits).length||Object.keys(parsed.refs).length||/\b(ese|esa|este|esta|su|lo mismo|verlo|verla|confirmar|confirmo)\b/.test(n)||ordinal);
  if(!parsed.kind&&!follow){delete conversation.businessContext;return null;}
  const kind=parsed.kind||old.kind;
  if(!kinds[kind]&&kind!=='order')return null;
@@ -140,6 +143,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
  const orderTransition=changed&&kinds[old.kind]?.order&&kinds[kind]?.order;
  const state=old&&!changed?old:{branch,kind,refs:inherited,pending:(old?.awaitingOperation||orderTransition)&&kinds[kind]?.order?old.pending:null,base:old?.awaitingOperation?old.base:undefined};
  state.kind=kind;
+ state.unresolvedValues=[...(referenceState.unresolvedValues||[])];
  if(!old)state.unresolvedReferences=[...(referenceState.unresolvedReferences||[])];
  else if(changed){
   const relevant=new Set([...Object.keys(inherited),...Object.keys(parsed.refs),...(orderTransition?['number','item','product']:[])]);
@@ -185,6 +189,7 @@ export async function businessChat({text,conversation,branch,read,executeRead,ka
   if(kind!=='order'&&!profile.action)return answer('Puedo verificar el producto en SB1, pero la modificación de su ficha no tiene un ejecutor habilitado. No modifiqué el ERP.');
   if(profile?.action)await authorizePlan?.(profile.action);
  }
+ if(state.unresolvedValues.length)return answer('Conservo los demás datos. Indicá de forma afirmativa '+state.unresolvedValues.map(key=>({price:'el precio',quantity:'la cantidad',currency:'la moneda',priceUnit:'la base del precio',quantityUnit:'la base de la cantidad'})[key]||key).join(' y ')+' que corresponde; no usaré el valor negado.');
  const correctedKeys={product:'product',customer:'customer',number:'order',list:'list'};
  const rejected=negatedReferences(text).filter(key=>!(key==='vendor'&&supplierIntent.replacement)&&!correctedKeys[key]),unresolved=new Set(state.unresolvedReferences||[]);
  for(const key of Object.keys(parsed.refs))if(!rejected.includes(key))unresolved.delete(key);

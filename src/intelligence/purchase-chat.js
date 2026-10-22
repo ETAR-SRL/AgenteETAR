@@ -6,13 +6,47 @@ import {importDate} from './purchase-imports.js';
 import {importedNumber} from './document-reader.js';
 import {supplierReferenceIntent,unresolvedSupplierReference} from './supplier-reference.js';
 import {referenceCorrections,unresolvedReference} from './reference-corrections.js';
+import {valueCorrections} from './value-corrections.js';
 
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+export function commercialLiteralText(text){
+ const source=String(text||'').replace(/"[^"]*"|“[^”]*”|«[^»]*»|'[^']*'/g,'');
+ if(/\b(?:si (?:te )?(?:digo|dijera|dijese)|por ejemplo|hipoteticamente|supongamos|que pasaria|el ejemplo|la frase)\b/.test(norm(source)))return '';
+ return source.split(/[,;\n](?!\d)/).filter(clause=>!/\bno\s+(?:me\s+)?(?:cambies|cambiar|modifiques|modificar|toques|tocar|borres|borrar)\b/.test(norm(clause))).join(';');
+}
 const number='(\\d+(?:[.,]\\d+)?)';
 const quantity=new RegExp('\\b'+number+'\\s*(unidad(?:es)?|un|millar(?:es)?|kg|g|mt|m|lt|l)\\b','i');
 const price=new RegExp('(?:\\bprecio\\s*(?:es|de|a|:)?\\s*|\\ba\\s+)'+number+'(?:\\s*(?:pesos?|d[oó]lares?|ars|usd))?\\s*(?:por\\s+(unidad|millar|kg|g|mt|m|lt|l))?','i');
 const codePattern=/\b(?:producto|articulo|codigo)\s+(?:es\s+|codigo\s+)?([a-z0-9][a-z0-9_./-]*)(?=\s|[,;!?]|$)/i;
 const quantityMatches=text=>[...text.matchAll(new RegExp(quantity.source,'ig'))].filter(match=>!/\b(?:lista|codigo|producto|articulo|pedido(?: de (?:compra|venta))?|solicitud(?: de compra)?|numero|item|tienda)\s*$/i.test(text.slice(0,match.index)));
+
+// A rejected amount cannot be recovered from an earlier draft or a list. Only
+// affirmative user input resolves this pending value; the two bases are separate.
+export function applyCommercialValueIntake(state,input,text,{purchase=false}={}){
+ const stored=purchase?state.values:(state.pending||{});
+ const intent=valueCorrections(text,{values:stored}),pending=new Set(state.unresolvedValues||[]);
+ if(!purchase&&intent.rejected.length&&!state.pending)state.pending=stored;
+ for(const field of intent.rejected){
+  delete stored[field];delete input[field];
+  if(['price','priceUnit','currency'].includes(field))delete stored.resolvedPrice;
+  if(field==='priceUnit')delete state.base;
+  if(field==='price')for(const key of ['percent','direction','useList']){delete stored[key];delete input[key];}
+ }
+ Object.assign(input,intent.changes);
+ for(const field of intent.pending)pending.add(field);
+ for(const field of Object.keys(intent.changes))pending.delete(field);
+ const listChoice=input.useList||purchase&&input.list&&/\b(?:usa|usar|utiliza|utilizar|aplica|aplicar|toma|tomar)\b/.test(norm(text));
+ if(listChoice){pending.delete('price');pending.delete('priceUnit');delete stored.withoutPrice;}
+ if(intent.optionalPriceRemoved&&purchase&&state.action==='crearSolicitudCompra'){
+  for(const field of ['price','priceUnit','resolvedPrice']){delete stored[field];delete input[field];pending.delete(field);}
+  input.withoutPrice=true;
+ }else if(intent.optionalPriceRemoved)pending.add('price');
+ if(input.price!==undefined)delete stored.withoutPrice;
+ if(input.price!==undefined||input.currency!==undefined||input.priceUnit!==undefined)delete stored.resolvedPrice;
+ state.unresolvedValues=[...pending];
+ return intent;
+}
+const pendingValueAnswer=state=>'Conservo los demás datos. Indicá de forma afirmativa '+(state.unresolvedValues||[]).map(key=>({price:'el precio',quantity:'la cantidad',currency:'la moneda',priceUnit:'la base del precio',quantityUnit:'la base de la cantidad'})[key]||key).join(' y ')+' que corresponde; no usaré el valor negado.';
 
 // Apply the same literal correction rules to the two structured intakes. Source
 // selections are disposable; separately stated amounts remain user input.
@@ -57,8 +91,9 @@ export function applyReferenceIntake(state,input,text,{purchase=false}={}){
 }
 export function purchaseValueAmbiguity(text){
  const n=norm(text);
- if(/\bno\s+(?:son?|es|eran?|serian?)\s+\d|\b(?:no|sin)\s+(?:(?:uses?|usar|tomes?|tomar|pongas?|poner)\s+)?(?:(?:el|la)\s+)?(?:precio|cantidad|importe|moneda)\s+(?:de\s+)?\d/.test(n))return 'No voy a usar el valor negado. Indicá de forma afirmativa el importe o cantidad que corresponde y su base. Conservo los datos anteriores; no preparé cambios.';
+ const correction=valueCorrections(text);
  if(/\b\d+(?:[.,]\d+)?\s+(?:lucas?|verdes?)\b/.test(n)||/\b\d+(?:[.,]\d+)?\b[^;\n.!?]*\b(?:o|u)\s+(?:a\s+)?\d+(?:[.,]\d+)?\b/.test(n))return 'Necesito un único importe exacto, su moneda y si el precio es por unidad o por millar. ¿Qué valor corresponde? Conservo los datos anteriores; no preparé cambios.';
+ if((correction.rejected.length||correction.optionalPriceRemoved)&&!correction.pending.includes('currency'))return null;
  const currencies=[/\b(?:usd|dolares?|dolar)\b|u\$s|us\$/, /\b(?:ars|pesos?)\b/, /\b(?:eur|euros?)\b/].filter(re=>re.test(n));
  if(currencies.length>1)return 'Mencionaste más de una moneda. ¿Cuál corresponde al importe? Conservo los datos anteriores; no preparé cambios.';
  return null;
@@ -81,7 +116,10 @@ export function unambiguousPurchaseValues(text){
  return safe;
 }
 export function purchaseValues(text){
- const n=norm(text),literal=literalAttachmentIntent(text),values={};
+ const safeText=commercialLiteralText(text),n=norm(text),literal=literalAttachmentIntent(text),values={};
+ delete literal.currency;
+ const safeCurrency=literalAttachmentIntent(safeText).currency;
+ if(safeCurrency)literal.currency=safeCurrency;
  const list=/\blista(?: de precios)?\s+([a-z0-9_-]+)/i.exec(text);if(list)values.list=list[1];
  for(const key of ['currency','warehouse','requester','requesterCode','requestType','costCenter','party','shop','payment','buyer'])if(literal[key])values[key]=literal[key];
  for(const key of ['emission','due'])if(literal[key])values[key]=importDate(literal[key]);
@@ -90,14 +128,17 @@ export function purchaseValues(text){
  if(/\b(?:necesidad|entrega)\s+(?:para\s+)?hoy\b/.test(n))values.due=today;
  const product=codePattern.exec(n);
  if(product&&!['de','del','el','nuevo','que','con','solicitante','comprador'].includes(product[1]))values.product=product[1].replace(/[.]$/,'').toUpperCase();
- const q=quantityMatches(text)[0],explicitQuantity=new RegExp('\\bcantidad\\s*(?:es|de|:)?\\s*'+number,'i').exec(text);
+ const q=quantityMatches(safeText)[0],explicitQuantity=new RegExp('\\bcantidad\\s*(?:es|de|:)?\\s*'+number,'i').exec(safeText);
  if(q){values.quantity=importedNumber(q[1]);values.quantityUnit=norm(q[2]);}
  else if(explicitQuantity)values.quantity=importedNumber(explicitQuantity[1]);
- const p=[...text.matchAll(new RegExp(price.source,'ig'))].find(p=>p[2]||/^precio/i.test(p[0])||/\b(?:pesos?|d[oó]lares?|ars|usd)\b/i.test(p[0]));if(p){values.price=importedNumber(p[1]);if(p[2])values.priceUnit=norm(p[2]);}
- const priceBasis=/\bpor (unidad|millar|kg|g|mt|m|lt|l)\b/.exec(n);
+ const p=[...safeText.matchAll(new RegExp(price.source,'ig'))].find(p=>p[2]||/^precio/i.test(p[0])||/\b(?:pesos?|d[oó]lares?|ars|usd)\b/i.test(p[0]));if(p){values.price=importedNumber(p[1]);if(p[2])values.priceUnit=norm(p[2]);}
+ const priceBasis=/\bpor (unidad|millar|kg|g|mt|m|lt|l)\b/.exec(norm(safeText));
  if(priceBasis)values.priceUnit=priceBasis[1];
- const quantityBasis=/\bcantidades?\s+(?:en\s+)?(unidades|millares|kg|g|mt|m|lt|l)\b/.exec(n);
+ const quantityBasis=/\bcantidades?\s+(?:en\s+)?(unidades|millares|kg|g|mt|m|lt|l)\b/.exec(norm(safeText));
  if(quantityBasis)values.quantityUnit=quantityBasis[1];
+ const correction=valueCorrections(text);
+ for(const field of correction.rejected)delete values[field];
+ Object.assign(values,correction.changes);
  return values;
 }
 
@@ -109,15 +150,17 @@ export function updateSupplierPendingDraft(conversation,text,branch,preferences=
  const resume=/\b(?:pedido|compra|borrador|orden)\b/.test(n)&&/\b(?:retoma(?:r|me)?|retomemos|continu(?:a(?:r|mos)?|emos)|segui(?:r|mos)?)\b/.test(n);
  const values=purchaseValueAmbiguity(text)?unambiguousPurchaseValues(text):purchaseValues(text);
  for(const key of ['party','shop','list','resolvedPrice'])delete values[key];
- const referenceState=[conversation.purchaseDraft,conversation.pausedPurchase].find(state=>state?.branch===branch&&state.action==='crearPedidoCompra')||{values:{}};
+ const fresh=/\b(?:nuevo|nueva|desde cero|un pedido|una compra|una orden|otro pedido)\b/.test(n);
+ const existing=[conversation.purchaseDraft,conversation.pausedPurchase].find(state=>state?.branch===branch&&state.action==='crearPedidoCompra');
+ const newDraft=start&&(!existing||values.product||fresh);
+ const referenceState=!newDraft&&existing?existing:{action:'crearPedidoCompra',values:{}};
  referenceState.unresolvedReferences=[...new Set([...(referenceState.unresolvedReferences||[]),'party'])];
  applyReferenceIntake(referenceState,values,text,{purchase:true});
- const fresh=/\b(?:nuevo|nueva|desde cero|un pedido|una compra|una orden|otro pedido)\b/.test(n);
- const existing=[conversation.purchaseDraft,conversation.pausedPurchase].some(state=>state?.branch===branch&&state.action==='crearPedidoCompra');
- if(start&&(!existing||values.product||fresh)){
+ applyCommercialValueIntake(referenceState,values,text,{purchase:true});
+ if(newDraft){
   delete conversation.purchaseDraft;delete conversation.pausedPurchase;
   if(!values.product||/\bproductos\b/.test(n)||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n))return;
-  conversation.purchaseDraft={branch,action:'crearPedidoCompra',values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{}),...values},unresolvedReferences:[...new Set([...(referenceState.unresolvedReferences||[]),'party'])]};
+  conversation.purchaseDraft={branch,action:'crearPedidoCompra',values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{}),...values},unresolvedValues:referenceState.unresolvedValues,unresolvedReferences:[...new Set([...(referenceState.unresolvedReferences||[]),'party'])]};
   return;
  }
  if((resume||start&&!fresh)&&conversation.purchaseDraft?.branch!==branch&&conversation.pausedPurchase?.branch===branch&&conversation.pausedPurchase.action==='crearPedidoCompra'){
@@ -125,6 +168,7 @@ export function updateSupplierPendingDraft(conversation,text,branch,preferences=
  }
  const state=conversation.purchaseDraft;
  if(state?.branch===branch&&state.action==='crearPedidoCompra'){
+  applyCommercialValueIntake(state,values,text,{purchase:true});
   state.values={...state.values,...values};
   state.unresolvedReferences=[...new Set([...(state.unresolvedReferences||[]),'party'])];
  }
@@ -150,16 +194,17 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
  if(/\bproductos\b|\b(?:factura|venta)\b/.test(n)||/\bpedido\b/.test(n)&&!purchaseOrder&&state?.action!=='crearPedidoCompra'||(n.match(/\bproducto\b/g)||[]).length>1||/\bproducto\s+\S+\s+(?:y|e|,)\s*\d/.test(n)){
   pause();return null;
  }
- const referenceState=state?.branch===branch?state:{values:{},unresolvedReferences:[]};
+ const referenceState=!start&&state?.branch===branch?state:{action:purchaseOrder?'crearPedidoCompra':'crearSolicitudCompra',values:{},unresolvedReferences:[]};
  const referenceIntent=applyReferenceIntake(referenceState,values,text,{purchase:true});
+ const ambiguous=purchaseValueAmbiguity(text);
+ const valueIntent=ambiguous?{rejected:[]}:applyCommercialValueIntake(referenceState,values,text,{purchase:true});
  if(start&&!values.product&&!referenceIntent.corrected){delete conversation.purchaseDraft;return null;}
  const supplierIntent=supplierReferenceIntent(text,{active:state?.branch===branch&&(state.action==='crearPedidoCompra'||!!state.values.party)});
- const ambiguous=purchaseValueAmbiguity(text);
- if(!start&&(!state||state.branch!==branch||(!Object.keys(values).length&&!resume&&!ambiguous&&!supplierIntent.rejected&&!unresolvedParty&&!referenceIntent.corrected))){pause();return null;}
+ if(!start&&(!state||state.branch!==branch||(!Object.keys(values).length&&!resume&&!ambiguous&&!supplierIntent.rejected&&!unresolvedParty&&!referenceIntent.corrected&&!valueIntent.rejected.length&&!referenceState.unresolvedValues?.length))){pause();return null;}
  assert(canPlan&&prepare,403,'ROL_INSUFICIENTE','Tu rol no permite preparar solicitudes de compra.');
  const action=start&&purchaseOrder?'crearPedidoCompra':start?'crearSolicitudCompra':state.action||'crearSolicitudCompra',pc=action==='crearPedidoCompra';
  await authorizePlan?.(action);
- if(start)state={branch,action,values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{})},unresolvedReferences:referenceState.unresolvedReferences};
+ if(start)state={branch,action,values:{...(preferences.warehouse?{warehouse:preferences.warehouse}:{}),...(preferences.requester?{requester:preferences.requester}:{})},unresolvedValues:referenceState.unresolvedValues,unresolvedReferences:referenceState.unresolvedReferences};
  if(supplierIntent.rejected||unresolvedParty){
   delete state.values.party;delete state.values.shop;delete state.values.list;delete state.values.resolvedPrice;
   delete values.party;delete values.shop;
@@ -181,6 +226,7 @@ export async function purchaseChat({text,conversation,branch,canPlan,authorizePl
  if(values.list&&!values.price){delete state.values.price;delete state.values.priceUnit;}
  state.values={...state.values,...values};
  conversation.purchaseDraft=state;
+ if(state.unresolvedValues?.length)return {answer:pendingValueAnswer(state),evidence:[],trace:[]};
  if(unresolved.size)return {answer:'Conservo los demás datos. Indicá de forma afirmativa '+[...unresolved].map(key=>({product:'el producto',party:'el proveedor',shop:'la tienda',list:'la lista'})[key]).join(' y ')+' que corresponde; no usaré la referencia negada.',evidence:[],trace:[]};
  const v=state.values,evidence=[],trace=[];
  const query=async(resource,filters)=>{

@@ -1,4 +1,5 @@
 const normalize=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+import {valueCorrections} from './value-corrections.js';
 
 // Sólo identidades devueltas por herramientas, nunca códigos extraídos de una
 // respuesta redactada por el modelo. Los importes históricos no se reutilizan.
@@ -18,9 +19,11 @@ export function previousPrice(messages,branch,{singleBranch=false,allowMultiple=
 }
 
 export function assertPriceCurrency(input,row,assert){
- const normalized=normalize(input),description=normalize(row.moneda?.descripcion),code=String(row.moneda?.codigo||'');
+ const correction=valueCorrections(input);
+ assert(!correction.pending.includes('currency'),409,'MONEDA_REQUERIDA','Indicá de forma afirmativa la moneda que corresponde.');
+ const normalized=normalize(correction.changes.currency||input),description=normalize(row.moneda?.descripcion),code=String(row.moneda?.codigo||'');
  const requested=/\b(dolar(?:es)?|usd)\b/.test(normalized)?'dólares':/\b(euros?|eur)\b/.test(normalized)?'euros':/\b(pesos?|ars)\b/.test(normalized)?'pesos':null;
  const matches=requested==='dólares'?/dolar|usd/.test(description):requested==='euros'?/euro|eur/.test(description):requested==='pesos'?/peso|ars/.test(description):true;
- const requestedCode=/\bmoneda\s+(\d+)\b/.exec(normalized)?.[1];
+ const requestedCode=/^\d+$/.test(normalized)?normalized:/\bmoneda\s+(\d+)\b/.exec(normalized)?.[1];
  assert(matches&&(!requestedCode||requestedCode===code),409,'MONEDA_DISTINTA',`El precio está en ${row.moneda?.descripcion||'moneda '+code}; no coincide con la moneda solicitada. No se convierte ni se cambia la moneda automáticamente.`);
 }

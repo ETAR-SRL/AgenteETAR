@@ -32,6 +32,9 @@ export function referenceCorrections(text,{activeKinds=[],known={}}={}){
  for(const raw of clauses){
   const clause=raw.trim().replace(/^en realidad\s+/i,''),n=norm(clause);if(!n)continue;
   if(/\bno\s+(?:cambies|cambiar|modifiques|modificar|descartes|borres|toques)\b/.test(n))continue;
+  // The subject is an amount/base, even if its owning product, list or order is
+  // named. Rejecting that amount does not reject the document identity.
+  if(/^(?:(?:el|la|ese|esa)\s+)?(?:precio|importe|cantidad|moneda|base)\b/.test(n))continue;
   const typed=kinds.filter(kind=>new RegExp(`\\b(?:${entities[kind]})\\b`).test(n));
   let kind=typed.length===1?typed[0]:undefined;
   const targetEntity=new RegExp(`\\b(?:no\\s+(?:es|era|uses|usar|utilices|tomes)|descarta(?:r)?)\\s+(?:(?:el|la|al|ese|esa|este|esta)\\s+)*(${entityPattern})\\b`).exec(n)?.[1];

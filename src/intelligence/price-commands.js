@@ -1,19 +1,29 @@
 import Decimal from 'decimal.js';
 import {assert} from '../errors.js';
 import {previousPrice,assertPriceCurrency} from './references.js';
+import {valueCorrections} from './value-corrections.js';
+import {commercialLiteralText} from './purchase-chat.js';
 const D=Decimal.clone({precision:50,rounding:Decimal.ROUND_HALF_UP});
 const norm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
 const decimal=s=>s.replace(',','.');
 export function requestedPriceBase(text){
- const n=norm(text),millar=/\b(?:por|el|cada)\s+(?:un\s+)?millar(?:es)?\b|\bprecios?\s+(?:en\s+)?millares\b/.test(n),unidad=/\b(?:por|la|cada)\s+unidad(?:es)?\b|\bunitario\b/.test(n);
+ const correction=valueCorrections(text);
+ const n=norm(commercialLiteralText(text)),millar=/\b(?:por|el|cada)\s+(?:un\s+)?millar(?:es)?\b|\bprecios?\s+(?:en\s+)?millares\b/.test(n),unidad=/\b(?:por|la|cada)\s+unidad(?:es)?\b|\bunitario\b/.test(n);
+ if(millar&&unidad&&!correction.rejected.includes('priceUnit'))return null;
+ if(correction.changes.priceUnit)return correction.changes.priceUnit;
+ if(correction.rejected.includes('priceUnit'))return null;
  return millar&&unidad?null:millar?'millar':unidad?'unidad':null;
 }
 export const priceWriteIntent=text=>/\b(cambia(?:r|me)?|cambies|modifica(?:r|me)?|actualiza(?:r|me)?|ajusta(?:r|me)?|subi(?:r|me)?|subas|baja(?:r|me)?|bajes|aumenta(?:r|me)?|incrementa(?:r|me)?|reduci(?:r|me)?|reduce|deja(?:r|lo|me)?)\b/.test(norm(text))&&!/\b(no|nunca|sin)\s+(?:lo\s+|me\s+)?(?:cambi|modifi|actuali|ajust|sub|baj|aument|increment|reduc|dej)|\b(solo consultar|sin modificar|que pasaria|simula|simular)\b/.test(norm(text));
 export function priceOperation(text){
- if(!priceWriteIntent(text)||/\b(pedidos?|proveedores?|compras?|costos?|cantidad(?:es)?|stock|saldos?|produccion|solicitudes?)\b/.test(norm(text)))return null;
- const n=norm(text),percent=[...n.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:%|por ciento)/g)];
+ const literal=commercialLiteralText(text);
+ if(!priceWriteIntent(literal)||/\b(pedidos?|proveedores?|compras?|costos?|cantidad(?:es)?|stock|saldos?|produccion|solicitudes?)\b/.test(norm(text)))return null;
+ const correction=valueCorrections(text);
+ if(correction.pending.length||correction.optionalPriceRemoved)return null;
+ const n=norm(literal),percent=[...n.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:%|por ciento)/g)];
  if(percent.length===1){const down=/\b(baja|bajame|bajar|bajes|reduci|reducime|reducir|reduce|descuento|disminui|disminuir)\b/.test(n);return {kind:'percentage',value:decimal(percent[0][1]),direction:down?-1:1};}
  if(percent.length)return null;
+ if(correction.changes.price!==undefined)return {kind:'absolute',value:correction.changes.price};
  const match=/\b(?:a|en)\s*\$?\s*(\d+(?:[.,]\d+)?)(?![\d.,])(?:\s*(?:dolares?|usd|pesos?|ars|euros?|eur))?(?=\s|[.!?]|$)/.exec(n);
  return match?{kind:'absolute',value:decimal(match[1])}:null;
 }

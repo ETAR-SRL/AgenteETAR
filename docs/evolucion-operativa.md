@@ -1,5 +1,7 @@
 # Evolución operativa · avance comprobable
 
+Actualización 22/10/2026: [correcciones de precios, cantidades, monedas y bases](correcciones-valores.md). Descartes durables por borrador, conservación de datos no corregidos, bases independientes y resumen confirmado con relectura. Qwen 10/10 casos restringidos; tres conversaciones reales de 102 mensajes, 147 lecturas y ninguna escritura ERP. Propuestas SC1/SC6/SC7/DA1/AIB comprobadas con dobles.
+
 Actualización 22/10/2026: [correcciones de producto, cliente, pedido y lista](correcciones-referencias.md). Barreras por usuario/sucursal, consulta actual del reemplazo y conservación de borradores al cambiar de tema. Qwen 8/8 casos sintéticos restringidos; cuatro recorridos reales de 98–100 mensajes, sin escrituras ERP. SC7 no aportó registros reales y se distingue de su prueba controlada.
 
 Actualización 22/10/2026: [negaciones de proveedor en Qwen](ia-local-negaciones-proveedor.md), con conservación del descarte fuera del historial seleccionado, borrador y reemplazo verificado; contrato de aclaración sin argumentos de operación. Ocho casos estrictos 8/8 y chat real de más de 100 mensajes, sin ejecutar cambios ERP. Suite completa 711/711. La rúbrica histórica v1 y sus rechazos por formulación se conservan por separado.
